@@ -6,12 +6,15 @@
 In one working session, mostly unattended, Claude Code:
 - **Reverse-engineered the native app model** of Vega OS, Amazon's new Linux-based Fire TV operating system. Officially it's React Native and web only.
 - **Wrote an SDL3 backend for it**, so the open-source SDL game ecosystem can target Fire TV.
-- **Shipped Doom running natively** on a $30 Fire TV Stick, using the free Freedoom game data. It has authentic OPL3 FM music, sound effects and remote or gamepad controls, and holds 56–60 fps at 1080p in 54 MB of RAM.
+- **Shipped Doom and Quake running natively** on a $30 Fire TV Stick, using free game data (Freedoom, LibreQuake).
+  - Doom has authentic OPL3 FM music and runs at 56–60 fps in 54 MB.
+  - Quake runs at a steady 59.8 fps in 73 MB.
+  - Both have sound and remote or gamepad controls.
 
 | | |
 |---|---|
-| ![SDL3 demo on Fire TV](media/02-sdl3-demo-on-tv.jpg) | ![Freedoom on Fire TV](media/04-freedoom-gameplay-on-tv.jpg) |
-| SDL3 demo: 59.9 fps, `video: vega`, `audio: vega` | Freedoom: Phase 2, MAP01, running natively |
+| ![Freedoom on Fire TV](media/04-freedoom-gameplay-on-tv.jpg) | ![LibreQuake on Fire TV](media/06-librequake-gameplay-on-tv.jpg) |
+| Freedoom: Phase 2, natively, with OPL3 music | LibreQuake, natively, 59.8 fps |
 
 *Screenshots were captured from the TV itself by Claude, using an on-device tool it found while exploring.*
 
@@ -50,6 +53,8 @@ In one working session, mostly unattended, Claude Code:
 4. **A segfault inside Amazon's window system** (`libgwsi`) was diagnosed from a crash tombstone Claude pulled off the device. The window system holds only a raw pointer to input listeners, so they must stay alive for as long as they're registered.
 5. **A self-inflicted outage, caught and fixed.** Claude's early screenshot attempts left two hung processes holding about 440 MB of a 1 GB stick, and the OS then killed the game. Claude traced it through the memory-pressure logs, killed the strays (free memory went from 133 MB to 576 MB), and wrote the lesson into its project memory.
 6. **The device log drops a new process's first seconds of output**, so the platform layer replays its early log lines after 6 s.
+7. **Updating a running app can silently keep the old build installed.** Claude caught this when a fix "didn't work": the screen still showed the old build's behaviour. The install tool now stops the app first and falls back to uninstall+install.
+8. **Claude caught its own false claim.** An early "Doom player walked forward" check used an invalid key-injection syntax that pressed nothing. Claude found this while debugging Quake, re-verified Doom movement properly, and corrected the journal.
 
 ## Numbers
 | Metric | Value |
@@ -57,6 +62,7 @@ In one working session, mostly unattended, Claude Code:
 | Doom frame rate (1080p, 4:3 pixel-art scaled) | 56–60 fps (game sim 35 Hz) |
 | Doom memory | 54 MB RSS (cap 420 MB) |
 | Doom package size | 10 MB (Freedoom 2 WAD included) |
+| Quake (LibreQuake, 320×240 software renderer → 1080p) | 59.7–59.9 fps presented, 68–73 MB RSS |
 | SDL3 demo | 59.9 fps, OpenGL ES 2 renderer |
 | Audio | 48 kHz s16 stereo, 768×2-frame buffers, about 75 ms latency, 0 underruns |
 | Cold launch to first frame | about 1.2 s |

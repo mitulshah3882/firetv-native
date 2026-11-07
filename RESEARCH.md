@@ -147,3 +147,4 @@ Gotchas found on hardware:
 | Audio | IDL `com.amazon.kepler.audio`: 48 kHz s16 stereo, minimum buffer 768 frames × 2 (32 ms), reported latency 74 ms, 0 underruns. Needs audio focus plus `[[wants.service]]` `com.amazon.audio.stream` and `com.amazon.audio.control` |
 | Runtime paths | Package at `/pkg` (assets in `/pkg/assets`); writable `/data` and `/tmp`; `HOME` unset; cwd `/` |
 | Doom (Freedoom 2, doomgeneric + SDL3-Vega) | 56–60 fps at 1080p (4:3 pixel-art scaled), worst frame 27–37 ms, RSS 54 MB, OPL3 music + sfx running |
+| Quake (LibreQuake, quakegeneric + SDL3-Vega) | 59.7–59.9 fps presented, 68–73 MB RSS, sound at 44.1 kHz |

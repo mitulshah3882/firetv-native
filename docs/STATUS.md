@@ -3,7 +3,7 @@
 _Last updated: 2026-11-07 ~14:35 local. Update this file at every milestone._
 
 ## Current phase
-**Phase 1 is done** (SDL3 on Vega, plus Doom with music). **Next: Phase 2**, N64 static recompilation of libdragon homebrew.
+**Phase 1 is done** (SDL3 on Vega, Doom with music, Quake with sound). **Next: Phase 2**, N64 static recompilation of libdragon homebrew.
 
 ## Done
 - Phase 0: SDK, tooling, `apps/vega-probe`.
@@ -11,6 +11,7 @@ _Last updated: 2026-11-07 ~14:35 local. Update this file at every milestone._
   - `engine/vegaplat` and `engine/sdl3-vega` (SDL 3.4.18).
   - `apps/sdl-demo`: 59.9 fps.
   - `apps/doom`: Freedoom 2 with sound effects, OPL3 music, and remote and gamepad controls. 56–60 fps, 54 MB RSS.
+  - `apps/quake`: LibreQuake with sound. 59.8 fps, 73 MB RSS. Movement, turning and firing verified on the TV.
 - Docs: case-study draft (`docs/case-study/README.md`), journal, media screenshots.
 
 ## Next

@@ -20,6 +20,9 @@ DEPS=(
   "doomgeneric|e257a09|https://github.com/ozkl/doomgeneric/archive/e257a09527062bfb986b6e5e0780839b6cbd5b71.tar.gz|doomgeneric-e257a09527062bfb986b6e5e0780839b6cbd5b71"
   "chocolate-doom|2.3.0|https://github.com/chocolate-doom/chocolate-doom/archive/refs/tags/chocolate-doom-2.3.0.tar.gz|chocolate-doom-chocolate-doom-2.3.0"
   "libdragon|39d0d60|https://github.com/DragonMinded/libdragon/archive/39d0d6096130836a65710da6730290701d060272.tar.gz|libdragon-39d0d6096130836a65710da6730290701d060272"
+  "quakegeneric|1305210|https://github.com/erysdren/quakegeneric/archive/13052102577c629650cf07a46151a4b6e1b19c3c.tar.gz|quakegeneric-13052102577c629650cf07a46151a4b6e1b19c3c"
+  "idquake|bf4ac42|https://github.com/id-Software/Quake/archive/bf4ac424ce754894ac8f1dae6a3981954bc9852d.tar.gz|Quake-bf4ac424ce754894ac8f1dae6a3981954bc9852d"
+  "librequake|0.09-beta|https://github.com/lavenderdotpet/LibreQuake/releases/download/v0.09-beta/lite.zip|librequake-0.09-lite"
   "freedoom|0.13.0|https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip|freedoom-0.13.0"
 )
 
@@ -38,7 +41,7 @@ fetch() {
     echo "[$name] CHECKSUM MISMATCH: expected $locked got $sum" >&2; rm -f "$tarball"; exit 1
   fi
   case "$tarball" in
-    *.zip) unzip -q "$tarball" -d "$SRC" ;;
+    *.zip) if unzip -Z1 "$tarball" | head -1 | grep -q "^$dir/"; then unzip -q "$tarball" -d "$SRC"; else unzip -q "$tarball" -d "$SRC/$dir"; fi ;;
     *) tar -xzf "$tarball" -C "$SRC" ;;
   esac
   rm -f "$tarball"

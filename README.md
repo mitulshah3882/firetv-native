@@ -2,7 +2,7 @@
 
 An experiment in getting games running **natively** on Amazon Fire TV devices running **Vega OS**, Amazon's Linux-based TV operating system. Native here means compiled C/C++ talking straight to the device's graphics, audio and input APIs, not an emulator or a web wrapper. The porting work is done with Claude Code.
 
-> Status: **Doom runs natively on a Fire TV Stick (Vega OS)**: Freedoom with OPL3 music, 56–60 fps at 1080p, via our SDL3 port. See the [case study draft](docs/case-study/README.md).
+> Status: **Doom and Quake run natively on a Fire TV Stick (Vega OS)** via our SDL3 port: Freedoom with OPL3 music at 56–60 fps, and LibreQuake at 59.8 fps. See the [case study draft](docs/case-study/README.md).
 
 ![Freedoom running natively on Fire TV](docs/case-study/media/04-freedoom-gameplay-on-tv.jpg)
 
@@ -19,7 +19,7 @@ Needs: macOS or Linux, the [Vega SDK](https://developer.amazon.com/docs/vega/2.0
 tools/fetch-deps.sh                                   # pinned SDL3, doomgeneric, Chocolate Doom, Freedoom
 tools/vega.sh run apps/doom com.firetvnative.doom.main armv7 Release
 ```
-Other apps: `apps/sdl-demo` (SDL3 showcase) and `apps/vega-probe` (device capability report).
+Quake: `tools/vega.sh run apps/quake com.firetvnative.quake.main armv7 Release`. Other apps: `apps/sdl-demo` (SDL3 showcase) and `apps/vega-probe` (device capability report).
 
 ## Repository layout
 | Path | What |
@@ -27,6 +27,7 @@ Other apps: `apps/sdl-demo` (SDL3 showcase) and `apps/vega-probe` (device capabi
 | `engine/vegaplat` | C platform layer over Vega's native interfaces (lifecycle, GLES, input, audio, paths) |
 | `engine/sdl3-vega` | SDL3 video and audio drivers for Vega, plus CMake integration (`vega_add_sdl3_app`) |
 | `apps/doom` | doomgeneric + Freedoom: our SDL3 backend, sound-effects mixer, OPL3 music driver |
+| `apps/quake` | quakegeneric + LibreQuake: our SDL3 backend, restored WinQuake mixer with an SDL3 DMA driver |
 | `apps/sdl-demo` | SDL3 renderer, input and audio demo |
 | `apps/vega-probe` | pure-C++ Vega capability probe |
 | `tools/` | `vega.sh` (build, install, launch, key injection, screenshot, logs), `fetch-deps.sh` |

@@ -154,3 +154,28 @@ A running log for the public case study. Record decisions, dead ends, timings an
 - 56–60 fps presentation (Doom simulates at 35 Hz)
 - worst frame 27–37 ms
 - **RSS 54 MB** against a 420 MB foreground cap
+
+---
+
+## 2026-11-07 · Day 0 (late afternoon): Quake runs natively on Fire TV, plus an honest correction
+
+**Phase 2 blocked (needs the user):**
+- libdragon has no prebuilt macOS toolchain, and the user's Homebrew `wget` is broken.
+- Claude pre-fetched GCC, binutils and newlib with curl. Running `build-toolchain.sh` (Homebrew installs, a GCC build into `~/n64-toolchain`, and a `sudo` fallback) was **denied by the auto-mode safety check**.
+- Claude did not route around the denial. It notified the user and moved on to work that didn't need the toolchain.
+
+**Quake:**
+- Engine: quakegeneric (GPL-2.0, a portable WinQuake).
+- Game data: **LibreQuake** v0.09-beta. Art is BSD-3 and QuakeC is GPL-2; the licence docs ship inside the package.
+- **Sound restored:** quakegeneric strips sound, so Claude added id's GPL WinQuake mixer (`snd_dma/mem/mix.c`), staged into the build tree, plus an SDL3 "DMA" ring-buffer driver (`apps/quake/src/snd_vega.c`).
+- **Writable game dir:** the read-only `pak` files are symlinked into `/data/firetvnative/quake/id1`, so config and saves persist.
+- The heap was raised from Quake's 8 MB default to 48 MB.
+- **The build succeeded on the first try.**
+- Result: a **steady 59.7–59.9 fps presented, 68–73 MB RSS**.
+
+**Three bugs found by driving the TV:**
+1. **OK opened chat.** Enter in-game is `messagemode`. OK and A became *virtual keys* resolved when the engine **reads** them, not when they're pressed. A press made during a map load had been turning into Enter once the game started.
+2. **The player couldn't move.** LibreQuake ships a modern WASD+mouse config, so Claude now binds the arrows, Ctrl, Space and Tab explicitly. Verified with an in-engine diagnostic: yaw went from 90° to 215° after a left hold.
+3. **Updates silently didn't apply.** Updating a running app can fail with "Internal Error" and leave the *old* build installed. For a while, Claude's tests were running stale code. `tools/vega.sh install` now stops the app first and falls back to uninstall+install.
+
+**Correction:** the earlier Doom entry said the player "walked forward". That test used `inputd-cli button_press KEY_UP 1 --holdDuration N`, which is **invalid syntax** (it prints usage and presses nothing). The correct form is `button_press KEY_UP --holdDuration N`, now `tools/vega.sh hold`. Doom movement has now been **re-verified**: holding forward, then turning right, changes the view from the start corridor to a different room. Firing and menus were always genuinely verified.

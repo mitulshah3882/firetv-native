@@ -7,6 +7,7 @@
 #   tools/vega.sh stop    <component-id>
 #   tools/vega.sh run     <app-dir> <component-id> [arch] [type]   # build+install+launch
 #   tools/vega.sh key     KEY_RIGHT [KEY_ENTER ...]      # inject remote/gamepad buttons (Linux key names)
+#   tools/vega.sh hold    KEY_UP 800                      # hold a button for N ms
 #   tools/vega.sh shot    <out.png> [max-width]          # screenshot the TV, pull to host, optional downscale
 #   tools/vega.sh logs    <seconds> [grep-pattern]       # stream device logs for N seconds
 #
@@ -31,7 +32,15 @@ case "$cmd" in
   install)
     dir="$1"; arch="${2:-armv7}"; type="${3:-Debug}"
     p="$(pkg_path "$dir" "$arch" "$type")"; [[ -n "$p" ]] || { echo "no vpkg built in $dir" >&2; exit 1; }
-    vega device install-app --packagePath "$p"
+    # In-place updates of a running app can fail ("Internal Error") and silently keep the OLD build,
+    # so stop the app first and fall back to uninstall + install.
+    comp="$(grep -m1 '^id = ' "$dir/manifest.toml" | sed -E 's/id = "(.*)"/\1/').main"
+    vega device terminate-app --appName "$comp" >/dev/null 2>&1 || true
+    if ! vega device install-app --packagePath "$p" | tee /dev/stderr | grep -q success; then
+      echo "update failed; reinstalling clean" >&2
+      vega device uninstall-app --appName "$comp" >/dev/null 2>&1 || true
+      vega device install-app --packagePath "$p"
+    fi
     ;;
   launch)
     vega device launch-app --appName "$1"
@@ -50,6 +59,11 @@ case "$cmd" in
     cmds=""
     for k in "$@"; do cmds+="inputd-cli button_press $k >/dev/null 2>&1; sleep 0.15; "; done
     vega device run-cmd --command "$cmds"
+    ;;
+  hold)
+    # NB: `inputd-cli button_press KEY 1 --holdDuration N` is INVALID (prints usage, rc=255);
+    # the working form is `button_press KEY --holdDuration N`.
+    vega device run-cmd --command "inputd-cli button_press $1 --holdDuration ${2:-500} >/dev/null 2>&1"
     ;;
   shot)
     out="$1"; maxw="${2:-}"

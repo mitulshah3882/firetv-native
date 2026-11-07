@@ -178,6 +178,10 @@ extern "C" void recomp_syscall_handler(uint8_t*, recomp_context*, int32_t vram) 
 
 extern "C" void pause_self(uint8_t*) { fatal("pause_self"); }
 
+extern "C" void n64rt_unrecompilable(const char* name, recomp_context*) {
+    fatal("%s contains instructions N64Recomp could not translate", name);
+}
+
 // Functions we excluded from recompilation (see the program's .toml) that may still be called.
 extern "C" void n64___xorshift64(uint8_t* rdram, recomp_context* ctx) {
     // uint64_t __xorshift64(uint64_t *state): in-place xorshift64, returns the new value.

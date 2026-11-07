@@ -1,0 +1,11 @@
+# N64Recomp config: libdragon's "brew-volley" example (N64brew Game Jam entry, Unlicense/CC0) (built from source by tools/n64-libdragon.sh).
+# Paths are relative to this file's directory.
+[input]
+# entrypoint omitted: _start is an assembly label (NOTYPE, size 0)
+elf_path = "../../third_party/_src/libdragon-39d0d6096130836a65710da6730290701d060272/examples/brew-volley/build/brew_volley.elf"
+output_func_path = "../../build/n64/brew_volley"
+
+[patches]
+ignored = [
+]
+

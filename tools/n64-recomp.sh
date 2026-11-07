@@ -99,7 +99,9 @@ s = s.replace(memwu, '/* firetv-native: lwu (used by the generator, missing from
 decl = 'void do_break(uint32_t vram);\n'
 assert decl in s
 s = s.replace(decl, decl + '/* firetv-native: generic cop0 access (see tools/n64-tools.sh) */\n'
-              'gpr cop0_read(recomp_context* ctx, int reg);\nvoid cop0_write(recomp_context* ctx, int reg, gpr value);\n', 1)
+              'gpr cop0_read(recomp_context* ctx, int reg);\nvoid cop0_write(recomp_context* ctx, int reg, gpr value);\n'
+              '/* firetv-native: called by functions N64Recomp could not translate (see tools/n64-tools.sh) */\n'
+              'void n64rt_unrecompilable(const char* name, recomp_context* ctx);\n', 1)
 open(sys.argv[2], 'w').write("/* Generated from N64Recomp's include/recomp.h (MIT, (c) 2024 Wiseguy) by tools/n64-recomp.sh */\n" + s)
 PY
 echo "recompiled $(grep -c '^RECOMP_FUNC' "$OUT"/funcs_*.c | awk -F: '{s+=$2} END {print s}') functions -> $OUT"

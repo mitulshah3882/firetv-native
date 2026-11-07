@@ -6,11 +6,7 @@ elf_path = "../../third_party/_src/libdragon-39d0d6096130836a65710da6730290701d0
 output_func_path = "../../build/n64/helloworld"
 
 [patches]
-# Provided by our host runtime instead (they use lld/scd atomics, which N64Recomp doesn't support).
 ignored = [
-    "n64_reseed_from_entropy_00010B40", "n64___xorshift64",
-    # libdragon's crash screen / exception inspector (dmfc0, cache ops): replaced by host abort().
-    "n64___get_exception_name_isra_0_00016D20", "n64___exception_dump_header", "n64___inspector_init",
     # HLE: libdragon's display/rdpq calls are implemented on SDL3 by n64/runtime/src/hle_libdragon.c.
     "n64_display_init", "n64_display_get", "n64_rdpq_init", "n64_rdpq_attach", "n64___rdpq_clear",
     "n64_rdpq_detach_show", "n64___rdpq_font_load_builtin_2", "n64_rdpq_text_register_font",

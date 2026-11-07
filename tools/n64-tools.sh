@@ -100,6 +100,116 @@ if marker not in s:
     print("patched: sanitize + prefix names")
 PY
 
+# Patch 5: load-linked / store-conditional (ll, lld, sc, scd). Recompiled code runs on one host
+# thread, so LL is a plain load and SC a plain store that always succeeds (rt = 1).
+python3 -I - "$SRC/src/recompilation.cpp" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+marker = "/* firetv-native: ll/sc */"
+if marker not in s:
+    anchor = "    case InstrId::cpu_break:\n"
+    patch = r'''    __MARKER__
+    case InstrId::cpu_ll: case InstrId::cpu_lld: case InstrId::cpu_sc: case InstrId::cpu_scd: {
+        const int16_t llsc_off = (int16_t)instr.Get_immediate();
+        const std::string llsc_base = rs == 0 ? std::string("0") : fmt::format("ctx->r{}", rs);
+        const std::string llsc_val = rt == 0 ? std::string("0") : fmt::format("ctx->r{}", rt);
+        print_indent();
+        if (instr_id == InstrId::cpu_ll) {
+            if (rt != 0) fmt::print(output_file, "ctx->r{} = MEM_W({:#X}, {});\n", rt, llsc_off, llsc_base);
+        } else if (instr_id == InstrId::cpu_lld) {
+            if (rt != 0) fmt::print(output_file, "ctx->r{} = LD({:#X}, {});\n", rt, llsc_off, llsc_base);
+        } else {
+            if (instr_id == InstrId::cpu_sc) fmt::print(output_file, "MEM_W({:#X}, {}) = (int32_t){};\n", llsc_off, llsc_base, llsc_val);
+            else fmt::print(output_file, "SD({}, {:#X}, {});\n", llsc_val, llsc_off, llsc_base);
+            if (rt != 0) { print_indent(); fmt::print(output_file, "ctx->r{} = 1;\n", rt); }
+        }
+        break;
+    }
+'''.replace("__MARKER__", marker)
+    assert anchor in s
+    s = s.replace(anchor, patch + anchor, 1)
+    open(p, "w").write(s)
+    print("patched: ll/sc")
+PY
+
+# Patch 6: a function containing an instruction we can't translate (e.g. libdragon's emulator-only
+# debug opcode in emux_write) becomes a stub that reports itself if it is ever called, instead of
+# aborting the whole recompile. Each function is recompiled into a buffer first.
+python3 -I - "$SRC/src/main.cpp" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+marker = "/* firetv-native: stub untranslatable functions */"
+if marker not in s:
+    old = "                result = N64Recomp::recompile_function(context, i, current_output_file, static_funcs_by_section, false);\n"
+    assert old in s, "main.cpp anchor not found"
+    new = r'''                __MARKER__
+                std::ostringstream func_stream;
+                result = N64Recomp::recompile_function(context, i, func_stream, static_funcs_by_section, false);
+                if (result) {
+                    current_output_file << func_stream.str();
+                } else {
+                    fmt::print(stderr, "[firetv-native] {} could not be recompiled; emitting a stub\n", func.name);
+                    fmt::print(current_output_file, "RECOMP_FUNC void {}(uint8_t* rdram, recomp_context* ctx) {{\n    n64rt_unrecompilable(\"{}\", ctx);\n}}\n", func.name, func.name);
+                    result = true;
+                }
+'''.replace("__MARKER__", marker)
+    s = s.replace(old, new, 1)
+    if "#include <sstream>" not in s:
+        s = "#include <sstream>\n" + s
+    open(p, "w").write(s)
+    print("patched: stub untranslatable functions")
+PY
+
+# Patch 7: trunc.l.s / trunc.l.d (float -> 64-bit int). The generator already has the operations;
+# only the instruction table entries are missing.
+python3 -I - "$SRC/src/operations.cpp" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+marker = "/* firetv-native: trunc.l */"
+if marker not in s:
+    anchor = "        { InstrId::cpu_trunc_w_d, { UnaryOpType::TruncateWFromD, Operand::FdU32L,   Operand::FsDouble, true } },\n"
+    assert anchor in s, "operations.cpp anchor not found"
+    patch = ("        " + marker + "\n"
+             "        { InstrId::cpu_trunc_l_s, { UnaryOpType::TruncateLFromS, Operand::FdU64,    Operand::Fs,       true } },\n"
+             "        { InstrId::cpu_trunc_l_d, { UnaryOpType::TruncateLFromD, Operand::FdU64,    Operand::FsDouble, true } },\n")
+    s = s.replace(anchor, anchor + patch, 1)
+    open(p, "w").write(s)
+    print("patched: trunc.l")
+PY
+
+# Patch 8: libdragon's EMUX opcodes (COP0, CO=1, funct 0x20-0x2F: emulator logging/profiling hooks;
+# real hardware ignores them). XDETECT reports "no emulator" (rd = 0); the rest are no-ops.
+# Also make the unhandled-instruction error say where.
+python3 -I - "$SRC/src/recompilation.cpp" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+marker = "/* firetv-native: emux */"
+if marker not in s:
+    anchor = "    if (!handled) {\n        fmt::print(stderr, \"Unhandled instruction: {}\\n\", instr.getOpcodeName());\n"
+    assert anchor in s, "unhandled anchor not found"
+    patch = r'''    __MARKER__
+    if (!handled) {
+        const uint32_t emux_raw = instr.getRaw();
+        if ((emux_raw >> 26) == 0x10 && ((emux_raw >> 25) & 1) && (emux_raw & 0x3F) >= 0x20 && (emux_raw & 0x3F) <= 0x2F) {
+            const int emux_rd = (emux_raw >> 20) & 0x1F;
+            print_indent();
+            if ((emux_raw & 0x3F) == 0x20 && emux_rd != 0) fmt::print(output_file, "ctx->r{} = 0; /* emux xdetect: none */\n", emux_rd);
+            else fmt::print(output_file, "/* emux op {:08X} ignored */\n", emux_raw);
+            handled = true;
+        }
+    }
+'''.replace("__MARKER__", marker)
+    s = s.replace(anchor, patch + anchor.replace(
+        'fmt::print(stderr, "Unhandled instruction: {}\\n", instr.getOpcodeName());',
+        'fmt::print(stderr, "Unhandled instruction: {} at {:08X} (word {:08X})\\n", instr.getOpcodeName(), instr_vram, instr.getRaw());'), 1)
+    open(p, "w").write(s)
+    print("patched: emux")
+PY
+
 cmake -S "$SRC" -B "$OUT" -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null
 ninja -C "$OUT" N64Recomp
 echo "$OUT/N64Recomp"

@@ -97,3 +97,27 @@ A running log for the public case study. Record decisions, dead ends, timings an
 - `CLAUDE.md`: resume protocol, rules, build recipe, gotchas.
 - `docs/STATUS.md` and `docs/DECISIONS.md`.
 - Claude memory files.
+
+---
+
+## 2026-11-07 · Day 0 (evening): SDL3 runs natively on Fire TV
+
+**Goal:** an SDL3 backend for Vega OS, so existing SDL games can be ported instead of rewritten.
+
+**Native audio first** (it was still unproven):
+- The SDK ships C headers (`VAudioStream.h`) that cannot compile: `Vntk/Vntk.h` is missing from the SDK.
+- Switched to the IDL audio API.
+- First attempt failed with "IPC link unsuccessful". The fix was declaring `com.amazon.audio.stream` and `com.amazon.audio.control` as `[[wants.service]]` in the manifest.
+- Second linker trap: IDL constants such as `SampleFormat::PCM_16_BIT` are declared but not defined in any SDK library. Fixed with an `idlConst<T>("...")` helper.
+- Result: 48 kHz stereo, 768×2-frame buffers, about 75–80 ms latency, 0 underruns.
+
+**Architecture** (all original code; SDK files never copied):
+- `engine/vegaplat`: a small C API over Amazon's C++/IDL interfaces. It owns the lifecycle (component factory, foreground/background/stop), runs the game's `main()` on its own thread, and provides a GLES window, input queue, audio and paths.
+- `engine/sdl3-vega`: SDL3 "vega" video and audio drivers in C on top of vegaplat. Remote → keyboard, controller → SDL virtual gamepad, lifecycle → SDL app events. `SDL3Vega.cmake` builds pinned SDL 3.4.18 from source with a 5-line idempotent patch: driver registration plus `SDL_GetBasePath() = /pkg/assets/`.
+- `tools/fetch-deps.sh`: pinned, checksum-verified third-party sources, so nothing third-party is vendored.
+
+**Bugs found on hardware:**
+1. SIGSEGV inside `libgwsi`, Amazon's window system. Found by pulling the crash tombstone (`vega device copy-logs --artifact SYSTEM_TOMBSTONE/acr`). Cause: listener objects passed as temporaries. The window system keeps only a raw reference, so they must stay alive.
+2. The system log drops a new process's first few seconds of output. vegaplat now replays early log lines 6 s after start.
+
+**Result** (verified by screenshot from the TV): `apps/sdl-demo`, unmodified SDL3 code, runs at **59.9 fps at 1920×1080 on the `opengles2` renderer**. Video and audio drivers are `vega`. Remote input flies the ship, and OK plays synth notes.

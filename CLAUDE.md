@@ -58,7 +58,16 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 - Device facts (4K Select, product "calypso", OS 2.0 Ship/532): armv7l, **Mesa 24.3.1 OpenGL ES 3.1** (GLSL ES 3.10), 126 extensions, max texture 8192, surface 1920×1080, 60 Hz. The probe runs at a steady 59.7 fps. MemTotal is about 975 MB and MemAvailable is about 570 MB when idle.
 - The resource manager kills apps under memory pressure. If an app dies right after launch, check the logs for `memory-critical: request to terminate pid`.
 
+## SDL3 on Vega (engine/)
+- An app's CMake does `find_package(Apmf)`, `find_package(Kepler)`, `include(vpt)`, `include(<repo>/engine/sdl3-vega/SDL3Vega.cmake)`, then `vega_add_sdl3_app(<tgt> PACKAGE_ID <id> SOURCES ... [ASSETS_DIR dir])`, then `vpt_create_package(NAME ..)`. See `apps/sdl-demo`.
+- The app's `main()` is renamed `vega_app_main` (via a compile definition) and runs on vegaplat's thread.
+- Run `tools/fetch-deps.sh` first (SDL source goes to `third_party/_src`).
+- If a configure fails, `rm -rf <app>/build` before retrying. `vega build` skips configure if a stale cache exists.
+- **Listener objects (key, pad, display) must be kept alive** for as long as they're registered. Dropping the Ptr causes a SIGSEGV in libgwsi.
+- Crash reports: `vega device copy-logs --artifact SYSTEM_TOMBSTONE/acr --dir <dir>`. The `<minidump_stackwalk>` section has the stack.
+
 ## Layout
-- `apps/vega-probe/`: Phase 0 capability probe (pure C++ app)
+- `engine/vegaplat/`: C platform layer. `engine/sdl3-vega/`: SDL3 drivers and CMake integration.
+- `apps/vega-probe/`: Phase 0 capability probe (pure C++ app). `apps/sdl-demo/`: SDL3 demo.
 - `docs/STATUS.md`, `docs/DECISIONS.md`, `docs/case-study/journal.md`
 - `PLAN.md`, `RESEARCH.md`, `README.md`

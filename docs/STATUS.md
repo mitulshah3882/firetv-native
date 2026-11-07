@@ -1,24 +1,25 @@
 # Status
 
-_Last updated: 2026-11-07 ~13:45 local. Update this file at every milestone._
+_Last updated: 2026-11-07 ~14:10 local. Update this file at every milestone._
 
 ## Current phase
-**Phase 0 is done. Starting Phase 1** (native game foundation on Vega).
+**Phase 1: native game foundation.** SDL3 backend is DONE and verified on hardware. Next: Doom (doomgeneric + Freedoom) on SDL3-Vega.
 
 ## Done
-- Research and plan: `RESEARCH.md` (now includes on-device results), `PLAN.md`.
-- Tooling: Vega SDK 2.0.13986, cmake, ninja, adb, Builder Tools MCP.
-- `apps/vega-probe`: a pure-native C++ Vega app that runs on the 4K Select stick at about 60 fps, with remote input. It logs a full capability report, replayed 6 s after launch.
-- `tools/vega.sh`: build, install, launch, key injection, screenshot, logs.
-- Persistent memory: CLAUDE.md, STATUS, DECISIONS, memory files.
+- Phase 0: SDK, tooling, `apps/vega-probe` (capability report, audio check).
+- `engine/vegaplat`: C platform layer over Amazon's APIs (lifecycle, GLES window, input queue, audio, paths, early-log replay).
+- `engine/sdl3-vega`: SDL3 video and audio drivers plus `SDL3Vega.cmake` (pinned SDL 3.4.18, idempotent patch, `vega_add_sdl3_app()` helper).
+- `apps/sdl-demo`: SDL3 renderer, input, audio and HUD at 59.9 fps on the 4K Select.
+- `tools/vega.sh` (build/install/launch/key/shot/logs), `tools/fetch-deps.sh` (pinned deps with sha256 lock).
 
 ## Next
-1. Phase 1 platform layer (`engine/`): window and GLES context, input (remote and gamepad), audio output, lifecycle, frame pacing, an asset loading path, and on-screen text.
-2. First "wow" app on top of it, using an open-source game with free assets. Decide the SDL3 backend vs. a thin custom layer early.
-3. Keep the journal current. Commit at milestones.
+1. `apps/doom`: doomgeneric (GPL-2.0) plus our own SDL3 backend (video scaling, remote and gamepad controls, sfx mixer, OPL music if feasible), with Freedoom (BSD) as the IWAD, bundled as an asset.
+2. Polish for "wow": a title screen or overlay, correct aspect ratio, a smooth 35 Hz to 60 Hz presentation, and a TV-friendly control scheme.
+3. Test on the other two sticks (HD 2026, 4K 3rd gen) if attached.
+4. Case-study write-up draft.
 
 ## Watch items
-- Weekly usage below 90% (12% at 13:20).
+- Weekly usage below 90% (13% at 13:55).
 - Disk: about 19 GB free.
-- Never use device `screenshooter`; use `gwsi-tool-screenshooter`.
-- The screensaver steals focus when the stick is idle. Inject a key (`tools/vega.sh key KEY_RIGHT`) before launching.
+- Device logs: a new process's lines from its first few seconds are dropped. Look for replayed `R| ` lines.
+- Never use device `screenshooter`; use `gwsi-tool-screenshooter` (wrapped in `tools/vega.sh shot`).

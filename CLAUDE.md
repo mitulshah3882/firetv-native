@@ -57,6 +57,9 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 - **Install pitfall:** updating a running app can fail with "Internal Error" and silently keep the OLD build running. `tools/vega.sh install` stops the app first and falls back to uninstall plus install. Always confirm a fix landed (for example, a version or log line). Use it to dismiss the screensaver and keep the device awake. The screensaver reclaims focus about 5 s after launch if the stick has been idle.
 - Screenshots: **only use `gwsi-tool-screenshooter /tmp/x.png`**. Plain `screenshooter` hangs holding about 220 MB. Two leftover copies once pushed the 1 GB stick into memory-critical, and the system killed our app. Wrap screenshots in `timeout`.
 - **Runtime paths:** the package is mounted at `/pkg` (`/pkg/assets`, `/pkg/lib/armv7`, `/pkg/manifest.toml`). Writable dirs are `/data` (app-private) and `/tmp`. `HOME` is unset and the working directory is `/`. The process exe is `/usr/bin/stem-init`, and our `.so` is loaded from `/mnt`.
+- **Log stream:** `vega device start-log-stream` shows only new lines, with no history. Start it in the background **before** the action, and run only one at a time (a second stream fails with `status -1`).
+- **Key latency:** each `tools/vega.sh key` call is one `run-cmd`, about 1–1.5 s. For double presses (Back ×2), pass both keys in one call.
+- **Memory:** several of our apps resident at once (arcade 48 MB + Quake 70 MB + another) pushed the stick to memory-extreme. The system trims background apps.
 - Device facts (4K Select, product "calypso", OS 2.0 Ship/532): armv7l, **Mesa 24.3.1 OpenGL ES 3.1** (GLSL ES 3.10), 126 extensions, max texture 8192, surface 1920×1080, 60 Hz. The probe runs at a steady 59.7 fps. MemTotal is about 975 MB and MemAvailable is about 570 MB when idle.
 - The resource manager kills apps under memory pressure. If an app dies right after launch, check the logs for `memory-critical: request to terminate pid`.
 
@@ -67,9 +70,14 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 - If a configure fails, `rm -rf <app>/build` before retrying. `vega build` skips configure if a stale cache exists.
 - **Listener objects (key, pad, display) must be kept alive** for as long as they're registered. Dropping the Ptr causes a SIGSEGV in libgwsi.
 - Crash reports: `vega device copy-logs --artifact SYSTEM_TOMBSTONE/acr --dir <dir>`. The `<minidump_stackwalk>` section has the stack.
+- **Lifecycle in SDL apps:** SDL3 never queues `SDL_EVENT_DID_ENTER_BACKGROUND/FOREGROUND`; they go only to `SDL_AddEventWatch` callbacks. Polling loops must use `SDL_EVENT_WINDOW_HIDDEN/SHOWN`, which our driver queues. While hidden, `SDL_RenderPresent` blocks.
+- **Launching another app:** `vp_launch_uri("pkg://<component-id>")` (vegaplat) sends a message through the system message router, the same path as the home screen. No manifest entry is needed. The target's `onStart`/`onNewLaunch` message carries the URI, including any query string; read it with `vp_launch_uri_received()`.
+- **Host preview (no device):** `apps/arcade/host-preview.sh` builds the arcade against a host build of SDL3 (`build/host-sdl3`) and renders PNGs with `SDL_VIDEO_DRIVER=dummy` and the software renderer (`offscreen` fails on macOS). Use it to iterate on visuals before deploying.
+- **Remote UX:** a remote has no letter keys. "Press Y" prompts (Doom, Quake) are mapped so OK answers "yes". Check every game for prompts like this.
 
 ## Layout
 - `engine/vegaplat/`: C platform layer. `engine/sdl3-vega/`: SDL3 drivers and CMake integration.
-- `apps/vega-probe/`: Phase 0 capability probe (pure C++ app). `apps/sdl-demo/`: SDL3 demo.
+- `apps/vega-probe/`: Phase 0 capability probe (pure C++ app). `apps/sdl-demo/`: SDL3 demo. `apps/doom/`, `apps/quake/`: game ports. `apps/arcade/`: the Native Arcade launcher.
+- Phase 2 (N64): the toolchain is at `~/n64-toolchain` (`export N64_INST=$HOME/n64-toolchain`). libdragon is installed there, and its examples are built in `third_party/_src/libdragon-*/examples/*/*.elf`.
 - `docs/STATUS.md`, `docs/DECISIONS.md`, `docs/case-study/journal.md`
 - `PLAN.md`, `RESEARCH.md`, `README.md`

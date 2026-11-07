@@ -6,10 +6,15 @@
 In one working session, mostly unattended, Claude Code:
 - **Reverse-engineered the native app model** of Vega OS, Amazon's new Linux-based Fire TV operating system. Officially it's React Native and web only.
 - **Wrote an SDL3 backend for it**, so the open-source SDL game ecosystem can target Fire TV.
-- **Shipped Doom and Quake running natively** on a $30 Fire TV Stick, using free game data (Freedoom, LibreQuake).
+- **Shipped Doom and Quake running natively** on a Fire TV Stick, using free game data (Freedoom, LibreQuake).
   - Doom has authentic OPL3 FM music and runs at 56–60 fps in 54 MB.
-  - Quake runs at a steady 59.8 fps in 73 MB.
+  - Quake runs at a steady 59.9 fps with its soundtrack.
   - Both have sound and remote or gamepad controls.
+- **Built a native "arcade" launcher** that ties it all together: a coverflow carousel over a synthwave stage, with music synthesized live.
+- **Started the N64 static recompilation phase.** The MIPS toolchain and libdragon homebrew are built from source.
+
+![Native Arcade on Fire TV](media/07-native-arcade-on-tv.jpg)
+*The Native Arcade, captured from the TV. Every pixel is drawn by our C code through OpenGL ES; the music is synthesized live.*
 
 | | |
 |---|---|
@@ -44,6 +49,7 @@ In one working session, mostly unattended, Claude Code:
   - doomgeneric with Claude's SDL3 platform backend: 4:3 pixel-art scaling, a TV control scheme, and a controls overlay.
   - A DMX sound-effects mixer.
   - Chocolate Doom's MIDI→OPL player driving the Nuked OPL3 emulator, through an SDL3 OPL driver Claude wrote.
+- **`apps/arcade`:** the Native Arcade launcher. It renders cards to textures, tilts them with a perspective projection, reflects them on a grid floor that scrolls to the beat, and launches each game through the OS's own message router.
 - **`tools/vega.sh`:** a one-command loop of build, install, launch, inject remote keys, screenshot the TV and stream logs. This let Claude test on real hardware with no human in the loop.
 
 ## Discoveries along the way (the interesting part)
@@ -56,13 +62,18 @@ In one working session, mostly unattended, Claude Code:
 7. **Updating a running app can silently keep the old build installed.** Claude caught this when a fix "didn't work": the screen still showed the old build's behaviour. The install tool now stops the app first and falls back to uninstall+install.
 8. **Claude caught its own false claim.** An early "Doom player walked forward" check used an invalid key-injection syntax that pressed nothing. Claude found this while debugging Quake, re-verified Doom movement properly, and corrected the journal.
 
+9. **Launching one app from another isn't documented natively.** Claude found the answer in the SDK's messaging IDL: send a message to `pkg://<component>`, and the lifecycle manager launches it, as the home screen does.
+10. **SDL3 never queues "entered background/foreground" events.** They go only to event-watch callbacks. Claude found this when the arcade sometimes failed to wake up after a game exited, then fixed all four apps and corrected its own porting guide.
+11. **TV remotes have no Y key.** Doom's and Quake's quit prompts both say "press Y". Driving the full launch → play → quit loop on the TV exposed it.
+
 ## Numbers
 | Metric | Value |
 |---|---|
 | Doom frame rate (1080p, 4:3 pixel-art scaled) | 56–60 fps (game sim 35 Hz) |
 | Doom memory | 54 MB RSS (cap 420 MB) |
 | Doom package size | 10 MB (Freedoom 2 WAD included) |
-| Quake (LibreQuake, 320×240 software renderer → 1080p) | 59.7–59.9 fps presented, 68–73 MB RSS |
+| Quake (LibreQuake, 320×240 software renderer → 1080p) | 59.7–59.9 fps presented, 66–73 MB RSS, OGG soundtrack |
+| Native Arcade (coverflow, render-to-texture, live synth) | 59.9 fps, 48 MB RSS, 1.6 MB package |
 | SDL3 demo | 59.9 fps, OpenGL ES 2 renderer |
 | Audio | 48 kHz s16 stereo, 768×2-frame buffers, about 75 ms latency, 0 underruns |
 | Cold launch to first frame | about 1.2 s |
@@ -71,12 +82,15 @@ In one working session, mostly unattended, Claude Code:
 ## Ground rules we kept
 - **No commercial ROMs or game data.** Doom runs on **Freedoom** (BSD-licensed original assets). The WAD is fetched and checksummed at build time and never committed.
 - **No Amazon SDK files or template code in the repo.** The SDK is proprietary, so it's a build dependency only.
-- **Licenses:** our engine code is MIT. The Doom app is GPL-2.0-or-later (doomgeneric, Chocolate Doom). SDL is zlib, Nuked OPL3 is LGPL-2.1+, and Freedoom is BSD.
+- **Licenses:**
+  - Our code is MIT, © 2026 Mitul Shah. The SDL3 drivers are zlib, so they can be upstreamed.
+  - The Doom and Quake apps are GPL-2.0-or-later, because they link GPL engines.
+  - Third-party licenses: SDL zlib, Nuked OPL3 LGPL-2.1+, Freedoom and LibreQuake BSD-3, fonts SIL OFL 1.1.
 
 ## What's next
-- **N64 static recompilation on Fire TV** (Phase 2). Statically recompile freely licensed N64 homebrew built with libdragon (N64brew Game Jam 2024) to native ARM code, with a libdragon runtime on top of SDL3-Vega.
+- **N64 static recompilation on Fire TV** (Phase 2, under way). Statically recompile freely licensed N64 homebrew built with libdragon to native ARM code, with a libdragon runtime on top of SDL3-Vega. The toolchain and 38 libdragon example ROMs are already built.
 - More SDL games, and testing across all three Vega sticks.
 
 ## Human vs. Claude
-- **Human:** chose the direction, attached the device and enabled developer mode, then left. They followed progress remotely by phone.
+- **Human:** chose the direction, attached the device and enabled developer mode, then left. They followed progress remotely by phone, approved the toolchain build, delegated the license choice, and suggested the arcade.
 - **Claude:** everything else. Research, SDK spelunking, code, on-device testing (driving the TV with injected key presses and checking screenshots), crash forensics, docs and commits. Usage was capped at the user's request and monitored throughout.

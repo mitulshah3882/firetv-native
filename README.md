@@ -2,9 +2,9 @@
 
 An experiment in getting games running **natively** on Amazon Fire TV devices running **Vega OS**, Amazon's Linux-based TV operating system. Native here means compiled C/C++ talking straight to the device's graphics, audio and input APIs, not an emulator or a web wrapper. The porting work is done with Claude Code.
 
-> Status: **Doom and Quake run natively on a Fire TV Stick (Vega OS)** via our SDL3 port: Freedoom with OPL3 music at 56–60 fps, and LibreQuake at 59.8 fps. See the [case study draft](docs/case-study/README.md).
+> Status: **Doom and Quake run natively on a Fire TV Stick (Vega OS)** via our SDL3 port, behind a native **arcade launcher**: Freedoom with OPL3 music at 56–60 fps, and LibreQuake with its soundtrack at 59.9 fps. N64 static recompilation (Phase 2) is under way. See the [case study draft](docs/case-study/README.md).
 
-![Freedoom running natively on Fire TV](docs/case-study/media/04-freedoom-gameplay-on-tv.jpg)
+![Native Arcade running on Fire TV](docs/case-study/media/07-native-arcade-on-tv.jpg)
 
 ## Goals
 1. A native game foundation for Vega OS: window, OpenGL ES, remote and gamepad input, audio, app lifecycle. Ideally this takes the form of an SDL3 backend.
@@ -17,17 +17,19 @@ See [PLAN.md](PLAN.md) for the roadmap and [RESEARCH.md](RESEARCH.md) for the fe
 Needs: macOS or Linux, the [Vega SDK](https://developer.amazon.com/docs/vega/2.0/install-vega-sdk) (`source ~/vega/env`), and a Vega Fire TV stick in developer mode, connected over USB.
 ```bash
 tools/fetch-deps.sh                                   # pinned SDL3, doomgeneric, Chocolate Doom, Freedoom
-tools/vega.sh run apps/doom com.firetvnative.doom.main armv7 Release
+for a in doom quake sdl-demo arcade; do tools/vega.sh build apps/$a armv7 Release && tools/vega.sh install apps/$a armv7 Release; done
+tools/vega.sh launch com.firetvnative.arcade.main   # or pick "Native Arcade" from Your Apps
 ```
-Quake: `tools/vega.sh run apps/quake com.firetvnative.quake.main armv7 Release`. Other apps: `apps/sdl-demo` (SDL3 showcase) and `apps/vega-probe` (device capability report).
+Each game also runs on its own (`tools/vega.sh run apps/doom com.firetvnative.doom.main armv7 Release`). `apps/vega-probe` prints a device capability report. To preview the arcade on a Mac without a device, run `apps/arcade/host-preview.sh`.
 
 ## Repository layout
 | Path | What |
 |---|---|
 | `engine/vegaplat` | C platform layer over Vega's native interfaces (lifecycle, GLES, input, audio, paths) |
 | `engine/sdl3-vega` | SDL3 video and audio drivers for Vega, plus CMake integration (`vega_add_sdl3_app`) |
+| `apps/arcade` | Native Arcade: the TV launcher for everything here (coverflow UI, generated synthwave music) |
 | `apps/doom` | doomgeneric + Freedoom: our SDL3 backend, sound-effects mixer, OPL3 music driver |
-| `apps/quake` | quakegeneric + LibreQuake: our SDL3 backend, restored WinQuake mixer with an SDL3 DMA driver |
+| `apps/quake` | quakegeneric + LibreQuake: our SDL3 backend, restored WinQuake mixer with an SDL3 DMA driver, OGG soundtrack |
 | `apps/sdl-demo` | SDL3 renderer, input and audio demo |
 | `apps/vega-probe` | pure-C++ Vega capability probe |
 | `tools/` | `vega.sh` (build, install, launch, key injection, screenshot, logs), `fetch-deps.sh` |

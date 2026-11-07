@@ -186,3 +186,56 @@ A running log for the public case study. Record decisions, dead ends, timings an
 - Note: `vega device launch-app` force-kills and restarts. That looked like a "restart on resume" bug until the logs showed `Killing pkgId … forced`.
 
 **Launcher icons:** `icon = "@image/icon.png"` with `assets/image/icon.png`, cropped from our own TV screenshots of the BSD-licensed game art. Manifest validation passes. The tile in the launcher's App Library was **not** visually checked: Claude chose not to drive the user's personal home screen.
+
+---
+
+## 2026-11-07 · Day 0 (evening, second run): the Native Arcade, plus the N64 toolchain
+
+**User, back from being away:**
+- Emailed Claude's write-up of 20 SDK issues to their work address, to log as bugs.
+- Fixed Homebrew `wget`. It was still broken: `brew reinstall` brought back the old 1.21.3 bottle. Claude fetched the missing GMP/MPC/MPFR sources with `curl` instead.
+- Delegated the license choice.
+- Approved the N64 toolchain build.
+- Asked for polish, and suggested **a single arcade launcher**.
+
+**License:**
+- MIT, © 2026 Mitul Shah.
+- The SDL3 drivers are zlib, so they can be upstreamed to SDL.
+- `apps/doom` and `apps/quake` are GPL-2.0-or-later because they link GPL engines.
+
+**The toolchain built unattended in the background** while Claude wrote the arcade:
+- binutils 2.45, GCC 16.2 and newlib, into `~/n64-toolchain` (290 MB).
+- The 7.3 GB build directory was deleted afterwards, because disk is tight.
+- libdragon and its tools followed, then 38 of its example ROMs. `videoplayer` needs ffmpeg and a downloaded video.
+
+**How does one Vega app launch another?** Nothing in the native docs says.
+- Claude read the SDK's `messaging.idl`. A message sent to `pkg://<component-id>` goes through the system message router to the lifecycle manager, which is exactly what the home screen does.
+- Now wrapped as `vp_launch_uri()`. The URI's query string reaches the target's `onStart` message, so games can take arguments.
+- Verified on the TV, with the device log showing the arcade's request arriving at the lifecycle manager: `Received launch request for pkg://com.firetvnative.doom.main`.
+
+**Native Arcade** (`apps/arcade`, about 1,000 lines of C on SDL3):
+- **Coverflow:** each card is rendered into a texture, then drawn as a perspective-projected quad (subdivided 12×2 so the affine texture mapping doesn't warp), with a fading floor reflection.
+- **Live previews:** the Starfield card is a live 3D starfield.
+- **Synthwave stage:** a twinkling sky, shooting stars, horizon glow, and a grid floor that scrolls in time with the music.
+- **The music is generated live by a ~250-line synth:** a detuned-saw pad through a sweeping low-pass, bass, an arpeggio with a ping-pong delay, and a soft kick and hat. No audio files.
+- **Text:** `stb_truetype` atlases with the OFL fonts Chakra Petch and Press Start 2P, pinned by sha256 like every other dependency.
+- **Developed on the Mac first.** A headless preview mode renders frames with SDL's software renderer and saves PNGs, so Claude could check layout and look without touching the TV. The launcher icon is rendered the same way.
+- **First build for the device succeeded.** It runs at 59.9 fps in 48 MB.
+
+**Three bugs, found by driving the whole loop on the TV** (arcade → game → quit → arcade):
+1. **Doom's and Quake's quit prompts say "press Y".** A remote has no Y key, so you couldn't quit from the menu. OK/A now answers "yes" on those prompts; Back still says "no".
+2. **The arcade sometimes came back to a black "Starting…" screen.**
+   - Claude added state logging, and found that SDL3 *never queues* `SDL_EVENT_DID_ENTER_BACKGROUND/FOREGROUND`. It hands them only to event-watch callbacks, as on iOS and Android.
+   - Every app here had been polling for them. Their pause-on-Home code had never run. The game loops still stopped, because presenting blocks while an app is hidden.
+   - All four apps now use `WINDOW_HIDDEN/SHOWN`, which our driver queues. The porting guide said otherwise, and is corrected.
+   - The arcade also treats a frame that took over a second (presenting was parked) as "we're back".
+3. **A false "Couldn't open Freedoom" toast.** Doom's cold start (~4.6 s) sometimes exceeded the arcade's 5 s launch timeout, and the toast then froze mid-display while the arcade was parked. The timeout is now 12 s, and returning clears toasts.
+
+**Quake now has music.** LibreQuake ships its soundtrack as OGG files (BSD-3).
+- Quake asks for "CD track N" per level. `src/cd_vega.c` streams `music/trackNN.ogg` through `stb_vorbis` on a second SDL audio stream, following the in-game CD Music volume.
+- Verified: track 6 plays in the attract demo. Opening a track takes 2 ms.
+
+**Noticed and logged, not fixed:**
+- LibreQuake maps take 9–13 s to load on the stick. It's not the music; profile it with `simpleperf` later.
+- With three of our apps resident, the stick logged memory pressure (high → critical → extreme). The system trims background apps on its own.
+- The arcade's first clock showed UTC: the app sandbox has no time zone. The clock was replaced by a "running natively on Mali-G310 (Panfrost) · OpenGL ES 3.1" label read live from the GPU.

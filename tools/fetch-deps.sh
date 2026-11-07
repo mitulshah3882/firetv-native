@@ -25,6 +25,8 @@ DEPS=(
   "idquake|bf4ac42|https://github.com/id-Software/Quake/archive/bf4ac424ce754894ac8f1dae6a3981954bc9852d.tar.gz|Quake-bf4ac424ce754894ac8f1dae6a3981954bc9852d"
   "librequake|0.09-beta|https://github.com/lavenderdotpet/LibreQuake/releases/download/v0.09-beta/lite.zip|librequake-0.09-lite"
   "freedoom|0.13.0|https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip|freedoom-0.13.0"
+  # Git checkouts (for host tools with submodules): <url>.git#<full commit>; the commit is the pin.
+  "n64recomp|598ce20|https://github.com/N64Recomp/N64Recomp.git#598ce2080004a5672d604dceadbda436045307b7|N64Recomp-598ce20"
   # Single files (fonts and header-only libraries) land in <extracted-dir>/<file name>.
   "stb_truetype|4e9b368|https://raw.githubusercontent.com/nothings/stb/4e9b368bfc071e97206ea5c6adba68dd0cbf8897/stb_truetype.h|stb"
   "stb_vorbis|4e9b368|https://raw.githubusercontent.com/nothings/stb/4e9b368bfc071e97206ea5c6adba68dd0cbf8897/stb_vorbis.c|stb"
@@ -38,6 +40,17 @@ DEPS=(
 
 fetch() {
   local name="$1" version="$2" url="$3" dir="$4"
+  if [[ "$url" == *.git#* ]]; then
+    if [[ -d "$SRC/$dir" ]]; then echo "[$name] already present: $SRC/$dir"; return; fi
+    local repo="${url%%#*}" commit="${url##*#}"
+    echo "[$name] cloning $repo @ $commit"
+    git clone -q "$repo" "$SRC/$dir"
+    git -C "$SRC/$dir" -c advice.detachedHead=false checkout -q "$commit"
+    git -C "$SRC/$dir" submodule update -q --init --recursive
+    grep -q "^$name $version " "$LOCK" || echo "$name $version $commit" >> "$LOCK"
+    echo "[$name] checked out to $SRC/$dir"
+    return
+  fi
   local tarball="$SRC/$(basename "$url")"
   local single=0
   case "$url" in *.h|*.c|*.ttf|*.txt) single=1 ;; esac

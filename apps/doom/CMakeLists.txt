@@ -15,6 +15,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../../engine/sdl3-vega/SDL3Vega.cmake)
 set(_repo "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(DOOMGENERIC_DIR "${_repo}/third_party/_src/doomgeneric-e257a09527062bfb986b6e5e0780839b6cbd5b71/doomgeneric")
 set(FREEDOOM_DIR "${_repo}/third_party/_src/freedoom-0.13.0")
+set(CHOCO_DIR "${_repo}/third_party/_src/chocolate-doom-chocolate-doom-2.3.0")
 if(NOT EXISTS "${DOOMGENERIC_DIR}/doomgeneric.c" OR NOT EXISTS "${FREEDOOM_DIR}/freedoom2.wad")
   message(FATAL_ERROR "doomgeneric/Freedoom not found. Run tools/fetch-deps.sh")
 endif()
@@ -37,12 +38,30 @@ file(MAKE_DIRECTORY "${PKGROOT}/assets")
 configure_file("${FREEDOOM_DIR}/freedoom2.wad" "${PKGROOT}/assets/freedoom2.wad" COPYONLY)
 configure_file("${FREEDOOM_DIR}/COPYING.txt" "${PKGROOT}/assets/FREEDOOM-COPYING.txt" COPYONLY)
 
+# OPL music: Chocolate Doom's MIDI->OPL player + OPL core + Nuked OPL3, with our SDL3 output driver.
+# Chocolate Doom's src/ holds headers that clash with doomgeneric's (quoted includes search the source
+# file's own directory first), so copy just the files we need into the build tree.
+set(CHOCO_STAGE "${CMAKE_BINARY_DIR}/choco_music")
+file(MAKE_DIRECTORY "${CHOCO_STAGE}")
+foreach(_f i_oplmusic.c midifile.c midifile.h)
+  configure_file("${CHOCO_DIR}/src/${_f}" "${CHOCO_STAGE}/${_f}" COPYONLY)
+endforeach()
+set(OPL_SOURCES
+  "${CHOCO_DIR}/opl/opl.c" "${CHOCO_DIR}/opl/opl_queue.c" "${CHOCO_DIR}/opl/opl3.c"
+  "${CHOCO_STAGE}/i_oplmusic.c" "${CHOCO_STAGE}/midifile.c")
+set_source_files_properties(${OPL_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
+set_source_files_properties("${CHOCO_STAGE}/midifile.c" PROPERTIES
+  COMPILE_OPTIONS "-w;-include;${CMAKE_CURRENT_SOURCE_DIR}/src/compat/SDL.h")
+set_source_files_properties("${CHOCO_STAGE}/i_oplmusic.c" PROPERTIES
+  COMPILE_OPTIONS "-w;-include;${CMAKE_CURRENT_SOURCE_DIR}/src/compat/opl_driver_ver.h")
+
 vega_add_sdl3_app(vega_doom
   PACKAGE_ID "com.firetvnative.doom"
-  SOURCES src/doomgeneric_vega.c src/i_sound_vega.c
+  SOURCES src/doomgeneric_vega.c src/i_sound_vega.c src/opl_vega.c
   ASSETS_DIR "${PKGROOT}")
-target_sources(vega_doom PRIVATE ${DOOM_CORE})
-target_include_directories(vega_doom PRIVATE "${DOOMGENERIC_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src/compat")
-target_compile_definitions(vega_doom PRIVATE FEATURE_SOUND DOOMGENERIC_RESX=640 DOOMGENERIC_RESY=400)
+target_sources(vega_doom PRIVATE ${DOOM_CORE} ${OPL_SOURCES})
+target_include_directories(vega_doom PRIVATE "${DOOMGENERIC_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src/compat"
+  "${CHOCO_DIR}/opl" "${CHOCO_STAGE}")
+target_compile_definitions(vega_doom PRIVATE FEATURE_SOUND VEGA_DOOM_OPL_MUSIC DOOMGENERIC_RESX=640 DOOMGENERIC_RESY=400)
 target_link_libraries(vega_doom PRIVATE m)
 vpt_create_package(NAME doom)

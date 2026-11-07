@@ -19,6 +19,10 @@
 #include "z_zone.h"
 
 #define MIX_RATE 48000
+
+#ifdef VEGA_DOOM_OPL_MUSIC
+void vega_opl_set_device_paused(bool paused); /* opl_vega.c */
+#endif
 #define NUM_CHANNELS 16
 
 typedef struct
@@ -78,6 +82,9 @@ static void SDLCALL mix_callback(void *userdata, SDL_AudioStream *stream, int ad
 
 void vega_sound_set_paused(bool paused)
 {
+#ifdef VEGA_DOOM_OPL_MUSIC
+    vega_opl_set_device_paused(paused);
+#endif
     if (!g_stream) return;
     if (paused) SDL_PauseAudioStreamDevice(g_stream);
     else SDL_ResumeAudioStreamDevice(g_stream);
@@ -199,7 +206,27 @@ sound_module_t DG_sound_module = {
     S_StartSound, S_StopSound, S_SoundIsPlaying, S_CacheSounds,
 };
 
-#ifndef VEGA_DOOM_OPL_MUSIC
+#ifdef VEGA_DOOM_OPL_MUSIC
+/* ---- music: Chocolate Doom's OPL MIDI player (GENMIDI patches from the WAD) on our SDL3 OPL driver - */
+extern music_module_t music_opl_module;
+static boolean M_Init(void) { return music_opl_module.Init(); }
+static void M_Shutdown(void) { music_opl_module.Shutdown(); }
+static void M_SetVolume(int v) { music_opl_module.SetMusicVolume(v); }
+static void M_Pause(void) { music_opl_module.PauseMusic(); }
+static void M_Resume(void) { music_opl_module.ResumeMusic(); }
+static void *M_Register(void *d, int l) { return music_opl_module.RegisterSong(d, l); }
+static void M_Unregister(void *h) { music_opl_module.UnRegisterSong(h); }
+static void M_Play(void *h, boolean loop) { music_opl_module.PlaySong(h, loop); }
+static void M_Stop(void) { music_opl_module.StopSong(); }
+static boolean M_IsPlaying(void) { return music_opl_module.MusicIsPlaying(); }
+static void M_Poll(void) { if (music_opl_module.Poll) music_opl_module.Poll(); }
+static snddevice_t music_devices[] = { SNDDEVICE_SB, SNDDEVICE_ADLIB, SNDDEVICE_GENMIDI, SNDDEVICE_GUS, SNDDEVICE_PAS,
+                                       SNDDEVICE_WAVEBLASTER, SNDDEVICE_SOUNDCANVAS, SNDDEVICE_AWE32 };
+music_module_t DG_music_module = {
+    music_devices, (int)SDL_arraysize(music_devices),
+    M_Init, M_Shutdown, M_SetVolume, M_Pause, M_Resume, M_Register, M_Unregister, M_Play, M_Stop, M_IsPlaying, M_Poll,
+};
+#else
 /* ---- music stub (used when OPL music isn't compiled in) ------------------------------------------ */
 static boolean M_Init(void) { return true; }
 static void M_Shutdown(void) {}

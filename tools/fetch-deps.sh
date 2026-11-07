@@ -18,6 +18,7 @@ touch "$LOCK"
 DEPS=(
   "sdl3|3.4.18|https://github.com/libsdl-org/SDL/releases/download/release-3.4.18/SDL3-3.4.18.tar.gz|SDL3-3.4.18"
   "doomgeneric|e257a09|https://github.com/ozkl/doomgeneric/archive/e257a09527062bfb986b6e5e0780839b6cbd5b71.tar.gz|doomgeneric-e257a09527062bfb986b6e5e0780839b6cbd5b71"
+  "chocolate-doom|2.3.0|https://github.com/chocolate-doom/chocolate-doom/archive/refs/tags/chocolate-doom-2.3.0.tar.gz|chocolate-doom-chocolate-doom-2.3.0"
   "freedoom|0.13.0|https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip|freedoom-0.13.0"
 )
 

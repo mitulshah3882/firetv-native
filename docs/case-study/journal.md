@@ -139,3 +139,18 @@ A running log for the public case study. Record decisions, dead ends, timings an
   - a new game started with injected remote presses (Back → menu, OK → New Game → skill)
   - walked forward and fired (ammo 50 → 49)
 - **Media:** `docs/case-study/media/01–04*.jpg`.
+
+**Music (same evening):**
+- Freedoom's soundtrack is MIDI. Real DOS Doom played it through an OPL2/OPL3 FM chip, using the WAD's `GENMIDI` instrument bank.
+- We compile Chocolate Doom 2.3.0's MIDI→OPL player and OPL core, plus the Nuked OPL3 emulator, with **our own SDL3 OPL output driver** (`apps/doom/src/opl_vega.c`). The music engine's callbacks run on the audio thread, timed to the sample.
+- Integration needed only shims, with no edits to third-party files:
+  - an empty `SDL_mixer.h`
+  - a few SDL2→SDL3 renames
+  - the `opl_driver_ver_t` enum
+  - copying two sources into the build tree so they pick up doomgeneric's headers
+- Verified by a level meter: music peaks at 3,000–4,700/32,767 per 10 s window.
+
+**Performance on the Fire TV Stick 4K Select** (during injected gameplay):
+- 56–60 fps presentation (Doom simulates at 35 Hz)
+- worst frame 27–37 ms
+- **RSS 54 MB** against a 420 MB foreground cap

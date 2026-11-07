@@ -266,6 +266,29 @@ void DG_DrawFrame(void)
     SDL_RenderTexture(g_renderer, g_texture, NULL, &dst);
     draw_overlay(w, h);
     SDL_RenderPresent(g_renderer);
+
+    /* perf stats for the case study: fps, worst frame, resident memory */
+    {
+        static Uint64 window_start, last;
+        static int frames;
+        static double worst;
+        const Uint64 now = SDL_GetTicksNS();
+        if (!window_start) window_start = last = now;
+        const double ms = (now - last) / 1e6;
+        if (ms > worst) worst = ms;
+        last = now;
+        frames++;
+        if (now - window_start >= 10 * SDL_NS_PER_SECOND) {
+            long rss_kb = 0;
+            FILE *f = fopen("/proc/self/statm", "r");
+            if (f) { long pages = 0, res = 0; if (fscanf(f, "%ld %ld", &pages, &res) == 2) rss_kb = res * 4; fclose(f); }
+            SDL_Log("doom: %.1f fps, worst frame %.1f ms, RSS %ld MB", frames * 1e9 / (double)(now - window_start),
+                    worst, rss_kb / 1024);
+            window_start = now;
+            frames = 0;
+            worst = 0;
+        }
+    }
 }
 
 void DG_SleepMs(uint32_t ms) { SDL_Delay(ms); }

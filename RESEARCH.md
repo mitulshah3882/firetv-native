@@ -146,3 +146,4 @@ Gotchas found on hardware:
 - The `screenshooter` dev tool hangs holding about 220 MB. Two leftover copies pushed the stick into memory-critical, and the resource manager killed our foreground app. Use `gwsi-tool-screenshooter` with a timeout.
 | Audio | IDL `com.amazon.kepler.audio`: 48 kHz s16 stereo, minimum buffer 768 frames × 2 (32 ms), reported latency 74 ms, 0 underruns. Needs audio focus plus `[[wants.service]]` `com.amazon.audio.stream` and `com.amazon.audio.control` |
 | Runtime paths | Package at `/pkg` (assets in `/pkg/assets`); writable `/data` and `/tmp`; `HOME` unset; cwd `/` |
+| Doom (Freedoom 2, doomgeneric + SDL3-Vega) | 56–60 fps at 1080p (4:3 pixel-art scaled), worst frame 27–37 ms, RSS 54 MB, OPL3 music + sfx running |

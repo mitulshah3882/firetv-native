@@ -21,3 +21,10 @@ categories = ["com.amazon.category.main"]
 [needs]
 [[needs.module]]
 id = "/com.amazon.vega.os@IVega_2_0"
+
+# System services this app talks to (audio playback stream + audio focus/control).
+[wants]
+[[wants.service]]
+id = "com.amazon.audio.stream"
+[[wants.service]]
+id = "com.amazon.audio.control"

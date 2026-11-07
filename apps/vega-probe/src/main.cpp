@@ -24,6 +24,13 @@
 
 #include <apmf/iface/com/amazon/kepler/application/IComponentFactory.h>
 #include <apmf/iface/com/amazon/kepler/application/IInteractiveComponent.h>
+#include <apmf/iface/com/amazon/kepler/audio/IAudioFocus.h>
+#include <apmf/iface/com/amazon/kepler/audio/IAudioFocusAttributes.h>
+#include <apmf/iface/com/amazon/kepler/audio/IAudioFocusAttributesBuilder.h>
+#include <apmf/iface/com/amazon/kepler/audio/IAudioFocusSession.h>
+#include <apmf/iface/com/amazon/kepler/audio/IAudioStream.h>
+#include <apmf/iface/com/amazon/kepler/audio/IAudioStreamPlayback.h>
+#include <apmf/iface/com/amazon/kepler/audio/IAudioStreamPlaybackBuilder.h>
 #include <apmf/iface/com/amazon/kepler/runtime/IComponentInstance.h>
 #include <apmf/iface/com/amazon/apmf/ISubscription.h>
 #include <apmf/iface/com/amazon/kepler/graphics/ICanvasConfig.h>
@@ -53,6 +60,7 @@
 #include <apmf/iface/com/amazon/kepler/input/events/KeyCode.h>
 #include <apmf/iface/com/amazon/kepler/input/events/KeyState.h>
 
+#include <dirent.h>
 #include <dlfcn.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
@@ -79,6 +87,7 @@ namespace kr = apmf::iface::com::amazon::kepler::runtime;
 namespace kg = apmf::iface::com::amazon::kepler::graphics;
 namespace ke = apmf::iface::com::amazon::kepler::input::events;
 namespace km = apmf::iface::com::amazon::kepler::messaging;
+namespace kau = apmf::iface::com::amazon::kepler::audio;
 
 // ---------------------------------------------------------------------------------------------
 // Logging: stderr and syslog, both prefixed so they are easy to filter on device.
@@ -242,6 +251,40 @@ static void probeSystem() {
     void* wx = mmap(nullptr, 4096, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     plog("mmap RWX anonymous page: %s", wx == MAP_FAILED ? strerror(errno) : "ALLOWED");
     if (wx != MAP_FAILED) munmap(wx, 4096);
+
+    // Where do bundled assets live and where can we write (saves/config)?
+    plog("==== PATHS ====");
+    char cwd[512] = {0};
+    plog("cwd: %s", getcwd(cwd, sizeof(cwd)) ? cwd : strerror(errno));
+    char exe[512] = {0};
+    const ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    plog("exe: %s", n > 0 ? exe : strerror(errno));
+    for (const char* v : {"HOME", "TMPDIR", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "LD_LIBRARY_PATH", "APMF_CONFIG_PATH"}) {
+        const char* val = getenv(v);
+        plog("env %s=%s", v, val ? val : "(unset)");
+    }
+    for (const char* d : {"/pkg", "/pkg/assets", "/pkg/assets/raw", "/pkg/lib", "/data", "/home", "/tmp", "/var/tmp", "/mnt"}) {
+        std::string listing;
+        if (DIR* dir = opendir(d)) {
+            int count = 0;
+            while (dirent* e = readdir(dir)) {
+                if (e->d_name[0] == '.') continue;
+                if (count++ < 12) { listing += e->d_name; listing += ' '; }
+            }
+            closedir(dir);
+            plog("dir %s: [%d entries] %s", d, count, listing.c_str());
+        } else {
+            plog("dir %s: %s", d, strerror(errno));
+        }
+    }
+    std::vector<std::string> candidates = {"/tmp", "/data", "/var/tmp"};
+    if (const char* h = getenv("HOME")) candidates.insert(candidates.begin(), h);
+    for (const auto& d : candidates) {
+        const std::string f = d + "/.vegaprobe_write_test";
+        FILE* fp = fopen(f.c_str(), "w");
+        if (fp) { fputs("ok", fp); fclose(fp); unlink(f.c_str()); }
+        plog("writable %s: %s", d.c_str(), fp ? "YES" : strerror(errno));
+    }
 }
 
 static void probeGl(Gl& gl) {
@@ -273,6 +316,106 @@ static void probeGl(Gl& gl) {
         line += ' ';
     }
     if (!line.empty()) plog("  ext: %s", line.c_str());
+}
+
+// ---------------------------------------------------------------------------------------------
+// Audio check: open a 48 kHz stereo s16 playback stream (IDL audio API) and play a short chime.
+// ---------------------------------------------------------------------------------------------
+// Many IDL "sealed struct" constants (e.g. SampleFormat::PCM_16_BIT, WindowRole::APPLICATION) are
+// declared in the generated headers but not defined in any SDK library, so referencing them fails to
+// link. Construct the value from the literal given in the .idl instead.
+template <typename T>
+static T idlConst(const char* value) { return T{String(value)}; }
+
+static void playChime() {
+    const char* step = "init";
+    try {
+        auto process = GetProcessObject();
+        // 1. Audio focus: create a session and request focus for MEDIA usage.
+        step = "focus component";
+        auto focus = process->getComponent("/com.amazon.kepler.audiofocus").TryQueryInterface<kau::IAudioFocus>();
+        int32_t sessionId = -1;
+        Ptr<kau::IAudioFocusSession> session;
+        if (focus) {
+            step = "focus session";
+            session = focus->makeAudioFocusSession();
+            sessionId = session->getSessionId();
+            step = "focus attributes";
+            auto fab = focus->makeAudioFocusAttributesBuilder();
+            fab->usage(idlConst<kau::AudioUsage>("MEDIA"));
+            step = "request focus";
+            session->requestAudioFocus(fab->build());
+            plog("audio: focus requested, session %d", sessionId);
+        } else {
+            plog("audio: no audio focus component");
+        }
+
+        // 2. Stream config and minimum buffer sizing.
+        step = "stream component";
+        auto stream = process->getComponent("/com.amazon.kepler.audiostream").TryQueryInterface<kau::IAudioStream>();
+        if (!stream) { plog("audio: no IAudioStream component"); return; }
+        kau::AudioConfig cfg{48000, idlConst<kau::SampleFormat>("PCM_16_BIT"),
+                             idlConst<kau::ChannelMask>("MASK_STEREO"), kau::SampleLayout::INTERLEAVED};
+        kau::AudioFlags flags{};
+        flags.lowLatency = true;
+        kau::AudioAttributes attr{idlConst<kau::AudioContentType>("GAME"), idlConst<kau::AudioUsage>("MEDIA"), flags,
+                                  kau::AudioStreamTag{}};
+        step = "queryMinimumBufferInfo";
+        int32_t minFrames = 0, minCount = 0;
+        stream->queryMinimumBufferInfo(cfg, attr, &minFrames, &minCount);
+        plog("audio: minimum buffer %d frames x %d buffers (%.1f ms)", minFrames, minCount,
+             1000.0 * minFrames * minCount / 48000.0);
+
+        // 3. Build the playback stream.
+        step = "build";
+        auto builder = stream->makeAudioPlaybackBuilder();
+        builder->audioConfig(cfg);
+        builder->audioAttributes(attr);
+        if (minFrames > 0) builder->framesPerBuffer(minFrames);
+        if (minCount > 0) builder->bufferCount(minCount);
+        if (sessionId >= 0) builder->audioFocusSessionId(sessionId);
+        auto pb = builder->build();
+        plog("audio: stream ok, framesPerBuffer=%d bufferCount=%d latency=%d ms", pb->getFramesPerBuffer(),
+             pb->getBufferCount(), pb->getLatencyInMs());
+
+        // 4. Synthesize a two-note chime and feed it one buffer at a time.
+        const int rate = 48000;
+        std::vector<int16_t> pcm;
+        const float notes[] = {659.25f, 987.77f};  // E5, B5
+        for (float hz : notes) {
+            const int n = rate * 22 / 100;
+            for (int i = 0; i < n; ++i) {
+                const float t = static_cast<float>(i) / rate;
+                const float env = std::exp(-t * 9.0f) * std::min(1.0f, i / 240.0f);
+                const auto v = static_cast<int16_t>(9000.0f * env * std::sin(2.0f * 3.14159265f * hz * t));
+                pcm.push_back(v);
+                pcm.push_back(v);
+            }
+        }
+        step = "start";
+        pb->start();
+        step = "write";
+        const size_t chunk = static_cast<size_t>(std::max(256, pb->getFramesPerBuffer())) * 2;  // samples
+        size_t total = 0;
+        const auto t0 = std::chrono::steady_clock::now();
+        for (size_t off = 0; off < pcm.size(); off += chunk) {
+            const size_t n = std::min(chunk, pcm.size() - off);
+            const auto* bytes = reinterpret_cast<const uint8_t*>(pcm.data() + off);
+            total += static_cast<size_t>(pb->write(ArrayView<const uint8_t>(bytes, n * sizeof(int16_t))));
+        }
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        plog("audio: wrote %zu bytes of %zu in %.1f ms (audio length %.1f ms), underruns=%d", total,
+             pcm.size() * sizeof(int16_t), ms, 1000.0 * pcm.size() / 2 / rate, pb->getUnderrunCount());
+        std::this_thread::sleep_for(std::chrono::milliseconds(pb->getLatencyInMs() + 150));
+        step = "stop";
+        pb->stop();
+        if (session) session->releaseAudioFocus();
+        plog("audio: chime done");
+    } catch (const std::exception& e) {
+        plog("audio: exception at step '%s': %s", step, e.what());
+    } catch (...) {
+        plog("audio: unknown exception at step '%s'", step);
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -437,6 +580,7 @@ private:
         auto glSurface = surface.TryQueryInterface<kg::IGlGraphicsSurface>();
         const GLuint fbo = glSurface ? static_cast<GLuint>(glSurface->getFrameBufferObject()) : 0;
         plog("surface %dx%d, FBO %u", surface->getWidth(), surface->getHeight(), fbo);
+        std::thread(playChime).detach();
         logMatchingLines("/proc/self/status", {"VmSize", "VmRSS"});
 
         const float palette[][3] = {{1, 0.85f, 0.2f}, {0.2f, 0.9f, 1}, {1, 0.3f, 0.6f}, {0.4f, 1, 0.4f}};

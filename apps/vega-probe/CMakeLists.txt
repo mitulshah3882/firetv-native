@@ -19,6 +19,7 @@ include(vpt)  # Vega Packaging Tool CMake functions (vpt_add_*, vpt_create_packa
 kepler_add_idl_import_library(vega_probe_idl
     PACKAGES
     com.amazon.kepler.application
+    com.amazon.kepler.audio
     com.amazon.kepler.graphics
     com.amazon.kepler.buffer
     com.amazon.kepler.input.events

@@ -144,3 +144,5 @@ Gotchas found on hardware:
 - **Plain `add_library` silently produced a `.so` with an unresolved symbol** (`WindowRole::APPLICATION`, declared in the IDL headers but not defined in any SDK library). On the device this showed up only as "Returned error -1 from LAUNCH callback". `kepler_add_library` links with strict flags and surfaces the error at build time. Fix: construct `kg::WindowRole{1}`.
 - The stick's screensaver takes focus back about 5 s after launch when the device has been idle. Apps get `onBackground` and must pause.
 - The `screenshooter` dev tool hangs holding about 220 MB. Two leftover copies pushed the stick into memory-critical, and the resource manager killed our foreground app. Use `gwsi-tool-screenshooter` with a timeout.
+| Audio | IDL `com.amazon.kepler.audio`: 48 kHz s16 stereo, minimum buffer 768 frames × 2 (32 ms), reported latency 74 ms, 0 underruns. Needs audio focus plus `[[wants.service]]` `com.amazon.audio.stream` and `com.amazon.audio.control` |
+| Runtime paths | Package at `/pkg` (assets in `/pkg/assets`); writable `/data` and `/tmp`; `HOME` unset; cwd `/` |

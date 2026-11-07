@@ -40,6 +40,13 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
   - Every input event must be `acknowledge()`d. Back should return `acknowledge(false)` so the system handles it.
   - Gamepad input comes through `IWindow4::addGameControllerEventListener`, with axes via `getAxisValue(ke::AxisCode::ABS_X)`.
   - App memory cap: 420 MB in the foreground, 150 MB in the background.
+  - **IDL "sealed struct" constants are often undefined at link time** (`WindowRole::APPLICATION`, `SampleFormat::PCM_16_BIT`, `AudioUsage::MEDIA`, ...). Construct them from the `.idl` literal instead: `kg::WindowRole{1}`, `idlConst<kau::SampleFormat>("PCM_16_BIT")` (that is, `T{String("...")}`). Plain `add_library` hides this until launch. `kepler_add_library` surfaces it at link time.
+- **Audio** (works: 48 kHz s16 stereo, min 768×2 frames, about 74 ms latency, 0 underruns):
+  - Use the IDL `com.amazon.kepler.audio` package.
+  - Request audio focus first: `/com.amazon.kepler.audiofocus` → `IAudioFocus::makeAudioFocusSession()` → `requestAudioFocus(attrs with usage MEDIA)`.
+  - Then build the stream: `/com.amazon.kepler.audiostream` → `IAudioStream::queryMinimumBufferInfo` → `makeAudioPlaybackBuilder()` with `audioConfig`, `audioAttributes`, `framesPerBuffer`, `bufferCount` and `audioFocusSessionId`, then `build()`, `start()`, and blocking `write(ArrayView<const uint8_t>)`.
+  - **The manifest needs `[[wants.service]]` entries for `com.amazon.audio.stream` and `com.amazon.audio.control`.** Without them you get "IPC link unsuccessful".
+  - The C API headers (`VAudioStream.h`) are unusable: `Vntk/Vntk.h` isn't in the SDK.
 
 ## Device workflow (use `tools/vega.sh`)
 - `tools/vega.sh run <app-dir> <component-id>` builds, installs and launches. `key KEY_RIGHT ...` injects input. `shot out.png 960` takes a screenshot of the TV and pulls it to the Mac (view it with Read). `logs 20 'pattern'` streams logs.
@@ -47,6 +54,7 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 - Logs: `journalctl` is blocked in the dev shell, and `loggingctl` returned nothing through run-cmd. Use `vega device start-log-stream` and grep for `user.info <pkg-id>`. App stdout/syslog and APMF logger lines all show up there.
 - Input injection: `inputd-cli button_press KEY_RIGHT` (Linux key names). Use it to dismiss the screensaver and keep the device awake. The screensaver reclaims focus about 5 s after launch if the stick has been idle.
 - Screenshots: **only use `gwsi-tool-screenshooter /tmp/x.png`**. Plain `screenshooter` hangs holding about 220 MB. Two leftover copies once pushed the 1 GB stick into memory-critical, and the system killed our app. Wrap screenshots in `timeout`.
+- **Runtime paths:** the package is mounted at `/pkg` (`/pkg/assets`, `/pkg/lib/armv7`, `/pkg/manifest.toml`). Writable dirs are `/data` (app-private) and `/tmp`. `HOME` is unset and the working directory is `/`. The process exe is `/usr/bin/stem-init`, and our `.so` is loaded from `/mnt`.
 - Device facts (4K Select, product "calypso", OS 2.0 Ship/532): armv7l, **Mesa 24.3.1 OpenGL ES 3.1** (GLSL ES 3.10), 126 extensions, max texture 8192, surface 1920×1080, 60 Hz. The probe runs at a steady 59.7 fps. MemTotal is about 975 MB and MemAvailable is about 570 MB when idle.
 - The resource manager kills apps under memory pressure. If an app dies right after launch, check the logs for `memory-critical: request to terminate pid`.
 

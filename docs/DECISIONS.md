@@ -12,3 +12,4 @@ A short log of settled decisions. Newest at the bottom. Format: date, decision, 
 8. **2026-11-07: Builder Tools MCP installed in agent mode (opt-in `adbt-dev`)**, not as an always-on steering doc. Its guidance is React Native-centric and would be noise for native work.
 9. **2026-11-07: Fire Max 11 tablet is an optional bench device, not the target.** The headline is Fire TV.
 10. **2026-11-07: User granted commit permission for this repo.** Pushing still needs explicit permission. Weekly usage must stay below 90%.
+11. **2026-11-07: Phase 1 = an SDL3 backend for Vega** (video plus GLES context, keys, virtual gamepad, audio, lifecycle, paths). It unlocks the SDL game ecosystem. The same code develops on macOS with stock SDL3 and ships on Vega. It's an upstreamable open-source contribution, and the N64 libdragon runtime in Phase 2 will sit on it. First title: an SDL-based Doom port with Freedoom (BSD-licensed assets).

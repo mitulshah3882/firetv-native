@@ -31,7 +31,7 @@ Quake: `tools/vega.sh run apps/quake com.firetvnative.quake.main armv7 Release`.
 | `apps/sdl-demo` | SDL3 renderer, input and audio demo |
 | `apps/vega-probe` | pure-C++ Vega capability probe |
 | `tools/` | `vega.sh` (build, install, launch, key injection, screenshot, logs), `fetch-deps.sh` |
-| `docs/` | case study, journal, status, decisions |
+| `docs/` | [porting guide](docs/PORTING.md), case study, journal, status, decisions |
 
 ## Target hardware
 | Device | OS | CPU | GPU | RAM |

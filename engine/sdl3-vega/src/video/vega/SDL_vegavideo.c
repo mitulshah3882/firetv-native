@@ -6,6 +6,7 @@
   - Remote keys become keyboard events; game controllers become an SDL virtual gamepad.
   - Vega lifecycle maps onto SDL's application events (background/foreground/quit).
 
+  SPDX-FileCopyrightText: 2026 Mitul Shah
   SPDX-License-Identifier: Zlib
 */
 #include "SDL_internal.h"

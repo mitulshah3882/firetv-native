@@ -8,6 +8,7 @@
  *
  * Music is provided by i_music_vega.c (OPL synthesis), or stubbed if that file isn't built.
  *
+ * SPDX-FileCopyrightText: 2026 Mitul Shah
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include <SDL3/SDL.h>

@@ -5,6 +5,7 @@
  *  - SDL audio stream: a small synth; OK/A plays a note, the background plays a soft arpeggio
  *  - lifecycle: pauses when backgrounded; Back/Escape twice quits
  *
+ * SPDX-FileCopyrightText: 2026 Mitul Shah
  * SPDX-License-Identifier: MIT
  */
 #include <SDL3/SDL.h>

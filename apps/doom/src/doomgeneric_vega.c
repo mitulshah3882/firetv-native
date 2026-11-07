@@ -8,6 +8,7 @@
  *  - First launch shows a short controls overlay.
  *  - Sound: see i_sound_vega.c.
  *
+ * SPDX-FileCopyrightText: 2026 Mitul Shah
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include <SDL3/SDL.h>

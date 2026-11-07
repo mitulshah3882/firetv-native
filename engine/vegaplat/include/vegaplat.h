@@ -9,6 +9,7 @@
  *   - blocking PCM audio output,
  *   - well-known filesystem locations.
  *
+ * SPDX-FileCopyrightText: 2026 Mitul Shah
  * SPDX-License-Identifier: MIT
  */
 #ifndef VEGAPLAT_H

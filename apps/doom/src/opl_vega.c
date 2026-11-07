@@ -7,6 +7,7 @@
  * generated, which keeps note timing sample-accurate. Written for the Fire TV / Vega SDL3 port,
  * after the design of Chocolate Doom's SDL_mixer driver (opl_sdl.c, GPL-2.0-or-later).
  *
+ * SPDX-FileCopyrightText: 2026 Mitul Shah
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include <SDL3/SDL.h>

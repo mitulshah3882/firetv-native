@@ -8,6 +8,7 @@
  *  - Data: LibreQuake (BSD-3 art, GPL-2 QuakeC). The read-only package's id1/*.pak files are
  *    symlinked into a writable game dir so config and savegames persist.
  *
+ * SPDX-FileCopyrightText: 2026 Mitul Shah
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include <SDL3/SDL.h>

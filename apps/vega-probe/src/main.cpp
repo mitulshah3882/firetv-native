@@ -9,6 +9,7 @@
 //     left stick of a game controller. OK / A changes the square's colour.
 //   * Logs every key, gamepad button and axis event, plus frame-time stats every 5 s.
 //
+// SPDX-FileCopyrightText: 2026 Mitul Shah
 // SPDX-License-Identifier: MIT
 
 #include <apmf/apmf_base.h>

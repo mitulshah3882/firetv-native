@@ -6,6 +6,7 @@
 #   tools/fetch-deps.sh            # fetch everything
 #   tools/fetch-deps.sh sdl3       # fetch one dependency
 #
+# SPDX-FileCopyrightText: 2026 Mitul Shah
 # SPDX-License-Identifier: MIT
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

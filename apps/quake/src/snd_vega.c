@@ -5,6 +5,7 @@
  * position reported by SNDDMA_GetDMAPos(). Here the "DMA hardware" is an SDL3 audio callback that
  * copies out of the ring and advances that position.
  *
+ * SPDX-FileCopyrightText: 2026 Mitul Shah
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include <SDL3/SDL.h>

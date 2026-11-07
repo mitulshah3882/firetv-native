@@ -2,6 +2,7 @@
   SDL3 audio driver for Amazon Vega OS (Fire TV), built on the vegaplat platform layer.
   Output is signed 16-bit stereo at 48 kHz; SDL converts from whatever the app requests.
 
+  SPDX-FileCopyrightText: 2026 Mitul Shah
   SPDX-License-Identifier: Zlib
 */
 #include "SDL_internal.h"

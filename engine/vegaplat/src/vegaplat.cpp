@@ -1,4 +1,5 @@
 // vegaplat implementation on top of the Vega OS native (APMF/IDL) interfaces.
+// SPDX-FileCopyrightText: 2026 Mitul Shah
 // SPDX-License-Identifier: MIT
 
 #include "vegaplat.h"

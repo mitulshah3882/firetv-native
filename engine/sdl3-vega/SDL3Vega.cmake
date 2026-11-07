@@ -10,6 +10,7 @@
 #   3. Builds SDL3 as a PIC static library with all desktop-Linux backends disabled (no X11/Wayland/
 #      ALSA/Pulse/udev...), GLES2 renderer on, and our drivers + vegaplat injected.
 #
+# SPDX-FileCopyrightText: 2026 Mitul Shah
 # SPDX-License-Identifier: MIT
 
 set(SDL3VEGA_DIR "${CMAKE_CURRENT_LIST_DIR}")

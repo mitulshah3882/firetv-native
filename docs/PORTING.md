@@ -68,7 +68,7 @@ tools/vega.sh run apps/mygame com.example.mygame.main armv7 Release
 | Audio | Any `SDL_AudioStream` format. Output is 48 kHz s16 stereo at about 75–80 ms latency. Several streams mix fine. |
 | `SDL_GetBasePath()` | `/pkg/assets/`, the package's read-only assets. |
 | `SDL_GetPrefPath(org, app)` | `/data/<org>/<app>/`, which is writable and persists. |
-| Lifecycle | Backgrounding sends `SDL_EVENT_DID_ENTER_BACKGROUND`, and presenting then blocks until you're visible again. Pause your audio. A system stop sends `SDL_EVENT_QUIT`. Returning from `main` ends the app cleanly. |
+| Lifecycle | Backgrounding queues `SDL_EVENT_WINDOW_HIDDEN` (and `FOCUS_LOST`); coming back queues `SDL_EVENT_WINDOW_SHOWN`. SDL3 delivers `SDL_EVENT_DID_ENTER_BACKGROUND/FOREGROUND` **only to event watchers** (`SDL_AddEventWatch`), never to `SDL_PollEvent`, so a polling loop must use the window events. While hidden, presenting blocks until you're visible again. Pause your audio. A system stop queues `SDL_EVENT_QUIT`. Returning from `main` ends the app cleanly. |
 
 ## 4. TV-specific advice (learned the hard way)
 - **Design for the remote first.** You get a D-pad, OK, Back, Menu and Play/Pause. Make OK context-sensitive: select in menus, the primary action in game. Resolve that when the game *reads* the input, not when it's pressed (see `apps/quake`).

@@ -116,8 +116,9 @@ int main(int argc, char **argv)
         while (SDL_PollEvent(&e)) {
             switch (e.type) {
             case SDL_EVENT_QUIT: running = false; break;
-            case SDL_EVENT_DID_ENTER_BACKGROUND: paused = true; if (synth.stream) SDL_PauseAudioStreamDevice(synth.stream); break;
-            case SDL_EVENT_DID_ENTER_FOREGROUND: paused = false; if (synth.stream) SDL_ResumeAudioStreamDevice(synth.stream); break;
+            /* SDL3 delivers DID_ENTER_* only to event watchers; the Vega driver queues WINDOW_HIDDEN/SHOWN. */
+            case SDL_EVENT_DID_ENTER_BACKGROUND: case SDL_EVENT_WINDOW_HIDDEN: paused = true; if (synth.stream) SDL_PauseAudioStreamDevice(synth.stream); break;
+            case SDL_EVENT_DID_ENTER_FOREGROUND: case SDL_EVENT_WINDOW_SHOWN: paused = false; if (synth.stream) SDL_ResumeAudioStreamDevice(synth.stream); break;
             case SDL_EVENT_GAMEPAD_ADDED:
                 if (!pad) {
                     pad = SDL_OpenGamepad(e.gdevice.which);

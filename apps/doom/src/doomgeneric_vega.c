@@ -183,11 +183,15 @@ static void pump_events(void)
         case SDL_EVENT_QUIT:
             SDL_Log("doom: quit requested");
             exit(0);
+        /* SDL3 only gives DID_ENTER_* to event watchers, never the queue; the Vega driver also queues
+         * WINDOW_HIDDEN / WINDOW_SHOWN, which this polling loop does see. */
         case SDL_EVENT_DID_ENTER_BACKGROUND:
+        case SDL_EVENT_WINDOW_HIDDEN:
             g_paused = true;
             vega_sound_set_paused(true);
             break;
         case SDL_EVENT_DID_ENTER_FOREGROUND:
+        case SDL_EVENT_WINDOW_SHOWN:
             g_paused = false;
             vega_sound_set_paused(false);
             break;
@@ -342,6 +346,12 @@ int main(int argc, char **argv)
 
     char *args[] = { argv[0], "-iwad", (char *)iwad, NULL };
     doomgeneric_Create(3, args);
+    /* Yes/no prompts ("press y to quit") expect a keyboard. A remote has none, so OK (Enter) is
+     * "yes" and Back (Escape, always accepted by the prompt) is "no". Set after the config loads. */
+    {
+        extern int key_menu_confirm;
+        key_menu_confirm = KEY_ENTER;
+    }
     for (;;) {
         doomgeneric_Tick();
     }

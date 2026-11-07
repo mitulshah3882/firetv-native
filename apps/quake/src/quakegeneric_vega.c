@@ -55,7 +55,12 @@ static int resolve_virtual(int vk, int down)
     const int slot = vk == VK_OK ? 0 : 1;
     if (down) {
         extern keydest_t key_dest;
-        g_vk_held[slot] = key_dest == key_game ? (vk == VK_OK ? K_CTRL : K_SPACE) : K_ENTER;
+        /* menu.c's anonymous-enum m_state; m_quit is its 13th value (12). The quit prompt only takes
+         * 'y', which a remote doesn't have, so OK/A answers "yes" there (Back still says "no"). */
+        extern int m_state;
+        enum { M_QUIT = 12 };
+        if (key_dest == key_menu && m_state == M_QUIT) g_vk_held[slot] = 'y';
+        else g_vk_held[slot] = key_dest == key_game ? (vk == VK_OK ? K_CTRL : K_SPACE) : K_ENTER;
     }
     return g_vk_held[slot]; /* release whatever was pressed */
 }
@@ -139,8 +144,15 @@ static void pump_events(void)
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
         case SDL_EVENT_QUIT: Sys_Quit(); break;
-        case SDL_EVENT_DID_ENTER_BACKGROUND: g_paused = true; break;
-        case SDL_EVENT_DID_ENTER_FOREGROUND: g_paused = false; break;
+        /* SDL3 delivers DID_ENTER_* only to event watchers; the Vega driver queues WINDOW_HIDDEN/SHOWN. */
+        case SDL_EVENT_DID_ENTER_BACKGROUND: case SDL_EVENT_WINDOW_HIDDEN:
+            if (!g_paused) CDAudio_Pause();
+            g_paused = true;
+            break;
+        case SDL_EVENT_DID_ENTER_FOREGROUND: case SDL_EVENT_WINDOW_SHOWN:
+            if (g_paused) CDAudio_Resume();
+            g_paused = false;
+            break;
         case SDL_EVENT_KEY_DOWN: case SDL_EVENT_KEY_UP: handle_key(&e.key); break;
         case SDL_EVENT_GAMEPAD_ADDED:
             if (!g_pad) g_pad = SDL_OpenGamepad(e.gdevice.which);

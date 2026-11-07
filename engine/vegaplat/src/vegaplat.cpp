@@ -51,6 +51,9 @@
 #include <apmf/iface/com/amazon/kepler/input/events/IInputDevice.h>
 #include <apmf/iface/com/amazon/kepler/input/events/KeyCode.h>
 #include <apmf/iface/com/amazon/kepler/input/events/KeyState.h>
+#include <apmf/iface/com/amazon/kepler/messaging/IMessage.h>
+#include <apmf/iface/com/amazon/kepler/messaging/IMessageBuilder.h>
+#include <apmf/iface/com/amazon/kepler/messaging/IMessagingModule.h>
 #include <apmf/iface/com/amazon/kepler/runtime/IComponentInstance.h>
 #include <apmf/iface/com/amazon/kepler/runtime/IComponentInstance2.h>
 
@@ -276,11 +279,29 @@ static void runApp() {
     }
 }
 
+static std::mutex gLaunchMu;
+static std::string gLaunchUri;
+
+static void noteLaunchMessage(View<km::IMessage> msg, const char* what) {
+    std::string uri;
+    try {
+        if (msg) {
+            if (auto u = msg->getTargetUri()) uri = u->c_str();
+        }
+    } catch (...) {
+    }
+    {
+        std::lock_guard<std::mutex> lk(gLaunchMu);
+        gLaunchUri = uri;
+    }
+    vp_log("lifecycle: %s (%s) uri=%s", what, VEGA_PACKAGE_ID, uri.empty() ? "-" : uri.c_str());
+}
+
 struct VpComponent : ApmfBase<VpComponent, ka::IInteractiveComponent> {
-    void onStart(View<kr::IComponentInstance> instance, View<km::IMessage>) {
+    void onStart(View<kr::IComponentInstance> instance, View<km::IMessage> msg) {
         S().instance = Ptr<kr::IComponentInstance>(instance);
         startLogReplay();
-        vp_log("lifecycle: start (%s)", VEGA_PACKAGE_ID);
+        noteLaunchMessage(msg, "start");
     }
     void onForeground(View<kr::IComponentInstance> instance) {
         vp_log("lifecycle: foreground");
@@ -309,7 +330,7 @@ struct VpComponent : ApmfBase<VpComponent, ka::IInteractiveComponent> {
             if (!S().appRunning) S().appThread.join(); else S().appThread.detach();
         }
     }
-    void onNewLaunch(View<kr::IComponentInstance>, View<km::IMessage>) { vp_log("lifecycle: relaunch"); }
+    void onNewLaunch(View<kr::IComponentInstance>, View<km::IMessage> msg) { noteLaunchMessage(msg, "relaunch"); }
     void onSaveState(View<kr::IComponentInstance>) {}
 };
 
@@ -621,5 +642,42 @@ extern "C" void vp_audio_close(vp_audio* a) {
 // ------------------------------------------------------------------------------------------------
 // Paths
 // ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+// Launching other apps: a message to a component URI goes through the system's message router and
+// lifecycle manager, exactly like a launch from the home screen.
+// ------------------------------------------------------------------------------------------------
+extern "C" bool vp_launch_uri(const char* uri) {
+    if (!uri || !*uri) return false;
+    try {
+        auto messaging =
+            GetProcessObject()->getComponent("/com.amazon.kepler.messaging").TryQueryInterface<km::IMessagingModule>();
+        if (!messaging) {
+            vp_log("launch: messaging module unavailable");
+            return false;
+        }
+        bool allowed = true;
+        try {
+            allowed = messaging->canSendUri(StringView(uri));
+        } catch (...) {
+        }
+        auto msg = messaging->makeMessageBuilder(StringView(uri))->build();
+        messaging->send(msg, nullptr);
+        vp_log("launch: sent %s (canSendUri=%d)", uri, allowed ? 1 : 0);
+        return true;
+    } catch (const std::exception& e) {
+        vp_log("launch: %s failed: %s", uri, e.what());
+    } catch (...) {
+        vp_log("launch: %s failed", uri);
+    }
+    return false;
+}
+
+extern "C" const char* vp_launch_uri_received(void) {
+    static thread_local std::string copy;
+    std::lock_guard<std::mutex> lk(gLaunchMu);
+    copy = gLaunchUri;
+    return copy.c_str();
+}
+
 extern "C" const char* vp_assets_dir(void) { return "/pkg/assets/"; }
 extern "C" const char* vp_data_dir(void) { return "/data/"; }

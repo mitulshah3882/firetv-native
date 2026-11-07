@@ -91,6 +91,15 @@ void vp_audio_set_paused(vp_audio *a, bool paused);
 int vp_audio_latency_ms(vp_audio *a);
 void vp_audio_close(vp_audio *a);
 
+/* ---- launching other apps -------------------------------------------------------------------- */
+/* Asks the system to launch (or bring back to the foreground) another app's component, the same way
+ * the home screen does, e.g. "pkg://com.firetvnative.doom.main". Query parameters are passed through
+ * to the target (see vp_launch_uri_received). Returns false if the request was rejected. */
+bool vp_launch_uri(const char *uri);
+/* The URI of the most recent launch request for this app (it may carry "?key=value" parameters),
+ * or "" when launched without one. Thread-safe; returns a copy in an internal buffer. */
+const char *vp_launch_uri_received(void);
+
 /* ---- paths ----------------------------------------------------------------------------------- */
 const char *vp_assets_dir(void);   /* read-only bundled assets, with trailing slash: "/pkg/assets/" */
 const char *vp_data_dir(void);     /* app-private persistent storage, trailing slash: "/data/" */

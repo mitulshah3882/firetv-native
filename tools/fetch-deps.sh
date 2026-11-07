@@ -25,12 +25,24 @@ DEPS=(
   "idquake|bf4ac42|https://github.com/id-Software/Quake/archive/bf4ac424ce754894ac8f1dae6a3981954bc9852d.tar.gz|Quake-bf4ac424ce754894ac8f1dae6a3981954bc9852d"
   "librequake|0.09-beta|https://github.com/lavenderdotpet/LibreQuake/releases/download/v0.09-beta/lite.zip|librequake-0.09-lite"
   "freedoom|0.13.0|https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip|freedoom-0.13.0"
+  # Single files (fonts and header-only libraries) land in <extracted-dir>/<file name>.
+  "stb_truetype|4e9b368|https://raw.githubusercontent.com/nothings/stb/4e9b368bfc071e97206ea5c6adba68dd0cbf8897/stb_truetype.h|stb"
+  "stb_vorbis|4e9b368|https://raw.githubusercontent.com/nothings/stb/4e9b368bfc071e97206ea5c6adba68dd0cbf8897/stb_vorbis.c|stb"
+  "font-chakrapetch-regular|86aced9|https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/chakrapetch/ChakraPetch-Regular.ttf|fonts"
+  "font-chakrapetch-semibold|86aced9|https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/chakrapetch/ChakraPetch-SemiBold.ttf|fonts"
+  "font-chakrapetch-bold|86aced9|https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/chakrapetch/ChakraPetch-Bold.ttf|fonts"
+  "font-chakrapetch-ofl|86aced9|https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/chakrapetch/OFL.txt|fonts/ChakraPetch"
+  "font-pressstart2p|86aced9|https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/pressstart2p/PressStart2P-Regular.ttf|fonts"
+  "font-pressstart2p-ofl|86aced9|https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/pressstart2p/OFL.txt|fonts/PressStart2P"
 )
 
 fetch() {
   local name="$1" version="$2" url="$3" dir="$4"
   local tarball="$SRC/$(basename "$url")"
-  if [[ -d "$SRC/$dir" ]]; then echo "[$name] already present: $SRC/$dir"; return; fi
+  local single=0
+  case "$url" in *.h|*.c|*.ttf|*.txt) single=1 ;; esac
+  if [[ $single == 1 && -f "$SRC/$dir/$(basename "$url")" ]]; then echo "[$name] already present"; return; fi
+  if [[ $single == 0 && -d "$SRC/$dir" ]]; then echo "[$name] already present: $SRC/$dir"; return; fi
   echo "[$name] downloading $url"
   curl -fL --retry 3 -o "$tarball" "$url"
   local sum; sum="$(shasum -a 256 "$tarball" | cut -d' ' -f1)"
@@ -40,6 +52,9 @@ fetch() {
     echo "[$name] recorded sha256 $sum"
   elif [[ "$locked" != "$sum" ]]; then
     echo "[$name] CHECKSUM MISMATCH: expected $locked got $sum" >&2; rm -f "$tarball"; exit 1
+  fi
+  if [[ $single == 1 ]]; then
+    mkdir -p "$SRC/$dir"; mv "$tarball" "$SRC/$dir/"; echo "[$name] saved to $SRC/$dir/"; return
   fi
   case "$tarball" in
     *.zip) if unzip -Z1 "$tarball" | head -1 | grep -q "^$dir/"; then unzip -q "$tarball" -d "$SRC"; else unzip -q "$tarball" -d "$SRC/$dir"; fi ;;

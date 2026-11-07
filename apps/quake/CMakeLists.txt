@@ -21,7 +21,7 @@ if(NOT EXISTS "${QG_DIR}/host.c" OR NOT EXISTS "${IDQ_DIR}/snd_dma.c" OR NOT EXI
 endif()
 
 set(QUAKE_CORE
-  cd_null.c chase.c cl_demo.c cl_input.c cl_main.c cl_parse.c cl_tent.c cmd.c common.c console.c crc.c cvar.c
+  chase.c cl_demo.c cl_input.c cl_main.c cl_parse.c cl_tent.c cmd.c common.c console.c crc.c cvar.c
   d_edge.c d_fill.c d_init.c d_modech.c d_part.c d_polyse.c d_scan.c d_sky.c d_sprite.c d_surf.c d_vars.c
   d_zpoint.c draw.c host.c host_cmd.c in_null.c keys.c mathlib.c menu.c model.c net_loop.c net_main.c net_none.c
   net_vcr.c nonintel.c pr_cmds.c pr_edict.c pr_exec.c r_aclip.c r_alias.c r_bsp.c r_draw.c r_edge.c r_efrag.c
@@ -44,6 +44,8 @@ set(PKGROOT "${CMAKE_BINARY_DIR}/pkgroot")
 file(MAKE_DIRECTORY "${PKGROOT}/assets/id1")
 configure_file("${LQ_DIR}/pak0.pak" "${PKGROOT}/assets/id1/pak0.pak" COPYONLY)
 configure_file("${LQ_DIR}/pak1.pak" "${PKGROOT}/assets/id1/pak1.pak" COPYONLY)
+# The soundtrack (BSD-3, like LibreQuake's other sounds), streamed by src/cd_vega.c.
+file(COPY "${LQ_DIR}/music" DESTINATION "${PKGROOT}/assets")
 file(COPY "${LQ_DIR}/docs" DESTINATION "${PKGROOT}/assets/librequake")
 # Launcher icon (cropped from a LibreQuake scene, BSD-3 artwork).
 file(MAKE_DIRECTORY "${PKGROOT}/assets/image")
@@ -51,9 +53,10 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/icon/icon.png" "${PKGROOT}/assets/im
 
 vega_add_sdl3_app(vega_quake
   PACKAGE_ID "com.firetvnative.quake"
-  SOURCES src/quakegeneric_vega.c src/snd_vega.c
+  SOURCES src/quakegeneric_vega.c src/snd_vega.c src/cd_vega.c
   ASSETS_DIR "${PKGROOT}")
 target_sources(vega_quake PRIVATE ${QUAKE_CORE} ${QUAKE_SOUND})
-target_include_directories(vega_quake PRIVATE "${QG_DIR}")
+target_include_directories(vega_quake PRIVATE "${QG_DIR}" "${_repo}/third_party/_src/stb")
+set_source_files_properties(src/cd_vega.c PROPERTIES COMPILE_OPTIONS "-w")
 target_link_libraries(vega_quake PRIVATE m)
 vpt_create_package(NAME quake)

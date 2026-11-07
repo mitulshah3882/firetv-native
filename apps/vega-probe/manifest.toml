@@ -1,0 +1,23 @@
+schema-version = 1
+
+[package]
+title = "Vega Probe"
+version = "0.1.0"
+build-number = 1
+id = "com.firetvnative.vegaprobe"
+
+[os.version]
+min = "2.0"
+target = "2.0"
+
+[components]
+# A pure native interactive component: no runtime-module, so the system loads
+# /<package-id>.entry_point_factory from this package's shared library.
+[[components.interactive]]
+id = "com.firetvnative.vegaprobe.main"
+launch-type = "singleton"
+categories = ["com.amazon.category.main"]
+
+[needs]
+[[needs.module]]
+id = "/com.amazon.vega.os@IVega_2_0"

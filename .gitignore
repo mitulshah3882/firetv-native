@@ -1,0 +1,42 @@
+# --- Game data: NEVER commit ROMs, dumps, keys, or extracted assets ---
+*.z64
+*.n64
+*.v64
+*.rom
+*.bin
+*.nsp
+*.xci
+*.nca
+*.iso
+*.cue
+*.chd
+*.wad
+prod.keys
+title.keys
+/roms/
+/dumps/
+/extracted/
+/assets-extracted/
+**/extracted/
+
+# --- Build outputs ---
+build/
+out/
+*.vpkg
+*.o
+*.a
+*.so
+*.elf
+*.dSYM/
+compile_commands.json
+.cache/
+
+# --- Third-party source checkouts (fetched by scripts, not vendored) ---
+/third_party/_src/
+
+# --- Editor / OS ---
+.DS_Store
+.vscode/
+.idea/
+*.swp
+CMakeUserPresets.json

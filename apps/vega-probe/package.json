@@ -1,0 +1,11 @@
+{
+  "name": "vega-probe",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pure native (C++) Vega OS probe app: reports device capabilities and draws with OpenGL ES.",
+  "license": "MIT",
+  "kepler": {
+    "projectType": "native",
+    "targets": ["tv"]
+  }
+}

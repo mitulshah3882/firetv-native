@@ -37,6 +37,9 @@ set(PKGROOT "${CMAKE_BINARY_DIR}/pkgroot")
 file(MAKE_DIRECTORY "${PKGROOT}/assets")
 configure_file("${FREEDOOM_DIR}/freedoom2.wad" "${PKGROOT}/assets/freedoom2.wad" COPYONLY)
 configure_file("${FREEDOOM_DIR}/COPYING.txt" "${PKGROOT}/assets/FREEDOOM-COPYING.txt" COPYONLY)
+# Launcher icon (cropped from the Freedoom title screen, BSD-licensed artwork).
+file(MAKE_DIRECTORY "${PKGROOT}/assets/image")
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/icon/icon.png" "${PKGROOT}/assets/image/icon.png" COPYONLY)
 
 # OPL music: Chocolate Doom's MIDI->OPL player + OPL core + Nuked OPL3, with our SDL3 output driver.
 # Chocolate Doom's src/ holds headers that clash with doomgeneric's (quoted includes search the source

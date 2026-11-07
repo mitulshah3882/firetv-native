@@ -2,6 +2,7 @@ schema-version = 1
 
 [package]
 title = "LibreQuake"
+icon = "@image/icon.png"
 version = "0.1.0"
 build-number = 1
 id = "com.firetvnative.quake"

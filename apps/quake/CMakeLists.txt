@@ -45,6 +45,9 @@ file(MAKE_DIRECTORY "${PKGROOT}/assets/id1")
 configure_file("${LQ_DIR}/pak0.pak" "${PKGROOT}/assets/id1/pak0.pak" COPYONLY)
 configure_file("${LQ_DIR}/pak1.pak" "${PKGROOT}/assets/id1/pak1.pak" COPYONLY)
 file(COPY "${LQ_DIR}/docs" DESTINATION "${PKGROOT}/assets/librequake")
+# Launcher icon (cropped from a LibreQuake scene, BSD-3 artwork).
+file(MAKE_DIRECTORY "${PKGROOT}/assets/image")
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/icon/icon.png" "${PKGROOT}/assets/image/icon.png" COPYONLY)
 
 vega_add_sdl3_app(vega_quake
   PACKAGE_ID "com.firetvnative.quake"

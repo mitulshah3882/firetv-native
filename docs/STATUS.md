@@ -1,25 +1,29 @@
 # Status
 
-_Last updated: 2026-11-07 ~14:10 local. Update this file at every milestone._
+_Last updated: 2026-11-07 ~14:35 local. Update this file at every milestone._
 
 ## Current phase
-**Phase 1: native game foundation.** SDL3 backend is DONE and verified on hardware. Next: Doom (doomgeneric + Freedoom) on SDL3-Vega.
+**Phase 1 is done** (SDL3 on Vega, plus Doom with music). **Next: Phase 2**, N64 static recompilation of libdragon homebrew.
 
 ## Done
-- Phase 0: SDK, tooling, `apps/vega-probe` (capability report, audio check).
-- `engine/vegaplat`: C platform layer over Amazon's APIs (lifecycle, GLES window, input queue, audio, paths, early-log replay).
-- `engine/sdl3-vega`: SDL3 video and audio drivers plus `SDL3Vega.cmake` (pinned SDL 3.4.18, idempotent patch, `vega_add_sdl3_app()` helper).
-- `apps/sdl-demo`: SDL3 renderer, input, audio and HUD at 59.9 fps on the 4K Select.
-- `tools/vega.sh` (build/install/launch/key/shot/logs), `tools/fetch-deps.sh` (pinned deps with sha256 lock).
+- Phase 0: SDK, tooling, `apps/vega-probe`.
+- Phase 1:
+  - `engine/vegaplat` and `engine/sdl3-vega` (SDL 3.4.18).
+  - `apps/sdl-demo`: 59.9 fps.
+  - `apps/doom`: Freedoom 2 with sound effects, OPL3 music, and remote and gamepad controls. 56–60 fps, 54 MB RSS.
+- Docs: case-study draft (`docs/case-study/README.md`), journal, media screenshots.
 
 ## Next
-1. `apps/doom`: doomgeneric (GPL-2.0) plus our own SDL3 backend (video scaling, remote and gamepad controls, sfx mixer, OPL music if feasible), with Freedoom (BSD) as the IWAD, bundled as an asset.
-2. Polish for "wow": a title screen or overlay, correct aspect ratio, a smooth 35 Hz to 60 Hz presentation, and a TV-friendly control scheme.
-3. Test on the other two sticks (HD 2026, 4K 3rd gen) if attached.
-4. Case-study write-up draft.
+1. Phase 2 feasibility: is a libdragon toolchain available on macOS (prebuilt)? Then N64Recomp on a libdragon ELF, and a libdragon runtime prototype on SDL3. Start with libdragon's own examples.
+2. Optional polish: a branded splash screen (`assets/raw/SplashScreenImages.zip`, which the system looks for), and tests on the other two sticks.
+3. Keep the journal current. Commit at milestones.
+
+## Needs a user decision
+- License for our own code: MIT (current SPDX headers) or something else, and the copyright holder name.
+- Whether to push to a public GitHub repo, and its name.
 
 ## Watch items
-- Weekly usage below 90% (13% at 13:55).
-- Disk: about 19 GB free.
-- Device logs: a new process's lines from its first few seconds are dropped. Look for replayed `R| ` lines.
+- Weekly usage below 90% (14% at 14:30).
+- Disk: about 19 GB free (third_party/_src about 150 MB).
+- Device logs drop a new process's first seconds of output; look for replayed `R| ` lines.
 - Never use device `screenshooter`; use `gwsi-tool-screenshooter` (wrapped in `tools/vega.sh shot`).

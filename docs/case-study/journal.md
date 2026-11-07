@@ -121,3 +121,21 @@ A running log for the public case study. Record decisions, dead ends, timings an
 2. The system log drops a new process's first few seconds of output. vegaplat now replays early log lines 6 s after start.
 
 **Result** (verified by screenshot from the TV): `apps/sdl-demo`, unmodified SDL3 code, runs at **59.9 fps at 1920×1080 on the `opengles2` renderer**. Video and audio drivers are `vega`. Remote input flies the ship, and OK plays synth notes.
+
+---
+
+## 2026-11-07 · Day 0 (evening): Doom runs natively on Fire TV
+
+- **Stack:** doomgeneric (GPL-2.0, pinned commit) with **our own SDL3 platform backend** (`apps/doom/src/doomgeneric_vega.c`) and **sound-effects mixer** (`i_sound_vega.c`). Freedoom: Phase 2 (BSD) is the game data. The WAD is staged into the package at build time and never committed.
+- **Video:** the 640×400 framebuffer goes to a streaming texture, shown at 4:3 with SDL 3.4's `PIXELART` scale mode (1440×1080 pillarboxed).
+- **Controls:**
+  - Remote: D-pad moves, OK fires and selects, Play/Pause uses, Back opens the menu.
+  - Game controller: sticks move and turn, RT/X fires, A uses, LB/RB cycle weapons.
+  - A first-launch overlay explains the controls.
+- **Storage:** config and saves go to `SDL_GetPrefPath()` = `/data/firetvnative/doom/`.
+- **Build:** the first full build succeeded after one fix (an empty `SDL_mixer.h` shim). The package is 10 MB.
+- **Verified on the TV by screenshot:**
+  - title screen with the controls overlay
+  - a new game started with injected remote presses (Back → menu, OK → New Game → skill)
+  - walked forward and fired (ammo 50 → 49)
+- **Media:** `docs/case-study/media/01–04*.jpg`.

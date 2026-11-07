@@ -179,3 +179,10 @@ A running log for the public case study. Record decisions, dead ends, timings an
 3. **Updates silently didn't apply.** Updating a running app can fail with "Internal Error" and leave the *old* build installed. For a while, Claude's tests were running stale code. `tools/vega.sh install` now stops the app first and falls back to uninstall+install.
 
 **Correction:** the earlier Doom entry said the player "walked forward". That test used `inputd-cli button_press KEY_UP 1 --holdDuration N`, which is **invalid syntax** (it prints usage and presses nothing). The correct form is `button_press KEY_UP --holdDuration N`, now `tools/vega.sh hold`. Doom movement has now been **re-verified**: holding forward, then turning right, changes the view from the start corridor to a different room. Firing and menus were always genuinely verified.
+
+**Lifecycle (verified on the TV):**
+- Home → `onBackground`. The game thread parks inside present (0% CPU), the audio devices pause, and the process stays alive. The system logs "Pid … is active - don't cleanup".
+- Resume via the system launcher service (`vlcm launch-app pkg://…`) → same pid, `relaunch` + `foreground`, and rendering continues.
+- Note: `vega device launch-app` force-kills and restarts. That looked like a "restart on resume" bug until the logs showed `Killing pkgId … forced`.
+
+**Launcher icons:** `icon = "@image/icon.png"` with `assets/image/icon.png`, cropped from our own TV screenshots of the BSD-licensed game art. Manifest validation passes. The tile in the launcher's App Library was **not** visually checked: Claude chose not to drive the user's personal home screen.

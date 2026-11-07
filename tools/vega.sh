@@ -3,7 +3,8 @@
 #
 #   tools/vega.sh build   <app-dir> [armv7|aarch64] [Debug|Release]
 #   tools/vega.sh install <app-dir> [arch] [type]        # install the built .vpkg
-#   tools/vega.sh launch  <component-id>
+#   tools/vega.sh launch  <component-id>                 # NB: force-kills a running instance first
+#   tools/vega.sh resume  <component-id>                 # foreground an existing instance (like the launcher)
 #   tools/vega.sh stop    <component-id>
 #   tools/vega.sh run     <app-dir> <component-id> [arch] [type]   # build+install+launch
 #   tools/vega.sh key     KEY_RIGHT [KEY_ENTER ...]      # inject remote/gamepad buttons (Linux key names)
@@ -44,6 +45,9 @@ case "$cmd" in
     ;;
   launch)
     vega device launch-app --appName "$1"
+    ;;
+  resume)
+    vega device run-cmd --command "vlcm launch-app pkg://$1"
     ;;
   stop)
     vega device terminate-app --appName "$1" || true

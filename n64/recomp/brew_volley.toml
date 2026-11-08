@@ -6,6 +6,5 @@ elf_path = "../../third_party/_src/libdragon-39d0d6096130836a65710da6730290701d0
 output_func_path = "../../build/n64/brew_volley"
 
 [patches]
-ignored = [
-]
-
+# Hardware-facing libdragon functions are handled by the rules in libdragon.hle.
+ignored = []

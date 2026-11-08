@@ -1,0 +1,52 @@
+# HLE rules for libdragon programs (applied by tools/n64-recomp.sh after a first recompile pass).
+#   stub <glob>   exclude matching functions from recompilation: they become weak no-op stubs
+#   keep <glob>   recompile matching functions normally
+# Rules are ordered; the LAST matching rule wins. Functions implemented in
+# n64/runtime/src/hle_*.c override the stubs (strong symbols beat the weak stubs).
+#
+# SPDX-FileCopyrightText: 2026 Mitul Shah
+# SPDX-License-Identifier: MIT
+
+# Hardware-facing subsystems: RDP/RSP command queues, video, controllers (joybus), PI DMA,
+# audio hardware, timers, interrupt setup, debug channels.
+stub n64_rdpq_*
+stub n64___rdpq_*
+stub n64_rspq_*
+stub n64___rspq_*
+stub n64_rsp_*
+stub n64___rsp_*
+stub n64_display_*
+stub n64_vi_*
+stub n64___vi_*
+stub n64_joypad_*
+stub n64_joybus_*
+stub n64___joybus_*
+stub n64_dma_*
+stub n64_io_*
+stub n64_pi_*
+stub n64_timer_*
+stub n64_audio_*
+stub n64_mixer_*
+stub n64_xm64player_*
+stub n64_wav64_*
+stub n64_debug_init_*
+stub n64___init_interrupts
+stub n64___dma_init
+stub n64___inspector_init
+stub n64___exception_dump_header
+stub n64___get_exception_name*
+
+# ...but the CPU-side text system (printf formatting, paragraph layout, font parsing) runs as
+# recompiled code; only the glyph drawing is replaced.
+keep n64_rdpq_text_*
+keep n64_rdpq_paragraph_*
+keep n64_rdpq_font_*
+keep n64___rdpq_font_*
+keep n64___rdpq_paragraph_*
+stub n64_rdpq_font_render_paragraph
+
+# GCC nested functions (run-time stack trampolines) can't be recompiled: replace their callers.
+stub n64_rompak_search_ext
+
+# Hand-written asm decompressors race the PI DMA by polling hardware registers: decoded on the host.
+stub n64_decompress_lz4_full_inplace

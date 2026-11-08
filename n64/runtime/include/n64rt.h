@@ -26,6 +26,15 @@ uint8_t* n64rt_rdram(void);
  * n64rt_exit() is called. */
 int n64rt_run(recomp_func_t* entry, uint32_t gp);
 void n64rt_exit(int code);
+/* Like n64rt_run, but first runs libdragon's global constructors (`ctors`, may be NULL). */
+int n64rt_run_boot(recomp_func_t* ctors, recomp_func_t* entry, uint32_t gp);
+/* Writes what libdragon's boot code stores before main (memory size, TV type, entropy). */
+void n64rt_set_boot_globals(uint32_t memsize_sym, uint32_t tvtype_sym, uint32_t entropy_sym);
+/* The cartridge image (for PI DMA: libdragon's DFS filesystem lives in the ROM). */
+bool n64rt_load_rom(const char* path);
+const uint8_t* n64rt_rom(size_t* size);
+/* Calls a recompiled function from HLE code with up to 4 arguments; returns v0. */
+uint64_t n64rt_call(recomp_context* ctx, recomp_func_t* f, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
 /* A scratch allocator at the top of RDRAM for HLE-owned N64-visible objects. */
 uint32_t n64rt_alloc(uint32_t size, uint32_t align);
 
@@ -54,6 +63,8 @@ static inline uint32_t n64_r32(uint8_t* rdram, uint32_t addr) { return (uint32_t
 static inline uint8_t n64_r8(uint8_t* rdram, uint32_t addr) { return (uint8_t)MEM_BU(0, N64_KSEG0(addr & 0x1FFFFFFFu | 0x80000000u)); }
 static inline void n64_w32(uint8_t* rdram, uint32_t addr, uint32_t v) { MEM_W(0, N64_KSEG0(addr & 0x1FFFFFFFu | 0x80000000u)) = (int32_t)v; }
 static inline void n64_w8(uint8_t* rdram, uint32_t addr, uint8_t v) { MEM_B(0, N64_KSEG0(addr & 0x1FFFFFFFu | 0x80000000u)) = (int8_t)v; }
+static inline uint16_t n64_r16(uint8_t* rdram, uint32_t addr) { return (uint16_t)MEM_HU(0, N64_KSEG0(addr & 0x1FFFFFFFu | 0x80000000u)); }
+static inline void n64_w16(uint8_t* rdram, uint32_t addr, uint16_t v) { MEM_H(0, N64_KSEG0(addr & 0x1FFFFFFFu | 0x80000000u)) = (int16_t)v; }
 /* Copies at most `max` bytes of an N64 string (stops at NUL or `max`). Returns the length. */
 int n64_read_string(uint8_t* rdram, uint32_t addr, char* out, int max);
 

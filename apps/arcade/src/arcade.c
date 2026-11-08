@@ -74,11 +74,11 @@ static Game g_games[] = {
      "code on our open-source Vega video and audio drivers.",
      {"SDL3", "OPENGL ES 3.1", "SYNTH AUDIO", "MIT"},
      "pkg://com.firetvnative.sdldemo.main", NULL, {0.18f, 0.90f, 1.0f, 1}, CARD_STARFIELD, NULL, NULL, true, {{0}}},
-    {"N64 Homebrew", "Static recompilation · coming soon",
-     "Open-source Nintendo 64 homebrew, recompiled ahead of time from",
-     "MIPS to native ARM code. No emulator. Phase 2 of this project.",
-     {"N64RECOMP", "LIBDRAGON", "NO EMULATOR", "IN PROGRESS"},
-     NULL, NULL, {0.49f, 1.0f, 0.31f, 1}, CARD_SOON, NULL, NULL, true, {{0}}},
+    {"Brew Volley", "Nintendo 64 homebrew \xC2\xB7 statically recompiled",
+     "An N64brew Game Jam game, compiled for the N64's MIPS CPU, then",
+     "recompiled to native ARM ahead of time. No emulator, at 60 fps.",
+     {"N64RECOMP", "LIBDRAGON", "NO EMULATOR", "2 PLAYERS"},
+     "pkg://com.firetvnative.n64.brewvolley.main", "art/brewvolley.png", {0.49f, 1.0f, 0.31f, 1}, CARD_ART, NULL, NULL, true, {{0}}},
 };
 #define NUM_GAMES ((int)(sizeof(g_games) / sizeof(g_games[0])))
 
@@ -319,7 +319,7 @@ static void render_card(Game *g, float dt) {
     quad_grad(art.x, art.y, art.w, 60, rgba(1, 1, 1, 0.08f), rgba(1, 1, 1, 0));
     batch_flush(NULL);
     text_draw(A.r, A.h2, 22, ART_Y + ART_H + 10, g->title, rgba(1, 1, 1, 1), 1);
-    const char *sub = g->kind == CARD_SOON ? "Phase 2 \xC2\xB7 in progress" : (g->kind == CARD_STARFIELD ? "Tech demo" : "Play now");
+    const char *sub = g->kind == CARD_SOON ? "Phase 2 \xC2\xB7 in progress" : (g->kind == CARD_STARFIELD ? "Tech demo" : (g->accent.g > 0.95f ? "Recompiled N64" : "Play now"));
     text_draw(A.r, A.small, 24, ART_Y + ART_H + 50, sub, with_a(g->accent, 0.95f), 1);
     SDL_SetRenderTarget(A.r, NULL);
 }
@@ -577,6 +577,7 @@ static void draw_about(void) {
         {"Engine", "SDL 3.4 with our Vega video and audio drivers (zlib)"},
         {"Freedoom", "doomgeneric + Chocolate Doom OPL music (GPL-2.0), Freedoom data (BSD-3)"},
         {"LibreQuake", "quakegeneric + id Software WinQuake (GPL-2.0), LibreQuake data (BSD-3, GPL-2)"},
+        {"Brew Volley", "MULLER Marian (N64brew Jam), libdragon; recompiled with N64Recomp (MIT)"},
         {"Fonts", "Chakra Petch and Press Start 2P (SIL Open Font License 1.1)"},
         {"Music", "generated live by a tiny synthesizer, no samples"},
     };
@@ -714,7 +715,7 @@ static void activate(void) {
     if (!g->uri) {
         synth_ui(UI_DENY, 0);
         A.shake_t = 0.4f;
-        toast("Coming soon: N64 static recompilation is in progress");
+        toast("Coming soon");
         return;
     }
     synth_ui(UI_LAUNCH, 0);

@@ -6,9 +6,5 @@ elf_path = "../../third_party/_src/libdragon-39d0d6096130836a65710da6730290701d0
 output_func_path = "../../build/n64/helloworld"
 
 [patches]
-ignored = [
-    # HLE: libdragon's display/rdpq calls are implemented on SDL3 by n64/runtime/src/hle_libdragon.c.
-    "n64_display_init", "n64_display_get", "n64_rdpq_init", "n64_rdpq_attach", "n64___rdpq_clear",
-    "n64_rdpq_detach_show", "n64___rdpq_font_load_builtin_2", "n64_rdpq_text_register_font",
-    "n64_rdpq_text_printn",
-]
+# Hardware-facing libdragon functions are handled by the rules in libdragon.hle.
+ignored = []

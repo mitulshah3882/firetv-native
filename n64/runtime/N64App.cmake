@@ -23,6 +23,10 @@ function(n64_add_recomp_app target)
   set(pkgroot "${CMAKE_BINARY_DIR}/pkgroot")
   file(MAKE_DIRECTORY "${pkgroot}/assets")
   configure_file("${gen}/${arg_GAME}.bin" "${pkgroot}/assets/${arg_GAME}.bin" COPYONLY)
+  # The cartridge image, for programs that read assets from their ROM filesystem (DFS).
+  if(EXISTS "${gen}/${arg_GAME}.z64")
+    configure_file("${gen}/${arg_GAME}.z64" "${pkgroot}/assets/${arg_GAME}.z64" COPYONLY)
+  endif()
 
   vega_add_sdl3_app(${target} PACKAGE_ID "${arg_PACKAGE_ID}"
     SOURCES "${rt}/n64_main.c" "${rt}/hle_libdragon.c" "${rt}/n64rt.cpp"

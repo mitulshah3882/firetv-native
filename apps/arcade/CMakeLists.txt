@@ -29,7 +29,7 @@ foreach(f ChakraPetch-Regular.ttf ChakraPetch-SemiBold.ttf ChakraPetch-Bold.ttf 
 endforeach()
 configure_file("${FONTS_DIR}/ChakraPetch/OFL.txt" "${PKGROOT}/assets/fonts/OFL-ChakraPetch.txt" COPYONLY)
 configure_file("${FONTS_DIR}/PressStart2P/OFL.txt" "${PKGROOT}/assets/fonts/OFL-PressStart2P.txt" COPYONLY)
-foreach(f doom.png quake.png)
+foreach(f doom.png quake.png brewvolley.png)
   configure_file("${CMAKE_CURRENT_SOURCE_DIR}/art/${f}" "${PKGROOT}/assets/art/${f}" COPYONLY)
 endforeach()
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/icon/icon.png" "${PKGROOT}/assets/image/icon.png" COPYONLY)

@@ -19,6 +19,15 @@
 #include <cstring>
 #include <vector>
 
+#include <sys/mman.h>
+#ifdef MAP_NORESERVE
+#define N64RT_MAP_NORESERVE MAP_NORESERVE
+#else
+#define N64RT_MAP_NORESERVE 0
+#endif
+// Physical address space covered: RDRAM (8 MB) + the RCP register block at 0x04000000-0x04FFFFFF.
+#define N64RT_ADDRESS_SPACE 0x05000000u
+
 #include "funcs.h"
 #include "librecomp/sections.h"
 #include "recomp_overlays.inl"
@@ -37,6 +46,15 @@ struct FuncAt {
 };
 static std::vector<FuncAt> g_funcs;
 
+struct n64rt_extra_func_t {
+    uint32_t vram;
+    recomp_func_t* func;
+};
+extern "C" const n64rt_extra_func_t n64rt_extra_funcs[] __attribute__((weak));
+
+static uint8_t* g_rom;
+static size_t g_rom_size;
+
 static int32_t g_section_addresses[64];
 extern "C" {
 int32_t* section_addresses = g_section_addresses;
@@ -51,13 +69,25 @@ extern "C" void n64rt_log(const char* fmt, ...) {
     SDL_Log("n64rt: %s", buf);
 }
 
+#if !defined(VEGA_PACKAGE_ID) && (defined(__APPLE__) || defined(__linux__))
+#include <execinfo.h>
+#include <unistd.h>
+static void print_backtrace() {
+    void* frames[32];
+    backtrace_symbols_fd(frames, backtrace(frames, 32), 2);
+}
+#else
+static void print_backtrace() {}
+#endif
+
 [[noreturn]] static void fatal(const char* fmt, ...) {
     char buf[512];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(buf, sizeof buf, fmt, ap);
     va_end(ap);
-    SDL_Log("n64rt: FATAL: %s (pc-ish: ra=%08X sp=%08X)", buf, (uint32_t)g_ctx.r31, (uint32_t)g_ctx.r29);
+    SDL_Log("n64rt: FATAL: %s", buf);
+    print_backtrace();
     n64rt_exit(3);
     abort();
 }
@@ -65,10 +95,14 @@ extern "C" void n64rt_log(const char* fmt, ...) {
 extern "C" uint8_t* n64rt_rdram(void) { return g_rdram; }
 
 extern "C" bool n64rt_init(const char* image_path, uint32_t vram) {
-    // A little slack past 8 MB so stray reads just past the end don't fault.
-    g_rdram = static_cast<uint8_t*>(SDL_aligned_alloc(64, N64RT_RDRAM_SIZE + 0x10000));
-    if (!g_rdram) return false;
-    memset(g_rdram, 0, N64RT_RDRAM_SIZE + 0x10000);
+    // Recompiled code addresses memory as (vaddr & 0x1FFFFFFF): RDRAM at 0, hardware registers at
+    // 0x04000000+. Reserve that much address space; untouched pages cost nothing.
+    void* mem = mmap(nullptr, N64RT_ADDRESS_SPACE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | N64RT_MAP_NORESERVE, -1, 0);
+    if (mem == MAP_FAILED) {
+        n64rt_log("cannot reserve %u MB of address space", N64RT_ADDRESS_SPACE >> 20);
+        return false;
+    }
+    g_rdram = static_cast<uint8_t*>(mem);
     size_t size = 0;
     auto* image = static_cast<uint8_t*>(SDL_LoadFile(image_path, &size));
     if (!image) {
@@ -91,6 +125,9 @@ extern "C" bool n64rt_init(const char* image_path, uint32_t vram) {
     for (const auto& sec : section_table) {
         for (size_t f = 0; f < sec.num_funcs; ++f) g_funcs.push_back({sec.ram_addr + sec.funcs[f].offset, sec.funcs[f].func});
     }
+    // Functions excluded from recompilation (HLE or stubs) are still reachable through jalr.
+    if (n64rt_extra_funcs)
+        for (const n64rt_extra_func_t* e = n64rt_extra_funcs; e->func; ++e) g_funcs.push_back({e->vram, e->func});
     std::sort(g_funcs.begin(), g_funcs.end(), [](const FuncAt& a, const FuncAt& b) { return a.vram < b.vram; });
     g_scratch_top = 0x80000000u + N64RT_RDRAM_SIZE;
     g_start_ns = SDL_GetTicksNS();
@@ -102,6 +139,54 @@ extern "C" uint32_t n64rt_alloc(uint32_t size, uint32_t align) {
     g_scratch_top = (g_scratch_top - size) & ~(align - 1);
     memset(g_rdram + (g_scratch_top - 0x80000000u), 0, size);
     return g_scratch_top;
+}
+
+extern "C" bool n64rt_load_rom(const char* path) {
+    g_rom = static_cast<uint8_t*>(SDL_LoadFile(path, &g_rom_size));
+    if (g_rom) n64rt_log("cartridge image %s: %zu bytes", path, g_rom_size);
+    return g_rom != nullptr;
+}
+
+extern "C" const uint8_t* n64rt_rom(size_t* size) {
+    if (size) *size = g_rom_size;
+    return g_rom;
+}
+
+extern "C" void n64rt_set_boot_globals(uint32_t memsize_sym, uint32_t tvtype_sym, uint32_t entropy_sym) {
+    // What libdragon's entrypoint.S stores before main(). We report 7.5 MB so libdragon's heap stays
+    // below our stack and HLE scratch area at the top of the 8 MB RDRAM.
+    if (memsize_sym) n64_w32(g_rdram, memsize_sym, N64RT_RDRAM_SIZE - 0x80000u);
+    if (tvtype_sym) n64_w32(g_rdram, tvtype_sym, 1);  // NTSC
+    if (entropy_sym) {
+        n64_w32(g_rdram, entropy_sym, 0x2545F491u ^ (uint32_t)SDL_GetTicksNS());
+        n64_w32(g_rdram, entropy_sym + 4, 0x9E3779B9u);
+    }
+}
+
+extern "C" uint64_t n64rt_call(recomp_context* ctx, recomp_func_t* f, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+    recomp_context c = *ctx;  // the callee may clobber caller-saved registers; keep ours intact
+    c.f_odd = c.mips3_float_mode ? &c.f1.u32l : &c.f0.u32h;
+    c.r4 = N64_KSEG0(a0);
+    c.r5 = N64_KSEG0(a1);
+    c.r6 = N64_KSEG0(a2);
+    c.r7 = N64_KSEG0(a3);
+    c.r29 = ctx->r29 - 0x100;  // leave room for HLE scratch on the N64 stack
+    f(g_rdram, &c);
+    return c.r2;
+}
+
+extern "C" int n64rt_run_boot(recomp_func_t* ctors, recomp_func_t* entry, uint32_t gp) {
+    memset(&g_ctx, 0, sizeof g_ctx);
+    const uint32_t stack_top = 0x80000000u + N64RT_RDRAM_SIZE - 0x40000u;
+    g_ctx.r29 = N64_KSEG0(stack_top - 0x10);
+    g_ctx.r28 = N64_KSEG0(gp);
+    cop0_status_write(&g_ctx, 0x34000000u | 0x80u | 0x40u | 0x20u);
+    if (setjmp(g_exit_jmp) == 0) {
+        if (ctors) ctors(g_rdram, &g_ctx);  // libdragon's global constructors (TLS, RNG, rompak...)
+        entry(g_rdram, &g_ctx);
+        g_exit_code = 0;
+    }
+    return g_exit_code;
 }
 
 extern "C" int n64rt_run(recomp_func_t* entry, uint32_t gp) {

@@ -239,3 +239,42 @@ A running log for the public case study. Record decisions, dead ends, timings an
 - LibreQuake maps take 9–13 s to load on the stick. It's not the music; profile it with `simpleperf` later.
 - With three of our apps resident, the stick logged memory pressure (high → critical → extreme). The system trims background apps on its own.
 - The arcade's first clock showed UTC: the app sandbox has no time zone. The clock was replaced by a "running natively on Mali-G310 (Panfrost) · OpenGL ES 3.1" label read live from the GPU.
+
+---
+
+## 2026-11-07 · Day 0 (night): N64 homebrew, statically recompiled, playable on Fire TV
+
+**The pipeline.** libdragon examples are built from source with the new MIPS toolchain. N64Recomp translates each MIPS function into C, and the C is compiled for the stick's 32-bit ARM CPU.
+
+N64Recomp needed **8 small build-time patches** for modern libdragon code. Each one was found the hard way:
+- **MIPS trap instructions** (GCC emits `teq` after every division): treated as no-ops.
+- **`sync`/`cache`/`pref`:** ignored.
+- **Coprocessor-0 registers beyond Status:** go through `cop0_read`/`cop0_write`. libdragon reads the Count timer.
+- **GCC clone names** like `foo.part.0`: sanitized. Every function is prefixed `n64_`. Without the prefix, recompiled newlib `printf` or `main` could collide with the host's own. On Vega (a shared library) calls could even bind to the system libc.
+- **`ll`/`sc`/`lld`/`scd` atomics:** a plain load, and a store that always succeeds.
+- **Untranslatable functions:** become stubs that report themselves if called, instead of aborting the whole run.
+- **`trunc.l.s`/`trunc.l.d`:** the generator already supported them; only the table entries were missing.
+- **libdragon's EMUX opcodes:** emulator logging and profiling hooks in hot paths. Real hardware ignores them, and so do we.
+
+**First light: helloworld** (18:35).
+- It runs at 59.9 fps on the TV.
+- It proved the 32-bit port works: a portable 64×64→128 multiply replaces `__int128`, and N64Recomp's word-swapped memory layout is kept.
+
+**Brew Volley** (an N64brew Game Jam game shipped as a libdragon example; code Unlicense, art CC0): the real test.
+- The approach is **HLE at the hardware edges**. Everything CPU-side runs as recompiled code: game logic, newlib, libdragon's asset loader, the DFS filesystem, printf, and text layout.
+  - Rules in `libdragon.hle` stub whole hardware subsystems (rdpq, rspq, display, joypad, DMA, audio).
+  - Host code then implements the calls that matter on SDL3.
+- **What broke, in order:**
+  1. **A segfault in `__rand_init`.** It reads hardware registers for entropy. The runtime now masks every address to the N64's 512 MB physical space. KSEG1 then aliases RDRAM like the real machine, and stray register accesses land in a zero page.
+  2. **A call to a stack address.** libdragon's `rompak_search_ext()` uses a GCC *nested function*, which GCC implements as code written to the stack at run time. No static recompiler can translate that. The ROM table of contents is now read on the host.
+  3. **"decompression error: corrupted?"** libdragon's LZ4 decoder is hand-written assembly that races the cartridge DMA by polling hardware progress registers. Assets are now decoded on the host.
+  4. **`rdpq_init() must be called before loading a font`.** The HLE `rdpq_init` now sets libdragon's own `__rdpq_inited` flag.
+- **Then it rendered:**
+  - the beach background, both players, the ball and the net
+  - "Score: 0 | 0" in the game's Pacifico font: libdragon laid out the text, our host code drew the glyphs from its atlases
+  - the red countdown
+- **On the TV** it runs at 59.6–60.1 fps.
+- **The players "didn't move" at first.** A Mac run with an injected button state (`N64_FAKE_PAD0`) and a memory watch on the player object (`N64_WATCH`) showed the input working: x = 40 → 46 → 76 → … → 250 (the net). Input is simply ignored during the 3-2-1 countdown, and each point resets the players, so screenshots kept missing the short play phase.
+- **The arcade's N64 card now launches Brew Volley.** Back returns to the arcade. Verified on the TV.
+
+**Not done yet:** audio. libdragon's preview mixer does its work on the RSP coprocessor (a 1,900-line microcode with VADPCM decoding). That's the next piece.

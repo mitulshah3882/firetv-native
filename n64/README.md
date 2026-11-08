@@ -38,8 +38,21 @@ tools/vega.sh run apps/n64-helloworld com.firetvnative.n64.helloworld.main armv7
   - fatal hooks
 - **HLE:** libdragon's hardware-facing calls (`display_*`, `rdpq_*`, text) are excluded from recompilation and implemented on SDL3 in `runtime/src/hle_libdragon.c`. Each one reads its arguments from the MIPS registers and stack using the o64 ABI.
 
+## HLE: where the host takes over
+`n64/recomp/libdragon.hle` lists glob rules (`stub`/`keep`, last match wins). `tools/n64-recomp.sh` expands them against each program's functions and recompiles a second time:
+- **Stubbed functions** become weak no-op stubs. They stay reachable by address, so constructors and `jalr` still work.
+- **Real host versions** in `runtime/src/hle_libdragon.c` override the stubs.
+- **What stays recompiled** is everything CPU-side: game logic, newlib, the asset loader, the DFS filesystem, sprite and font parsing, printf, and text layout.
+
+Things that *can't* be statically recompiled, found the hard way:
+- GCC nested functions (stack trampolines in `rompak_search_ext`)
+- assembly decompressors that poll DMA hardware
+- libdragon's crash screen (`dmfc0`)
+
+Debugging on the host: `N64_WATCH=<addr>` (hex dump each 5 frames), `N64_FAKE_PAD0=<hex>`, `N64_TRACE_PAD=1`. Crashes print a backtrace; recompiled functions are host symbols.
+
 ## Status
 | Program | Host (Mac) | Fire TV Stick 4K Select |
 |---|---|---|
 | libdragon `helloworld` | ✅ | ✅ 59.9 fps, statically recompiled MIPS → ARMv7 |
-| `brew-volley` (N64brew jam game) | next | |
+| `brew-volley` (N64brew jam game) | ✅ | ✅ 60 fps, playable (remote = P1, gamepad = P2); **no audio yet** |

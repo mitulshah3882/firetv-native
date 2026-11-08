@@ -79,5 +79,15 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 - `engine/vegaplat/`: C platform layer. `engine/sdl3-vega/`: SDL3 drivers and CMake integration.
 - `apps/vega-probe/`: Phase 0 capability probe (pure C++ app). `apps/sdl-demo/`: SDL3 demo. `apps/doom/`, `apps/quake/`: game ports. `apps/arcade/`: the Native Arcade launcher.
 - Phase 2 (N64): the toolchain is at `~/n64-toolchain` (`export N64_INST=$HOME/n64-toolchain`). libdragon is installed there, and its examples are built in `third_party/_src/libdragon-*/examples/*/*.elf`.
+- **N64 workflow** (details in `n64/README.md`):
+  - `tools/n64-recomp.sh n64/recomp/<name>.toml`
+  - then `n64/host-run.sh <name> [--shot N]` on the Mac
+  - then `tools/vega.sh build|install apps/n64-<name>`
+  - New hardware-facing libdragon calls go in `n64/runtime/src/hle_libdragon.c`; matching `stub` rules go in `n64/recomp/libdragon.hle`.
+- **Debug recompiled code on the Mac first:**
+  - backtraces show recompiled function names
+  - `N64_WATCH=<hex addr>` dumps memory every 5 frames (get addresses from `mips64-elf-nm`)
+  - `N64_FAKE_PAD0=<hex>` forces controller buttons
+  - libdragon asserts are reported with file:line
 - `docs/STATUS.md`, `docs/DECISIONS.md`, `docs/case-study/journal.md`
 - `PLAN.md`, `RESEARCH.md`, `README.md`

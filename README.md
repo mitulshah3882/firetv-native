@@ -2,7 +2,7 @@
 
 An experiment in getting games running **natively** on Amazon Fire TV devices running **Vega OS**, Amazon's Linux-based TV operating system. Native here means compiled C/C++ talking straight to the device's graphics, audio and input APIs, not an emulator or a web wrapper. The porting work is done with Claude Code.
 
-> Status: **Doom and Quake run natively on a Fire TV Stick (Vega OS)** via our SDL3 port, behind a native **arcade launcher**: Freedoom with OPL3 music at 56–60 fps, and LibreQuake with its soundtrack at 59.9 fps. N64 static recompilation (Phase 2) is under way. See the [case study draft](docs/case-study/README.md).
+> Status: **Doom and Quake run natively on a Fire TV Stick (Vega OS)** via our SDL3 port, behind a native **arcade launcher**: Freedoom with OPL3 music at 56–60 fps, and LibreQuake with its soundtrack at 59.9 fps. Plus **Brew Volley, an N64 homebrew game statically recompiled from MIPS to ARM**, playable at 60 fps. See the [case study draft](docs/case-study/README.md).
 
 ![Native Arcade running on Fire TV](docs/case-study/media/07-native-arcade-on-tv.jpg)
 
@@ -31,6 +31,8 @@ Each game also runs on its own (`tools/vega.sh run apps/doom com.firetvnative.do
 | `apps/doom` | doomgeneric + Freedoom: our SDL3 backend, sound-effects mixer, OPL3 music driver |
 | `apps/quake` | quakegeneric + LibreQuake: our SDL3 backend, restored WinQuake mixer with an SDL3 DMA driver, OGG soundtrack |
 | `apps/sdl-demo` | SDL3 renderer, input and audio demo |
+| `n64/` | N64 static recompilation: N64Recomp configs and HLE rules (`recomp/`), the n64rt runtime and libdragon HLE (`runtime/`), host runner ([n64/README.md](n64/README.md)) |
+| `apps/n64-*` | Recompiled N64 programs packaged for Vega (helloworld, Brew Volley) |
 | `apps/vega-probe` | pure-C++ Vega capability probe |
 | `tools/` | `vega.sh` (build, install, launch, key injection, screenshot, logs), `fetch-deps.sh` |
 | `docs/` | [porting guide](docs/PORTING.md), case study, journal, status, decisions |

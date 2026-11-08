@@ -11,9 +11,14 @@ In one working session, mostly unattended, Claude Code:
   - Quake runs at a steady 59.9 fps with its soundtrack.
   - Both have sound and remote or gamepad controls.
 - **Built a native "arcade" launcher** that ties it all together: a coverflow carousel over a synthwave stage, with music synthesized live.
-- **Started the N64 static recompilation phase.** The MIPS toolchain and libdragon homebrew are built from source.
+- **Statically recompiled a Nintendo 64 homebrew game to run natively on the Fire TV.** *Brew Volley*, an N64brew Game Jam game, plays at 60 fps. Its MIPS code was translated to C with N64Recomp and compiled for the stick's ARM CPU, with hardware-facing libdragon calls reimplemented on SDL3. No emulator.
 
 ![Native Arcade on Fire TV](media/07-native-arcade-on-tv.jpg)
+
+| | |
+|---|---|
+| ![Brew Volley, recompiled N64 homebrew, on Fire TV](media/09-brew-volley-recompiled-n64-on-tv.jpg) | ![The arcade's N64 card](media/10-arcade-n64-card-on-tv.jpg) |
+| Brew Volley: N64 MIPS code statically recompiled to ARM, 60 fps on the TV | Launched from the Native Arcade |
 *The Native Arcade, captured from the TV. Every pixel is drawn by our C code through OpenGL ES; the music is synthesized live.*
 
 | | |
@@ -66,6 +71,9 @@ In one working session, mostly unattended, Claude Code:
 10. **SDL3 never queues "entered background/foreground" events.** They go only to event-watch callbacks. Claude found this when the arcade sometimes failed to wake up after a game exited, then fixed all four apps and corrected its own porting guide.
 11. **TV remotes have no Y key.** Doom's and Quake's quit prompts both say "press Y". Driving the full launch → play → quit loop on the TV exposed it.
 
+12. **Eight things N64Recomp couldn't handle in modern libdragon code**, each patched at build time: trap instructions, memory barriers, coprocessor-0 registers, GCC's clone names, atomics, EMUX debug opcodes, 64-bit float truncation, and per-function failures.
+13. **Some code can't be statically recompiled at all.** GCC nested functions build trampolines on the stack at run time. Hand-written assembly decompressors race the cartridge DMA by polling hardware registers. Claude found both through crashes and replaced them with host code.
+
 ## Numbers
 | Metric | Value |
 |---|---|
@@ -74,6 +82,8 @@ In one working session, mostly unattended, Claude Code:
 | Doom package size | 10 MB (Freedoom 2 WAD included) |
 | Quake (LibreQuake, 320×240 software renderer → 1080p) | 59.7–59.9 fps presented, 66–73 MB RSS, OGG soundtrack |
 | Native Arcade (coverflow, render-to-texture, live synth) | 59.9 fps, 48 MB RSS, 1.6 MB package |
+| N64 helloworld (recompiled MIPS → ARMv7) | 59.9 fps; 486 functions; 1.2 MB package |
+| Brew Volley (recompiled N64 game) | 59.6–60.1 fps; 533 functions recompiled + 252 replaced by host code; 2.2 MB package |
 | SDL3 demo | 59.9 fps, OpenGL ES 2 renderer |
 | Audio | 48 kHz s16 stereo, 768×2-frame buffers, about 75 ms latency, 0 underruns |
 | Cold launch to first frame | about 1.2 s |
@@ -88,7 +98,8 @@ In one working session, mostly unattended, Claude Code:
   - Third-party licenses: SDL zlib, Nuked OPL3 LGPL-2.1+, Freedoom and LibreQuake BSD-3, fonts SIL OFL 1.1.
 
 ## What's next
-- **N64 static recompilation on Fire TV** (Phase 2, under way). Statically recompile freely licensed N64 homebrew built with libdragon to native ARM code, with a libdragon runtime on top of SDL3-Vega. The toolchain and 38 libdragon example ROMs are already built.
+- **N64 audio.** libdragon's mixer runs on the RSP. The next step is a host mixer, so Brew Volley gets its music and sound effects.
+- **More recompiled N64 homebrew** (N64brew jam games are open source), and more of the rdpq API in the runtime.
 - More SDL games, and testing across all three Vega sticks.
 
 ## Human vs. Claude

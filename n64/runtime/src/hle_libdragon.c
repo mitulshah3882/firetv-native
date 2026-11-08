@@ -198,7 +198,7 @@ static SDL_Texture *texture_for(uint8_t *rdram, recomp_context *ctx, uint32_t sp
                 case 3: o[0] = v >> 24; o[1] = v >> 16; o[2] = v >> 8; o[3] = v; break;  /* RGBA32 */
                 case 8: case 9:                                                          /* CI4/CI8 */
                     if (layer >= 0) {
-                        const uint8_t on = (v >> layer) & 1;
+                        const uint8_t on = (v >> (3 - layer)) & 1;
                         o[0] = o[1] = o[2] = 255;
                         o[3] = on ? 255 : 0;
                     } else if (pal) {

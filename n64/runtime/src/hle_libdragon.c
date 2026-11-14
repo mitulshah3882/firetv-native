@@ -341,18 +341,24 @@ void n64_rdpq_font_render_paragraph(uint8_t *rdram, recomp_context *ctx) {
         const uint8_t at = n64_r8(rdram, g + 7);
         const int natlas = at >> 2, ntile = at & 3;
         const uint32_t sprite = n64_r32(rdram, atlases + (uint32_t)natlas * 12);
-        /* MONO fonts pack four 1bpp layers in a CI4 atlas; the glyph's tile selects the layer. */
-        const int layer = (type == 1) ? ntile : (type == 2 ? ntile * 2 : -1);
-        SDL_Texture *tex = texture_for(rdram, ctx, sprite, layer, type != 4);
-        if (!tex) continue;
-        const uint32_t col = n64_r32(rdram, styles + (uint32_t)style * 16);
-        SDL_SetTextureColorMod(tex, col >> 24, (col >> 16) & 0xFF, (col >> 8) & 0xFF);
-        SDL_SetTextureAlphaMod(tex, col & 0xFF);
-        SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
-        SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_NEAREST);
+        /* MONO fonts pack four 1bpp layers in a CI4 atlas; the glyph's tile selects the layer.
+         * MONO_OUTLINE packs two 2-bit layers: per layer an outline bit, then the fill bit (drawn
+         * here as layers 2*ntile and 2*ntile+1), coloured with the style's outline_color and color. */
         const SDL_FRect src = {(float)s, (float)t, (float)(xoff2 - xoff), (float)(yoff2 - yoff)};
         const SDL_FRect dst = {x0 + cx + xoff, y0 + cy + yoff, src.w, src.h};
-        SDL_RenderTexture(G.r, tex, &src, &dst);
+        const uint32_t style_at = styles + (uint32_t)style * 16;
+        for (int pass = (type == 2 ? 0 : 1); pass < 2; ++pass) {
+            const int layer = (type == 1) ? ntile : (type == 2 ? ntile * 2 + pass : -1);
+            const uint32_t col = n64_r32(rdram, style_at + (pass == 0 ? 4 : 0));  /* outline_color : color */
+            if (pass == 0 && (col & 0xFF) == 0) continue;
+            SDL_Texture *tex = texture_for(rdram, ctx, sprite, layer, type != 4);
+            if (!tex) continue;
+            SDL_SetTextureColorMod(tex, col >> 24, (col >> 16) & 0xFF, (col >> 8) & 0xFF);
+            SDL_SetTextureAlphaMod(tex, col & 0xFF);
+            SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_NEAREST);
+            SDL_RenderTexture(G.r, tex, &src, &dst);
+        }
     }
     n64_ret32(ctx, (uint32_t)n);
 }

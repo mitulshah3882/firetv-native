@@ -25,8 +25,14 @@
 
 #include "n64rt.h"
 
-/* Recompiled libdragon code we call into (weak: absent in programs without audio). */
-extern void n64_wav64_vadpcm_preload(uint8_t *rdram, recomp_context *ctx) __attribute__((weak));
+/* Recompiled libdragon code we call into. Programs without wav64 don't have it: this weak fallback
+ * links everywhere (an undefined weak reference doesn't on macOS) and the recompiled function,
+ * when present, is a strong definition and wins. */
+static bool g_no_vadpcm_preload;
+__attribute__((weak)) void n64_wav64_vadpcm_preload(uint8_t *rdram, recomp_context *ctx) {
+    (void)rdram; (void)ctx;
+    g_no_vadpcm_preload = true;
+}
 
 /* waveform_t / wav64_t / wav64_state_t field offsets, from the program's DWARF (libdragon 39d0d60). */
 enum {
@@ -147,7 +153,7 @@ static bool decode_vadpcm(uint8_t *rdram, recomp_context *ctx, hwave *w, uint32_
     const uint32_t ext = n64_r32(rdram, st + ST_EXT);
     const int npred = (int8_t)n64_r8(rdram, ext + 0), order = (int8_t)n64_r8(rdram, ext + 1);
     const int bits = n64_r8(rdram, ext + 6) ? n64_r8(rdram, ext + 6) : 4;
-    if (!n64_wav64_vadpcm_preload || bits != 4 || npred < 1 || npred > 8 || order < 1 || order > 8) {
+    if (bits != 4 || npred < 1 || npred > 8 || order < 1 || order > 8) {
         n64rt_log("audio: unsupported VADPCM stream (pred %d, order %d, %d-bit)", npred, order, bits);
         return false;
     }
@@ -155,6 +161,10 @@ static bool decode_vadpcm(uint8_t *rdram, recomp_context *ctx, hwave *w, uint32_
     const uint32_t dst = scratch((uint32_t)(nframes * 9 * w->channels));
     /* libdragon unpacks (and un-Huffmans) the frames, planar: [all L frames][all R frames]. */
     n64rt_call(ctx, n64_wav64_vadpcm_preload, w->addr, dst, 0, 0);
+    if (g_no_vadpcm_preload) {
+        n64rt_log("audio: VADPCM needs libdragon's wav64_vadpcm_preload, not in this program");
+        return false;
+    }
     uint8_t *frames = SDL_malloc((size_t)nframes * 9);
     int16_t *book = SDL_malloc(sizeof(int16_t) * 8 * order * npred);
     for (int c = 0; c < w->channels; c++) {

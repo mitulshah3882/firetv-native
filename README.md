@@ -39,6 +39,8 @@ Each game also runs on its own (`tools/vega.sh run apps/doom com.firetvnative.do
 | `apps/doom` | doomgeneric + Freedoom: our SDL3 backend, sound-effects mixer, OPL3 music driver |
 | `apps/quake` | quakegeneric + LibreQuake: our SDL3 backend, restored WinQuake mixer with an SDL3 DMA driver, OGG soundtrack |
 | `apps/sdl-demo` | SDL3 renderer, input and audio demo |
+| `apps/supertux` | SuperTux 0.7 (GPL-3.0): SDL2 game code on sdl2-compat over our SDL3 backend, all dependencies built from source |
+| `engine/sdl2-compat-vega`, `engine/thirdparty` | SDL2 API on our static SDL3 (renamed symbols), and pinned third-party libraries built per app |
 | `n64/` | N64 static recompilation: N64Recomp configs and HLE rules (`recomp/`), the n64rt runtime and libdragon HLE (`runtime/`), host runner ([n64/README.md](n64/README.md)) |
 | `apps/n64-*` | Recompiled N64 programs packaged for Vega (helloworld, Brew Volley) |
 | `apps/vega-probe` | pure-C++ Vega capability probe |

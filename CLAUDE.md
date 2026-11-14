@@ -51,7 +51,7 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 ## Device workflow (use `tools/vega.sh`)
 - `tools/vega.sh run <app-dir> <component-id>` builds, installs and launches. `key KEY_RIGHT ...` injects input. `shot out.png 960` takes a screenshot of the TV and pulls it to the Mac (view it with Read). `logs 20 'pattern'` streams logs.
 - Raw commands: `vega device install-app --packagePath`, `launch-app --appName`, `terminate-app`, `run-cmd --command '...'`, `copy-from -s <device> -o <host>`, `start-log-stream`.
-- Logs: `journalctl` is blocked in the dev shell, and `loggingctl` returned nothing through run-cmd. Use `vega device start-log-stream` and grep for `user.info <pkg-id>`. App stdout/syslog and APMF logger lines all show up there.
+- Logs: `journalctl` is blocked in the dev shell, and `loggingctl` returned nothing through run-cmd. Use `vega device start-log-stream` and grep for `[vegagame]`. vegaplat's log lines arrive there, and the app's own **stdout/stderr** too (vegaplat pipes them in at startup; the device log doesn't capture stdio by itself).
 - Input injection: `inputd-cli button_press KEY_RIGHT` (Linux key names). To hold a key: `button_press KEY_UP --holdDuration 800`. **Not** `KEY_UP 1 --holdDuration ...`, which is invalid: it prints usage, returns 255, and presses nothing. Use `tools/vega.sh hold KEY_UP 800`.
 - **Launch vs resume:** `vega device launch-app` **force-kills** a running instance, then starts a new one. To bring an existing instance back to the foreground (a real resume, like picking it from the launcher), use `vlcm launch-app pkg://<component-id>` on the device (`tools/vega.sh resume`). Verified with Doom: same pid, `relaunch` then `foreground`, and rendering continues.
 - **Install pitfall:** updating a running app can fail with "Internal Error" and silently keep the OLD build running. `tools/vega.sh install` stops the app first and falls back to uninstall plus install. Always confirm a fix landed (for example, a version or log line). Use it to dismiss the screensaver and keep the device awake. The screensaver reclaims focus about 5 s after launch if the stick has been idle.
@@ -77,9 +77,24 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 - **The home screen may be navigated** to verify tiles (user permission 2026-11-14). Never commit screenshots of it: it shows the user's personal content.
 - **Remote UX:** a remote has no letter keys. "Press Y" prompts (Doom, Quake) are mapped so OK answers "yes". Check every game for prompts like this.
 
+## SDL2 games and big ports (sdl2-compat, SuperTux)
+- `include(engine/sdl2-compat-vega/SDL2Vega.cmake)` gives the SDL2 API over our SDL3 stack. It provides an `SDL2` target, a `find_package(SDL2)` shim and `vega_add_sdl2_app()`. SDL3 is linked statically with its symbols renamed `SDL3V_*`; see decision #25.
+- `include(engine/thirdparty/VegaDeps.cmake)`, then `vega_deps(zlib png ...)` builds libraries from pinned source (`tools/fetch-deps.sh`), static and PIC, inside the app build.
+- **Template: `apps/supertux`.** It shows:
+  - `add_subdirectory` of the upstream project, after creating the dependency targets it looks for
+  - build-time patches with `_sdl3vega_patch()`
+  - the game's executable turned into a STATIC library with `main=game_main`
+  - an `extern "C"` wrapper `main`, which the build renames to `vega_app_main`
+  - env vars `HOME`, `SDL_VIDEODRIVER=vega` and data/user dirs; save data goes in `/data`
+  - full-screen arguments, remote-friendly default bindings, and the data dir symlinked into `pkgroot/assets`
+- **Launch failure within milliseconds** ("Returned error -1 from LAUNCH callback") means a missing shared library. Check `llvm-readelf -d` on the `.so`: NEEDED may only list `libapmf`, `libc`, `libm` and the loader.
+- **AppNotResponding about 20 s after launch** means no first frame. vegaplat presents a black frame at GL init, so long loads are fine now.
+- **This toolchain's libc++ lacks C++20 `std::format`.** Pin libraries that are still C++17 (OpenAL Soft 1.24.3).
+- **Launcher icons must be exactly 512×512 PNG (< 1 MB).** `tools/make-icons.sh` generates them; game icons come from the arcade card art.
+
 ## Layout
 - `engine/vegaplat/`: C platform layer. `engine/sdl3-vega/`: SDL3 drivers and CMake integration.
-- `apps/vega-probe/`: Phase 0 capability probe (pure C++ app). `apps/sdl-demo/`: SDL3 demo. `apps/doom/`, `apps/quake/`: game ports. `apps/arcade/`: the Native Arcade launcher.
+- `apps/vega-probe/`: Phase 0 capability probe (pure C++ app). `apps/sdl-demo/`: SDL3 demo. `apps/doom/`, `apps/quake/`, `apps/supertux/`: game ports. `apps/sdl2-smoke/`: SDL2 API smoke test. `apps/arcade/`: the Native Arcade launcher.
 - Phase 2 (N64): the toolchain is at `~/n64-toolchain` (`export N64_INST=$HOME/n64-toolchain`). libdragon is installed there, and its examples are built in `third_party/_src/libdragon-*/examples/*/*.elf`.
 - **N64 workflow** (details in `n64/README.md`):
   - `tools/n64-recomp.sh n64/recomp/<name>.toml`

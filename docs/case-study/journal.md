@@ -326,3 +326,23 @@ The README gained a **"How native is it?"** section, because it's the first ques
 - **What it is:** a "lazy senior dev" coding-agent prompt plus a plugin. It optimizes how the agent writes code, not runtime or binary size.
 - **On this repo:** its codebase map is empty (no C/C++ support). The always-on prompt adds about 700 tokens per session and subagent. Its "smallest version" rule conflicts with our polish goal.
 - **Recommendation:** borrow `/ponytail-audit` and `/ponytail-review` as one-off read-only prompts and a few rules (root-cause bug fixes, a small test for new logic, no dependency for a few lines). Skip the plugin unless a before/after eval (designed, costed at about $11–44) shows at least 20% lower cost with equal pass rate and no loss of polish.
+
+## 2026-11-14 (evening): the SDL2 ecosystem, and SuperTux
+
+**sdl2-compat on a static SDL3.** sdl2-compat is the SDL project's own SDL2-on-SDL3 layer, and it normally `dlopen()`s `libSDL3.so`. Ours is linked statically into each app, and both libraries define `SDL_Init` and friends. The fix:
+- rename every `SDL_*` symbol in the SDL3 archive to `SDL3V_*` (3,200 of them, with `llvm-objcopy`)
+- answer sdl2-compat's lookups from a table the preprocessor generates from its own symbol list
+
+Two misses had to be found on the device:
+- the table skipped `SDL_SetLinuxThreadPriority`, which sits behind a platform `#ifdef`
+- sdl2-compat aborts in a load-time constructor, and the device log drops a new process's first seconds, so its error only became visible after a patch that repeats it after 7 s
+
+**SuperTux 0.7.** Ten libraries are built from pinned source inside the app's own build. SuperTux's own CMake runs as a subproject, with its executable patched into a static library. The first launches then failed in four different ways:
+1. **Within milliseconds:** it linked a shared `libsimplesquirrel.so`.
+2. **Silently:** SuperTux printed "wayland,x11 not available" to stderr, which the device log doesn't capture. vegaplat now pipes the app's stdio into the log.
+3. **AppNotResponding:** Vega kills an app with no first frame after about 20 s. vegaplat now presents a black frame at GL init.
+4. **Top-left 2/3 of the screen:** SuperTux opened a windowed 1280×800 view.
+
+Then the remote: OK jumps (SuperTux's menus also accept jump as select), and Back skips cutscenes and opens the menu. A config saved by an earlier build overrode the new defaults, so the build drops it once.
+
+**The ponytail eval found a real bug in our code.** Its bug-fix sessions all rendered helloworld's text solid, while our committed fix drew hollow outlines. libdragon's outlined mono fonts store a bit pair per layer, and we drew only the outline bit. It's fixed now: the outline is drawn in the style's `outline_color` and the fill on top.

@@ -320,6 +320,7 @@ The README gained a **"How native is it?"** section, because it's the first ques
 - An Amazon developer forum thread gave the rule: sideloaded apps need an exactly 512×512 icon. Ours were 640×360, and Starfield and Brew Volley had none.
 - `tools/make-icons.sh` now generates all five icons from the arcade's card art. Each puts the art in a centred 16:9 band over a blurred fill, so the home tile matches the arcade card.
 - The dev-only probe and helloworld packages were uninstalled from the stick.
+- **Result:** all five apps appear with their new icons in Settings → Applications → Manage Installed Applications. The home row still lists only partner apps: it ends at NFL, and other sideloaded installs on this stick are missing too. So the TV-UI launch path for sideloaded apps is still open, and the arcade (launched once from the CLI) remains the way in.
 
 **Ponytail.** The user asked whether github.com/dietrichgebert/ponytail could optimize the repo. A subagent evaluated it read-only.
 - **What it is:** a "lazy senior dev" coding-agent prompt plus a plugin. It optimizes how the agent writes code, not runtime or binary size.

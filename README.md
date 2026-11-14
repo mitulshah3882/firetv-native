@@ -26,7 +26,7 @@ Needs: macOS or Linux, the [Vega SDK](https://developer.amazon.com/docs/vega/2.0
 ```bash
 tools/fetch-deps.sh                                   # pinned, checksummed SDL3, doomgeneric, Freedoom, LibreQuake, ...
 for a in doom quake sdl-demo arcade; do tools/vega.sh build apps/$a armv7 Release && tools/vega.sh install apps/$a armv7 Release; done
-tools/vega.sh launch com.firetvnative.arcade.main   # or pick "Native Arcade" from Your Apps
+tools/vega.sh launch com.firetvnative.arcade.main   # starts the Native Arcade, which launches the rest
 ```
 Each game also runs on its own (`tools/vega.sh run apps/doom com.firetvnative.doom.main armv7 Release`). `apps/vega-probe` prints a device capability report. To preview the arcade on a Mac without a device, run `apps/arcade/host-preview.sh`. The N64 titles also need the MIPS toolchain and libdragon: see [n64/README.md](n64/README.md).
 

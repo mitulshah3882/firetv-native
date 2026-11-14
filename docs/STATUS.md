@@ -75,6 +75,8 @@ _Last updated: 2026-11-14 (Brew Volley audio; 512×512 launcher icons). Update t
 - Testing on the other two sticks (the user plans to test at home).
 
 ## Watch items
+- The home screen's "Your apps and channels" row didn't list our apps even with 512×512 icons. They do show in Settings → Applications. A TV-UI launch path for sideloaded apps is still open.
+- A physical remote isn't paired to the stick; after reconnects the "Unable to Detect Your Remote" notice can swallow injected keys. Dismiss it with OK.
 - Weekly usage: 18% at 19:15. The 5-hour window was at 23%.
 - Disk: about 15 GB free.
 - `vega device start-log-stream` shows only new lines; start it **before** acting. Run only one at a time.

@@ -1,6 +1,8 @@
 # Status
 
-_Last updated: 2026-11-07 ~19:15 local (second autonomous run). Update this file at every milestone._
+_Last updated: 2026-11-14 (published). Update this file at every milestone._
+
+**Public repo:** https://github.com/mitulshah3882/firetv-native (first pushed 2026-11-14). Each later push still needs the user's explicit OK.
 
 ## Current phase
 - **Phase 1 (native games on Vega) is DONE and polished:**
@@ -66,7 +68,6 @@ _Last updated: 2026-11-07 ~19:15 local (second autonomous run). Update this file
 4. Follow-up: profile LibreQuake's 9–13 s map loads (`simpleperf`).
 
 ## Needs a user decision
-- Public GitHub repo: name, and when to push. Never push without explicit permission.
 - Testing on the other two sticks (the user plans to test at home).
 
 ## Watch items

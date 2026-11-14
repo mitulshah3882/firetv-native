@@ -13,14 +13,22 @@ An experiment in getting games running **natively** on Amazon Fire TV devices ru
 
 See [PLAN.md](PLAN.md) for the roadmap and [RESEARCH.md](RESEARCH.md) for the feasibility notes.
 
+## How native is it?
+Fully native. Every app here is a C/C++ shared library compiled for the stick's 32-bit ARM CPU. There is no React Native, no JavaScript, no web view and no emulator.
+
+- **Entry point.** Vega loads `lib/armv7/<package-id>.entry_point_factory.so` from the package and calls the component factory it exports. `engine/vegaplat` implements that `IInteractiveComponent` (lifecycle, window, input, audio); SDL3 and the game run on top, with the game's own `main()` on its own thread.
+- **Manifest.** Each `manifest.toml` declares an interactive component with **no `runtime-module`**, so Vega starts no JavaScript runtime. The `package.json` is there only because `vega build` requires one (`"kepler": {"projectType": "native"}`); it has no scripts and no dependencies.
+- **What ships.** The Doom package holds one 2.7 MB ARM ELF library, the manifest, an icon and the Freedoom WAD. That library links only `libc`, `libm`, the dynamic loader and `libapmf` (Vega's component framework). OpenGL ES is loaded at run time from the system's Mesa driver.
+- **N64 titles.** N64Recomp translates the game's MIPS machine code to C ahead of time, and that C is compiled for ARM: the CPU runs ARM code, with no interpreter or JIT. The N64's graphics, audio and controller hardware is replaced by C implementations of the libdragon calls that drive it. The package also carries the homebrew ROM image, because the game reads its sprites and fonts from it; the MIPS code inside is never executed.
+
 ## Quick start
 Needs: macOS or Linux, the [Vega SDK](https://developer.amazon.com/docs/vega/2.0/install-vega-sdk) (`source ~/vega/env`), and a Vega Fire TV stick in developer mode, connected over USB.
 ```bash
-tools/fetch-deps.sh                                   # pinned SDL3, doomgeneric, Chocolate Doom, Freedoom
+tools/fetch-deps.sh                                   # pinned, checksummed SDL3, doomgeneric, Freedoom, LibreQuake, ...
 for a in doom quake sdl-demo arcade; do tools/vega.sh build apps/$a armv7 Release && tools/vega.sh install apps/$a armv7 Release; done
 tools/vega.sh launch com.firetvnative.arcade.main   # or pick "Native Arcade" from Your Apps
 ```
-Each game also runs on its own (`tools/vega.sh run apps/doom com.firetvnative.doom.main armv7 Release`). `apps/vega-probe` prints a device capability report. To preview the arcade on a Mac without a device, run `apps/arcade/host-preview.sh`.
+Each game also runs on its own (`tools/vega.sh run apps/doom com.firetvnative.doom.main armv7 Release`). `apps/vega-probe` prints a device capability report. To preview the arcade on a Mac without a device, run `apps/arcade/host-preview.sh`. The N64 titles also need the MIPS toolchain and libdragon: see [n64/README.md](n64/README.md).
 
 ## Repository layout
 | Path | What |

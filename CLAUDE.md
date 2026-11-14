@@ -11,7 +11,7 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 
 ## Ground rules (from the user)
 - **Game data:** never commit, download or distribute ROMs, dumps, keys or extracted commercial assets. Use only open-source or freely licensed content. Commercial games only ever as user-built from their own dumps (deferred phase).
-- **Git:** committing to this repo is allowed (granted 2026-11-07). **Never push** without explicit permission. End commit messages with the Co-Authored-By line from the system attribution reminder.
+- **Git:** committing to this repo is allowed (granted 2026-11-07). Public remote: `origin` = github.com/mitulshah3882/firetv-native (first push 2026-11-14, user-approved). **Never push** without explicit permission each time. End commit messages with the Co-Authored-By line from the system attribution reminder.
 - **Usage:** keep the weekly plan usage **below 90%**. Check it at milestones and stop cleanly with STATUS updated if it gets close (≥85%).
 - **Amazon SDK files:** never copy Vega SDK files or template code into the repo. They're proprietary (Program Materials License). Write our own code, and treat the SDK as a build dependency.
 - **Polish:** the user wants a "wow" factor. Iterate on what runs on the device until it feels finished, not just functional.

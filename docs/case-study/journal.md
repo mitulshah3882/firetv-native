@@ -278,3 +278,20 @@ N64Recomp needed **8 small build-time patches** for modern libdragon code. Each 
 - **The arcade's N64 card now launches Brew Volley.** Back returns to the arcade. Verified on the TV.
 
 **Not done yet:** audio. libdragon's preview mixer does its work on the RSP coprocessor (a 1,900-line microcode with VADPCM decoding). That's the next piece.
+
+## 2026-11-14: Published
+
+The repository went public at **github.com/mitulshah3882/firetv-native**, as one monorepo: every app shares the engine, and licenses are already split per directory.
+
+Before the push, an audit of the full history checked for:
+- secrets, tokens and private keys
+- personal paths and email addresses
+- copied SDK files
+- ROMs and dumps
+
+Nothing turned up. All 20 commits carry the author's public address, and the packed history is 309 KB.
+
+The README gained a **"How native is it?"** section, because it's the first question everyone asks. The evidence comes straight from a built package:
+- one ARM ELF library linking only libc, libm, the loader and Vega's component framework
+- a manifest with no JavaScript runtime module
+- for the N64 games, MIPS code translated to C ahead of time

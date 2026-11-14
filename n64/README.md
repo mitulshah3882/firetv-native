@@ -49,10 +49,25 @@ Things that *can't* be statically recompiled, found the hard way:
 - assembly decompressors that poll DMA hardware
 - libdragon's crash screen (`dmfc0`)
 
-Debugging on the host: `N64_WATCH=<addr>` (hex dump each 5 frames), `N64_FAKE_PAD0=<hex>`, `N64_TRACE_PAD=1`. Crashes print a backtrace; recompiled functions are host symbols.
+**Audio** (`runtime/src/hle_audio.c`): the line sits under libdragon's mixer.
+- **Stays recompiled:** the XM sequencer (libxm + `xm64player`: patterns, effects, envelopes) and the WAV64 loaders (including the Huffman unpacking of compressed samples).
+- **Replaced by host C:** `mixer_*` and `audio_*`. A small software mixer keeps libdragon's channel semantics:
+  - positions in samples
+  - a stereo waveform owns `ch` and `ch+1`
+  - forward loops and volume ramps
+  - `mixer_add_event` callbacks (the XM tick), called back into recompiled code at their exact sample positions
+- **VADPCM** (the N64's ADPCM) is decoded on the host, once per waveform, after the game's own recompiled `wav64_vadpcm_preload()` has unpacked the frames.
+- **Validation:** against the source WAVs the decoder measures correlation 1.0000 and 61.6 dB SNR, and the music's beat period matches the module's tempo exactly (4 rows at speed 8 / 125 BPM = 0.64 s).
+
+Debugging on the host:
+- `N64_WATCH=<addr>`: hex dump every 5 frames
+- `N64_FAKE_PAD0=<hex>`
+- `N64_TRACE_PAD=1`
+- `N64_AUDIO_DUMP=<file.wav>`: records the mix, one frame of audio per frame, so it works with `--shot`
+- `N64_WAV_DUMP=<dir>`: writes every decoded sample Crashes print a backtrace; recompiled functions are host symbols.
 
 ## Status
 | Program | Host (Mac) | Fire TV Stick 4K Select |
 |---|---|---|
 | libdragon `helloworld` | ✅ | ✅ 59.9 fps, statically recompiled MIPS → ARMv7 |
-| `brew-volley` (N64brew jam game) | ✅ | ✅ 60 fps, playable (remote = P1, gamepad = P2); **no audio yet** |
+| `brew-volley` (N64brew jam game) | ✅ | ✅ 60 fps, playable (remote = P1, gamepad = P2), with its XM music and sound effects |

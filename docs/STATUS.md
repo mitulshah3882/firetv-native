@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-11-14 (published). Update this file at every milestone._
+_Last updated: 2026-11-14 (Brew Volley audio; 512×512 launcher icons). Update this file at every milestone._
 
 **Public repo:** https://github.com/mitulshah3882/firetv-native (first pushed 2026-11-14). Each later push still needs the user's explicit OK.
 
@@ -13,7 +13,7 @@ _Last updated: 2026-11-14 (published). Update this file at every milestone._
 - **Phase 2 (N64 static recompilation): a full homebrew game is playable on the TV.**
   - **Brew Volley** (N64brew Game Jam, libdragon example) runs at 60 fps on the Fire TV Stick 4K Select.
   - It is statically recompiled from MIPS with N64Recomp and launched from the arcade's N64 card.
-  - Graphics, text, input and game logic all work. **Audio is not done yet** (stubbed: the game is silent).
+  - Graphics, text, input, game logic **and audio** (XM music + VADPCM sound effects) all work.
 
 ## Done
 - Everything from Phase 1. See `docs/case-study/journal.md` for details.
@@ -22,7 +22,7 @@ _Last updated: 2026-11-14 (published). Update this file at every milestone._
   - Verified for all four on the TV.
 - **N64 pipeline** (see `n64/README.md`):
   - `tools/n64-libdragon.sh`: libdragon + examples, built with `~/n64-toolchain` (GCC 16.2).
-  - `tools/n64-tools.sh`: pinned N64Recomp with **8 build-time patches**:
+  - `tools/n64-tools.sh`: pinned N64Recomp with **9 build-time patches**:
     - traps → no-ops
     - sync/cache/pref ignored
     - generic cop0 access
@@ -31,6 +31,7 @@ _Last updated: 2026-11-14 (published). Update this file at every milestone._
     - stubs for untranslatable functions
     - trunc.l
     - EMUX opcodes
+    - jump tables with hoisted bases
   - `tools/n64-recomp.sh n64/recomp/<name>.toml` runs a two-pass recompile with the HLE rules (`n64/recomp/libdragon.hle`: stub/keep globs). It also emits:
     - the memory image and ROM (DFS)
     - `n64_image.h` (gp, boot globals, the ctor runner)
@@ -58,14 +59,17 @@ _Last updated: 2026-11-14 (published). Update this file at every milestone._
   - `apps/n64-helloworld` and `apps/n64-brew-volley`: Vega packages via `n64_add_recomp_app()`.
 
 ## Next
-1. **Brew Volley audio.**
-   - libdragon's preview mixer runs on the RSP (`rsp_mixer.S`, about 1,900 lines, with VADPCM decoding).
-   - **Option A:** HLE `mixer_exec`/RSP commands with a C mixer. Faithful, but big.
-   - **Option B:** HLE at the API level. Play `xm64player` with the original `.xm` file through libxm or a small XM player, and `wav64` effects decoded on the host. Faster.
-   - Also needed: `audio_init`, `audio_write_begin`/`end` → an SDL stream.
-2. More libdragon examples or N64brew jam games (all open source); each new title will exercise more rdpq HLE.
-3. Polish: arcade attract video/screenshots, case-study writeup, splash screen (format undocumented).
+1. **Decide on ponytail** (the user's question). The evaluation is done: see the 2026-11-14 journal entry. The recommendation is to borrow the review/audit prompts and a few rules, and skip the always-on plugin unless a before/after eval favours it.
+2. More libdragon examples or N64brew jam games (all open source). Each new title will exercise more rdpq HLE, and patch 9 shows that new titles may hit new recompiler gaps.
+3. Polish:
+   - arcade attract video/screenshots
+   - case-study writeup
+   - splash screen (format undocumented; the splash service looks for `assets/raw/SplashScreenImages.zip`)
 4. Follow-up: profile LibreQuake's 9–13 s map loads (`simpleperf`).
+5. Tests: there are none yet. Good first candidates:
+   - a host test for the VADPCM decoder against the source WAVs
+   - a test for the font bit order
+   - the address masking
 
 ## Needs a user decision
 - Testing on the other two sticks (the user plans to test at home).

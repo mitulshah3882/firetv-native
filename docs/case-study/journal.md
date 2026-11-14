@@ -295,3 +295,33 @@ The README gained a **"How native is it?"** section, because it's the first ques
 - one ARM ELF library linking only libc, libm, the loader and Vega's component framework
 - a manifest with no JavaScript runtime module
 - for the N64 games, MIPS code translated to C ahead of time
+
+## 2026-11-14: Brew Volley gets its sound; the apps get onto the home screen
+
+**Audio.** libdragon mixes audio on the RSP coprocessor, so the question was where to cut.
+- Above the mixer, the game's own code (libxm's XM sequencer and the WAV64 loaders) stays recompiled.
+- Below it, `hle_audio.c` replaces `mixer_*`/`audio_*` with a host mixer on an SDL3 stream. Its timed events call the recompiled XM tick at the exact sample it asked for.
+- VADPCM samples are unpacked by the game's own recompiled `wav64_vadpcm_preload()` (which handles the Huffman layer) and decoded on the host.
+- Struct offsets came from the ELF's DWARF info, so nothing was guessed.
+
+**A recompiler gap on the way.** The first run died with "no recompiled function at 800304D4", an address in the middle of `xm_tick`.
+- GCC had hoisted five jump-table bases into saved registers at function entry.
+- N64Recomp's linear scan "forgot" them after an early-return epilogue in the middle of the function, and treated those switches as tail calls.
+- Patch 9 keeps a tracked constant in a callee-saved register across stack restores. All nine switch tables in `xm_tick` were then recovered.
+
+**Verified objectively, since Claude can't listen:**
+- The decoded `halt` effect matches `assets/halt.wav` (correlation 1.0000, 61.6 dB SNR, both channels).
+- The mixed music's strongest beat period is 0.64 s, exactly 4 rows at the module's speed 8 / 125 BPM.
+- 0 clipped samples in a 60 s recording.
+- On the stick: 59.8–59.9 fps with audio, and per-sample decode costs of 0.1–7.4 ms.
+
+**Home screen.** The user allowed navigating the Fire TV UI.
+- None of our apps appeared in "Your Apps & Channels".
+- An Amazon developer forum thread gave the rule: sideloaded apps need an exactly 512×512 icon. Ours were 640×360, and Starfield and Brew Volley had none.
+- `tools/make-icons.sh` now generates all five icons from the arcade's card art. Each puts the art in a centred 16:9 band over a blurred fill, so the home tile matches the arcade card.
+- The dev-only probe and helloworld packages were uninstalled from the stick.
+
+**Ponytail.** The user asked whether github.com/dietrichgebert/ponytail could optimize the repo. A subagent evaluated it read-only.
+- **What it is:** a "lazy senior dev" coding-agent prompt plus a plugin. It optimizes how the agent writes code, not runtime or binary size.
+- **On this repo:** its codebase map is empty (no C/C++ support). The always-on prompt adds about 700 tokens per session and subagent. Its "smallest version" rule conflicts with our polish goal.
+- **Recommendation:** borrow `/ponytail-audit` and `/ponytail-review` as one-off read-only prompts and a few rules (root-cause bug fixes, a small test for new logic, no dependency for a few lines). Skip the plugin unless a before/after eval (designed, costed at about $11–44) shows at least 20% lower cost with equal pass rate and no loss of polish.

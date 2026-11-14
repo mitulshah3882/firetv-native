@@ -73,6 +73,8 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 - **Lifecycle in SDL apps:** SDL3 never queues `SDL_EVENT_DID_ENTER_BACKGROUND/FOREGROUND`; they go only to `SDL_AddEventWatch` callbacks. Polling loops must use `SDL_EVENT_WINDOW_HIDDEN/SHOWN`, which our driver queues. While hidden, `SDL_RenderPresent` blocks.
 - **Launching another app:** `vp_launch_uri("pkg://<component-id>")` (vegaplat) sends a message through the system message router, the same path as the home screen. No manifest entry is needed. The target's `onStart`/`onNewLaunch` message carries the URI, including any query string; read it with `vp_launch_uri_received()`.
 - **Host preview (no device):** `apps/arcade/host-preview.sh` builds the arcade against a host build of SDL3 (`build/host-sdl3`) and renders PNGs with `SDL_VIDEO_DRIVER=dummy` and the software renderer (`offscreen` fails on macOS). Use it to iterate on visuals before deploying.
+- **Launcher icons must be exactly 512×512 PNG (< 1 MB).** With any other size the app installs and launches, but never appears in the home screen's "Your Apps & Channels" row. Regenerate them with `tools/make-icons.sh`.
+- **The home screen may be navigated** to verify tiles (user permission 2026-11-14). Never commit screenshots of it: it shows the user's personal content.
 - **Remote UX:** a remote has no letter keys. "Press Y" prompts (Doom, Quake) are mapped so OK answers "yes". Check every game for prompts like this.
 
 ## Layout
@@ -89,5 +91,7 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
   - `N64_WATCH=<hex addr>` dumps memory every 5 frames (get addresses from `mips64-elf-nm`)
   - `N64_FAKE_PAD0=<hex>` forces controller buttons
   - libdragon asserts are reported with file:line
+  - `N64_AUDIO_DUMP=<file.wav>` records the mix; `N64_WAV_DUMP=<dir>` dumps decoded samples
+- **N64 audio:** `mixer_*`/`audio_*` are host C in `n64/runtime/src/hle_audio.c`. The XM and WAV64 players stay recompiled. Struct offsets come from the ELF's DWARF (`mips64-elf-objdump --dwarf=info`).
 - `docs/STATUS.md`, `docs/DECISIONS.md`, `docs/case-study/journal.md`
 - `PLAN.md`, `RESEARCH.md`, `README.md`

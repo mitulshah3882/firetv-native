@@ -8,7 +8,8 @@
 # SPDX-License-Identifier: MIT
 
 # Hardware-facing subsystems: RDP/RSP command queues, video, controllers (joybus), PI DMA,
-# audio hardware, timers, interrupt setup, debug channels.
+# audio hardware and the RSP mixer, timers, interrupt setup, debug channels. The audio players
+# above the mixer (xm64player + libxm, wav64 loaders) stay recompiled: see hle_audio.c.
 stub n64_rdpq_*
 stub n64___rdpq_*
 stub n64_rspq_*
@@ -27,8 +28,7 @@ stub n64_pi_*
 stub n64_timer_*
 stub n64_audio_*
 stub n64_mixer_*
-stub n64_xm64player_*
-stub n64_wav64_*
+stub n64___mixer_*
 stub n64_debug_init_*
 stub n64___init_interrupts
 stub n64___dma_init

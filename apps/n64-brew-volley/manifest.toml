@@ -2,6 +2,7 @@ schema-version = 1
 
 [package]
 title = "Brew Volley (N64)"
+icon = "@image/icon.png"
 version = "0.1.0"
 build-number = 1
 id = "com.firetvnative.n64.brewvolley"

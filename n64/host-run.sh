@@ -30,6 +30,7 @@ done
 for p in ${pids[@]+"${pids[@]}"}; do wait "$p"; done
 c++ -std=c++20 -O2 -DNDEBUG "${INC[@]}" -c "$ROOT/n64/runtime/src/n64rt.cpp" -o "$OUT/obj/n64rt.o"
 cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_libdragon.c" -o "$OUT/obj/hle.o"
+cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_audio.c" -o "$OUT/obj/hle_audio.o"
 cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/n64_main.c" -o "$OUT/obj/main.o"
 # shellcheck disable=SC2086
 c++ "$OUT"/obj/*.o $LIBS -o "$OUT/$NAME"

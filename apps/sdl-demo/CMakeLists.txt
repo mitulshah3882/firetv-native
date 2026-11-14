@@ -11,6 +11,11 @@ find_package(Kepler REQUIRED)
 include(vpt)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../engine/sdl3-vega/SDL3Vega.cmake)
 
-vega_add_sdl3_app(sdl_demo PACKAGE_ID "com.firetvnative.sdldemo" SOURCES src/main.c)
+# Launcher icon (512x512: see tools/make-icons.sh).
+set(PKGROOT "${CMAKE_BINARY_DIR}/pkgroot")
+file(MAKE_DIRECTORY "${PKGROOT}/assets/image")
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/icon/icon.png" "${PKGROOT}/assets/image/icon.png" COPYONLY)
+
+vega_add_sdl3_app(sdl_demo PACKAGE_ID "com.firetvnative.sdldemo" SOURCES src/main.c ASSETS_DIR "${PKGROOT}")
 target_link_libraries(sdl_demo PRIVATE m)
 vpt_create_package(NAME sdl-demo)

@@ -11,7 +11,7 @@ In one working session, mostly unattended, Claude Code:
   - Quake runs at a steady 59.9 fps with its soundtrack.
   - Both have sound and remote or gamepad controls.
 - **Built a native "arcade" launcher** that ties it all together: a coverflow carousel over a synthwave stage, with music synthesized live.
-- **Statically recompiled a Nintendo 64 homebrew game to run natively on the Fire TV.** *Brew Volley*, an N64brew Game Jam game, plays at 60 fps. Its MIPS code was translated to C with N64Recomp and compiled for the stick's ARM CPU, with hardware-facing libdragon calls reimplemented on SDL3. No emulator.
+- **Statically recompiled a Nintendo 64 homebrew game to run natively on the Fire TV.** *Brew Volley*, an N64brew Game Jam game, plays at 60 fps with its music and sound effects. Its MIPS code was translated to C with N64Recomp and compiled for the stick's ARM CPU, with hardware-facing libdragon calls reimplemented on SDL3. No emulator.
 
 ![Native Arcade on Fire TV](media/07-native-arcade-on-tv.jpg)
 
@@ -71,8 +71,10 @@ In one working session, mostly unattended, Claude Code:
 10. **SDL3 never queues "entered background/foreground" events.** They go only to event-watch callbacks. Claude found this when the arcade sometimes failed to wake up after a game exited, then fixed all four apps and corrected its own porting guide.
 11. **TV remotes have no Y key.** Doom's and Quake's quit prompts both say "press Y". Driving the full launch → play → quit loop on the TV exposed it.
 
-12. **Eight things N64Recomp couldn't handle in modern libdragon code**, each patched at build time: trap instructions, memory barriers, coprocessor-0 registers, GCC's clone names, atomics, EMUX debug opcodes, 64-bit float truncation, and per-function failures.
+12. **Nine things N64Recomp couldn't handle in modern libdragon code**, each patched at build time: trap instructions, memory barriers, coprocessor-0 registers, GCC's clone names, atomics, EMUX debug opcodes, 64-bit float truncation, per-function failures, and jump tables whose address GCC hoisted into a saved register (an early-return epilogue in the middle of libxm's `xm_tick` made the recompiler forget them).
 13. **Some code can't be statically recompiled at all.** GCC nested functions build trampolines on the stack at run time. Hand-written assembly decompressors race the cartridge DMA by polling hardware registers. Claude found both through crashes and replaced them with host code.
+14. **N64 audio without emulating the RSP.** libdragon mixes on the RSP coprocessor, so Claude cut in just below the mixer API. The game's own recompiled XM player and WAV64 loaders still decide what plays, and a small host mixer plays it. The decoded audio matches the game's source WAVs at 61.6 dB SNR, and the music's measured beat matches the module's tempo exactly.
+15. **Sideloaded Vega apps only appear on the home screen if their icon is exactly 512×512.** Our 640×360 icons installed and launched fine but never showed in "Your Apps & Channels". Claude found the rule in an Amazon developer forum thread, then regenerated every icon from the arcade's card art.
 
 ## Numbers
 | Metric | Value |
@@ -83,7 +85,8 @@ In one working session, mostly unattended, Claude Code:
 | Quake (LibreQuake, 320×240 software renderer → 1080p) | 59.7–59.9 fps presented, 66–73 MB RSS, OGG soundtrack |
 | Native Arcade (coverflow, render-to-texture, live synth) | 59.9 fps, 48 MB RSS, 1.6 MB package |
 | N64 helloworld (recompiled MIPS → ARMv7) | 59.9 fps; 486 functions; 1.2 MB package |
-| Brew Volley (recompiled N64 game) | 59.6–60.1 fps; 533 functions recompiled + 252 replaced by host code; 2.2 MB package |
+| Brew Volley (recompiled N64 game) | 59.8–59.9 fps with audio; 544 functions recompiled + 238 replaced by host code |
+| N64 audio | VADPCM decoded once per sample in 0.1–7.4 ms on the stick; 61.6 dB SNR vs the source WAVs |
 | SDL3 demo | 59.9 fps, OpenGL ES 2 renderer |
 | Audio | 48 kHz s16 stereo, 768×2-frame buffers, about 75 ms latency, 0 underruns |
 | Cold launch to first frame | about 1.2 s |
@@ -98,7 +101,6 @@ In one working session, mostly unattended, Claude Code:
   - Third-party licenses: SDL zlib, Nuked OPL3 LGPL-2.1+, Freedoom and LibreQuake BSD-3, fonts SIL OFL 1.1.
 
 ## What's next
-- **N64 audio.** libdragon's mixer runs on the RSP. The next step is a host mixer, so Brew Volley gets its music and sound effects.
 - **More recompiled N64 homebrew** (N64brew jam games are open source), and more of the rdpq API in the runtime.
 - More SDL games, and testing across all three Vega sticks.
 

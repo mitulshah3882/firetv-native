@@ -210,6 +210,34 @@ if marker not in s:
     print("patched: emux")
 PY
 
+# Patch 9: jump tables whose base address GCC hoisted into a callee-saved register. GCC loads
+# table bases (lui/addiu) into s0-s7 once at function entry; N64Recomp's jump-table scan is linear,
+# so an early-return epilogue in the middle of the function (`ld s1, 80(sp)`) wiped that state and
+# every switch placed after it became a bogus tail call ("no recompiled function at <mid-function
+# address>"; libxm's xm_tick has five). Callee-saved registers are only reloaded from the stack in
+# epilogues, so a tracked constant survives such a restore.
+python3 -I - "$SRC/src/analysis.cpp" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+marker = "/* firetv-native: hoisted jump-table bases */"
+if marker not in s:
+    anchor = "    case InstrId::cpu_lw:\n"
+    assert anchor in s and "case InstrId::cpu_ld:" not in s, "analysis.cpp changed; update tools/n64-tools.sh"
+    keep = ("if (base == (int)RegId::GPR_O32_sp && ((rt >= 16 && rt <= 23) || rt == 30) && "
+            "reg_states[rt].valid_lui) break;")
+    patch = ("    " + marker + "\n"
+             "    case InstrId::cpu_ld:\n"
+             "        " + keep + "\n"
+             "        reg_states[rt].invalidate();\n"
+             "        break;\n"
+             + anchor +
+             "        " + keep + "\n")
+    s = s.replace(anchor, patch, 1)
+    open(p, "w").write(s)
+    print("patched: hoisted jump-table bases")
+PY
+
 cmake -S "$SRC" -B "$OUT" -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null
 ninja -C "$OUT" N64Recomp
 echo "$OUT/N64Recomp"

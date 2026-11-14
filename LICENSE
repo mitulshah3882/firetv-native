@@ -19,12 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
--------------------------------------------------------------------------------
-This MIT license covers everything in this repository EXCEPT:
-  - engine/sdl3-vega/src/   zlib license (same as SDL, so it can be upstreamed);
-                            see engine/sdl3-vega/LICENSE.txt
-  - apps/doom/, apps/quake/ GNU GPL v2 or later (they link GPL engine code);
-                            see the LICENSE file in each directory
-Third-party sources fetched by tools/fetch-deps.sh keep their own licenses.
-The Amazon Vega SDK is not part of this repository.

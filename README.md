@@ -56,7 +56,7 @@ Each game also runs on its own (`tools/vega.sh run apps/doom com.firetvnative.do
 This repository contains **no ROMs, no game dumps, no keys and no extracted game assets**, and never will. Commercial games are only supported as builds you make yourself from a dump of a cartridge you own. Anything distributed from this project uses open-source or freely licensed content only.
 
 ## License
-- **Engine, tools, demos and the arcade launcher:** MIT, © 2026 Mitul Shah ([LICENSE](LICENSE)).
+- **Engine, tools, demos and the arcade launcher:** MIT, © 2026 Mitul Shah ([LICENSE](LICENSE)). The two exceptions below have their own LICENSE files, which take precedence for those directories.
 - **`engine/sdl3-vega/src`** (the SDL video and audio drivers): zlib, the same license as SDL, so they can be upstreamed ([LICENSE.txt](engine/sdl3-vega/LICENSE.txt)).
 - **`apps/doom` and `apps/quake`:** GPL-2.0-or-later, because they link GPL engine code (doomgeneric, Chocolate Doom, id's WinQuake). See the LICENSE file in each directory.
 - **Third-party components keep their own licenses:** SDL (zlib), Nuked OPL3 (LGPL-2.1+), Freedoom (BSD-3), LibreQuake (BSD-3 art, GPL-2 QuakeC).

@@ -26,3 +26,4 @@ make doom "$ROOT/apps/arcade/art/doom.png"
 make quake "$ROOT/apps/arcade/art/quake.png"
 make sdl-demo --starfield
 make n64-brew-volley "$ROOT/apps/arcade/art/brewvolley.png"
+make supertux "$ROOT/apps/arcade/art/supertux.png"

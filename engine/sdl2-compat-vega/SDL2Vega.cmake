@@ -3,8 +3,8 @@
 #   include(<repo>/engine/sdl2-compat-vega/SDL2Vega.cmake)   # includes SDL3Vega.cmake
 #   vega_add_sdl2_app(<target> PACKAGE_ID <id> SOURCES <...> [ASSETS_DIR <dir>])
 #
-# Targets for third-party CMake projects: SDL2::SDL2 / SDL2::SDL2-static (headers + the full
-# SDL2-on-SDL3 stack). sdl2-compat normally dlopen()s libSDL3.so; here SDL3 is linked statically
+# Targets for third-party CMake projects: SDL2 / SDL2::SDL2 / SDL2::SDL2-static (headers + the
+# full SDL2-on-SDL3 stack), and a find_package(SDL2) shim. sdl2-compat normally dlopen()s libSDL3.so; here SDL3 is linked statically
 # with its symbols renamed SDL_* -> SDL3V_* and sdl2-compat resolves them from a static table.
 #
 # SPDX-FileCopyrightText: 2026 Mitul Shah
@@ -30,16 +30,28 @@ _sdl3vega_patch("${SDL2VEGA_COMPAT_SOURCE}/src/sdl2_compat.c"
   "#elif defined(__ANDROID__)\nstatic void error_dialog"
   "#elif defined(SDL2COMPAT_STATIC_SDL3) /* vega-port: errors to syslog */\n#include <syslog.h>\n#include <unistd.h>\nstatic void error_dialog(const char *errorMsg)\n{\n    syslog(LOG_ERR, \"sdl2-compat: %s\", errorMsg);\n    sleep(7); /* the device log drops a new process's first seconds: repeat once visible */\n    syslog(LOG_ERR, \"sdl2-compat: %s\", errorMsg);\n}\n"
   "SDL2COMPAT_STATIC_SDL3) /* vega-port: errors to syslog */")
-set(SDL2COMPAT_STATIC ON CACHE BOOL "" FORCE)
-set(SDL2COMPAT_TESTS OFF CACHE BOOL "" FORCE)
-set(SDL2COMPAT_INSTALL OFF CACHE BOOL "" FORCE)
-set(SDL2COMPAT_X11 OFF CACHE BOOL "" FORCE)
-set(SDL2COMPAT_WERROR OFF CACHE BOOL "" FORCE)
-add_subdirectory("${SDL2VEGA_COMPAT_SOURCE}" "${CMAKE_BINARY_DIR}/sdl2-compat" EXCLUDE_FROM_ALL)
-target_sources(SDL2-static PRIVATE "${SDL2VEGA_DIR}/sdl3v_table.c")
-target_include_directories(SDL2-static PRIVATE "${SDL2VEGA_COMPAT_SOURCE}/src")
-target_compile_definitions(SDL2-static PRIVATE SDL2COMPAT_STATIC_SDL3=1)
-set_target_properties(SDL2-static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# Build-time patch: SDL3's MEDIA_PLAY_PAUSE (the remote's Play/Pause key) has no SDL2 scancode in
+# sdl2-compat's table and arrives as UNKNOWN; give it SDL2's AUDIOPLAY, the usual play/pause key.
+_sdl3vega_patch("${SDL2VEGA_COMPAT_SOURCE}/src/sdl2_compat.c"
+  "    case SDL_SCANCODE_MEDIA_PLAY:\n        return SDL2_SCANCODE_AUDIOPLAY;"
+  "    case SDL_SCANCODE_MEDIA_PLAY_PAUSE: /* vega-port: the remote's Play/Pause */\n"
+  "SDL_SCANCODE_MEDIA_PLAY_PAUSE: /* vega-port")
+# sdl2-compat is compiled directly (not through its CMakeLists, which also defines a shared
+# target literally named `SDL2`, the name SDL2 projects such as SuperTux link against).
+set(_sdl2gen "${CMAKE_BINARY_DIR}/sdl2-compat-gen")
+set(SDL2COMPAT_DISABLE_X11 ON)
+configure_file("${SDL2VEGA_COMPAT_SOURCE}/include/SDL2/SDL_config_unix.h.cmake" "${_sdl2gen}/SDL_config_unix.h")
+add_library(sdl2compat_vega STATIC
+  "${SDL2VEGA_COMPAT_SOURCE}/src/sdl2_compat.c"
+  "${SDL2VEGA_COMPAT_SOURCE}/src/dynapi/SDL_dynapi.c"
+  "${SDL2VEGA_DIR}/sdl3v_table.c")
+target_include_directories(sdl2compat_vega
+  PUBLIC "${_sdl2gen}" "${SDL2VEGA_COMPAT_SOURCE}/include" "${SDL2VEGA_COMPAT_SOURCE}/include/SDL2"
+  PRIVATE "${SDL2VEGA_COMPAT_SOURCE}/src")
+target_link_libraries(sdl2compat_vega PRIVATE SDL3::Headers)
+target_compile_definitions(sdl2compat_vega PRIVATE _REENTRANT SDL2COMPAT_STATIC_SDL3=1
+  "SDL2COMPAT_REVISION=\"SDL-2.32.74-vega\"")
+set_target_properties(sdl2compat_vega PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # The renamed SDL3 archive.
 get_filename_component(_sdl2vega_bindir "${CMAKE_NM}" DIRECTORY)
@@ -55,18 +67,24 @@ add_custom_target(sdl3v_archive DEPENDS "${_sdl3v}")
 add_library(SDL3v STATIC IMPORTED GLOBAL)
 set_target_properties(SDL3v PROPERTIES IMPORTED_LOCATION "${_sdl3v}")
 add_dependencies(SDL3v sdl3v_archive)
-add_dependencies(SDL2-static sdl3v_archive)
+add_dependencies(sdl2compat_vega sdl3v_archive)
 
-# One interface target for apps and third-party CMake projects.
-add_library(SDL2Vega INTERFACE)
-target_include_directories(SDL2Vega INTERFACE
-  "${SDL2VEGA_COMPAT_SOURCE}/include" "${SDL2VEGA_COMPAT_SOURCE}/include/SDL2"
-  "${CMAKE_BINARY_DIR}/sdl2-compat/include" "${CMAKE_BINARY_DIR}/sdl2-compat/include/SDL2")
-target_link_libraries(SDL2Vega INTERFACE SDL2-static SDL3v Threads::Threads m ${CMAKE_DL_LIBS})
-find_package(Threads REQUIRED)
-if(NOT TARGET SDL2::SDL2)
-  add_library(SDL2::SDL2 ALIAS SDL2Vega)
-endif()
+# `SDL2`: one interface target for apps and third-party CMake projects (the name SuperTux,
+# SDL_ttf, tinygettext... link), plus the usual aliases and a find_package(SDL2) shim.
+add_library(SDL2 INTERFACE)
+target_link_libraries(SDL2 INTERFACE sdl2compat_vega SDL3v Threads::Threads m ${CMAKE_DL_LIBS})
+add_library(SDL2::SDL2 ALIAS SDL2)
+add_library(SDL2::SDL2-static ALIAS SDL2)
+add_library(SDL2Vega ALIAS SDL2)
+set(_sdl2pkg "${CMAKE_BINARY_DIR}/vega-pkg/SDL2")
+file(WRITE "${_sdl2pkg}/SDL2Config.cmake"
+  "# find_package(SDL2) shim: the SDL2 targets already exist in this build (SDL2Vega.cmake).\n"
+  "set(SDL2_FOUND TRUE)\nset(SDL2_LIBRARIES SDL2::SDL2)\nset(SDL2_INCLUDE_DIRS \"${SDL2VEGA_COMPAT_SOURCE}/include/SDL2;${_sdl2gen}\")\n")
+file(WRITE "${_sdl2pkg}/SDL2ConfigVersion.cmake"
+  "set(PACKAGE_VERSION \"${SDL2VEGA_COMPAT_VERSION}\")\n"
+  "if(PACKAGE_FIND_VERSION_MAJOR EQUAL 2 AND NOT PACKAGE_FIND_VERSION VERSION_GREATER PACKAGE_VERSION)\n"
+  "  set(PACKAGE_VERSION_COMPATIBLE TRUE)\nendif()\n")
+set(SDL2_DIR "${_sdl2pkg}" CACHE PATH "" FORCE)
 
 # vega_add_sdl2_app(<target> PACKAGE_ID <id> SOURCES <...> [ASSETS_DIR <dir>])
 function(vega_add_sdl2_app target)
@@ -75,5 +93,5 @@ function(vega_add_sdl2_app target)
   if(arg_ASSETS_DIR)
     set(_assets ASSETS_DIR "${arg_ASSETS_DIR}")
   endif()
-  vega_add_sdl3_app(${target} PACKAGE_ID "${arg_PACKAGE_ID}" SOURCES ${arg_SOURCES} ${_assets} SDL_LIBS SDL2Vega)
+  vega_add_sdl3_app(${target} PACKAGE_ID "${arg_PACKAGE_ID}" SOURCES ${arg_SOURCES} ${_assets} SDL_LIBS SDL2)
 endfunction()

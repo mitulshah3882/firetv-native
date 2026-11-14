@@ -105,11 +105,13 @@ static std::mutex gEarlyLogMutex;
 static std::deque<std::string> gEarlyLog;
 static bool gEarlyLogOpen = true;
 
+static std::atomic<bool> gStdioCaptured{false};
+
 static void emitLog(const char* line) {
     using namespace apmf::log_levels;
     VegaPlatLogger.Log(INFO, [&](auto& out) { out << "[vegagame] " << line; });
     syslog(LOG_INFO, "[vegagame] %s", line);
-    fprintf(stderr, "[vegagame] %s\n", line);
+    if (!gStdioCaptured) fprintf(stderr, "[vegagame] %s\n", line);  // once captured, stderr feeds vp_log
 }
 
 static void startLogReplay() {
@@ -136,6 +138,30 @@ extern "C" void vp_log(const char* fmt, ...) {
         if (gEarlyLogOpen && gEarlyLog.size() < 400) gEarlyLog.emplace_back(buf);
     }
     emitLog(buf);
+}
+
+// Ported games report errors on stdout/stderr, which the device log does not capture: route both
+// through a pipe into vp_log (which also keeps early lines for the replay).
+static void captureStdio() {
+    int fds[2];
+    if (pipe(fds) != 0) return;
+    fflush(stdout);
+    fflush(stderr);
+    gStdioCaptured = true;
+    dup2(fds[1], STDOUT_FILENO);
+    dup2(fds[1], STDERR_FILENO);
+    close(fds[1]);
+    setvbuf(stdout, nullptr, _IOLBF, 0);
+    setvbuf(stderr, nullptr, _IONBF, 0);
+    std::thread([fd = fds[0]] {
+        FILE* in = fdopen(fd, "r");
+        char line[1024];
+        while (in && fgets(line, sizeof line, in)) {
+            size_t n = strlen(line);
+            while (n && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = 0;
+            if (n) vp_log("%s", line);
+        }
+    }).detach();
 }
 
 static uint64_t nowNs() {
@@ -262,6 +288,7 @@ static void runApp() {
     setenv("HOME", "/data", 0);
     setenv("XDG_DATA_HOME", "/data", 0);
     setenv("XDG_CONFIG_HOME", "/data", 0);
+    captureStdio();
     if (chdir("/pkg/assets") != 0) vp_log("chdir(/pkg/assets) failed");
     char arg0[] = VEGA_PACKAGE_ID;
     char* argv[] = {arg0, nullptr};
@@ -480,6 +507,20 @@ extern "C" bool vp_gl_create_context(void) {
         s.surface->prepareToDraw(Array<kg::RectI>{});
         s.drawing = true;
         vp_log("GL context ready: surface %dx%d, fbo %u", s.surface->getWidth(), s.surface->getHeight(), s.fbo);
+        // Present one black frame right away. Vega kills an app with no first frame about 20 s
+        // after launch (AppNotResponding), and some games load longer than that before drawing.
+        using ClearColorFn = void (*)(float, float, float, float);
+        using ClearFn = void (*)(unsigned);
+        using BindFbFn = void (*)(unsigned, unsigned);
+        auto clearColor = reinterpret_cast<ClearColorFn>(vp_gl_get_proc("glClearColor"));
+        auto clear = reinterpret_cast<ClearFn>(vp_gl_get_proc("glClear"));
+        auto bindFb = reinterpret_cast<BindFbFn>(vp_gl_get_proc("glBindFramebuffer"));
+        if (clearColor && clear && bindFb) {
+            bindFb(0x8D40 /* GL_FRAMEBUFFER */, s.fbo);
+            clearColor(0, 0, 0, 1);
+            clear(0x4000 | 0x0100 | 0x0400 /* COLOR | DEPTH | STENCIL */);
+            vp_gl_swap();
+        }
         return true;
     } catch (const std::exception& e) {
         vp_log("vp_gl_create_context failed: %s", e.what());

@@ -1,6 +1,12 @@
 # Status
 
-_Last updated: 2026-11-14 (Brew Volley audio; 512×512 launcher icons). Update this file at every milestone._
+_Last updated: 2026-11-14 evening (sdl2-compat; SuperTux playable; SuperTuxKart in progress). Update this file at every milestone._
+
+**In flight:**
+- **SuperTux 0.7.0 is playable on the TV** (`apps/sdl2-smoke` proves the SDL2 path). Launch it from the arcade; OK jumps and Back opens the menu.
+- **SuperTuxKart 1.5 is next.** Its source is fetched. It needs HarfBuzz, libcurl, mbedTLS and libjpeg added to VegaDeps, plus trimmed assets (774 MB of data against 2 GB free on the stick).
+- **Research is in `docs/research/`:** `original-game-concepts.md` (top picks: Gravity Choir, Chroma Orbit, Prism Spire) and `n64-homebrew-candidates.md` (N64brew Jam 2024 harness, Hydra Harmonics, tiny3d).
+- **Ponytail eval (partial):** no win on what ran, with polish slightly worse. The report is in the scratchpad (`ponytail-eval/report.md`).
 
 **Public repo:** https://github.com/mitulshah3882/firetv-native (first pushed 2026-11-14). Each later push still needs the user's explicit OK.
 

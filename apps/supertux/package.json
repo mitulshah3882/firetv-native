@@ -1,0 +1,7 @@
+{
+  "name": "vega-supertux",
+  "version": "0.7.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "kepler": { "projectType": "native", "targets": ["tv"] }
+}

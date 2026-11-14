@@ -1,0 +1,27 @@
+schema-version = 1
+
+[package]
+title = "SDL2 Smoke Test"
+version = "0.1.0"
+build-number = 1
+id = "com.firetvnative.sdl2smoke"
+
+[os.version]
+min = "2.0"
+target = "2.0"
+
+[components]
+[[components.interactive]]
+id = "com.firetvnative.sdl2smoke.main"
+launch-type = "singleton"
+categories = ["com.amazon.category.main"]
+
+[wants]
+[[wants.service]]
+id = "com.amazon.audio.stream"
+[[wants.service]]
+id = "com.amazon.audio.control"
+
+[needs]
+[[needs.module]]
+id = "/com.amazon.vega.os@IVega_2_0"

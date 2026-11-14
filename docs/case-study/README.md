@@ -96,7 +96,7 @@ In one working session, mostly unattended, Claude Code:
 - **No commercial ROMs or game data.** Doom runs on **Freedoom** (BSD-licensed original assets). The WAD is fetched and checksummed at build time and never committed.
 - **No Amazon SDK files or template code in the repo.** The SDK is proprietary, so it's a build dependency only.
 - **Licenses:**
-  - Our code is MIT, © 2026 Mitul Shah. The SDL3 drivers are zlib, so they can be upstreamed.
+  - Our code is MIT, © 2026 Mitul Shah. The SDL3 drivers are zlib, like SDL. (Upstreaming isn't an option: SDL doesn't accept AI-generated contributions.)
   - The Doom and Quake apps are GPL-2.0-or-later, because they link GPL engines.
   - Third-party licenses: SDL zlib, Nuked OPL3 LGPL-2.1+, Freedoom and LibreQuake BSD-3, fonts SIL OFL 1.1.
 

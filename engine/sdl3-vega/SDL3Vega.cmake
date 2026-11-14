@@ -100,8 +100,12 @@ set_target_properties(SDL3-static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # --- helper: declare a pure-native Vega app that uses SDL3 ------------------------------------------
 # vega_add_sdl3_app(<target> PACKAGE_ID <id> SOURCES <...> [ASSETS_DIR <dir>])
 # The app provides `int main(int argc, char** argv)` as usual (renamed to vega_app_main here).
+# (SDL_LIBS overrides the SDL libraries linked; SDL2Vega.cmake uses it for sdl2-compat apps.)
 function(vega_add_sdl3_app target)
-  cmake_parse_arguments(arg "" "PACKAGE_ID;ASSETS_DIR" "SOURCES" ${ARGN})
+  cmake_parse_arguments(arg "" "PACKAGE_ID;ASSETS_DIR" "SOURCES;SDL_LIBS" ${ARGN})
+  if(NOT arg_SDL_LIBS)
+    set(arg_SDL_LIBS SDL3::SDL3-static)
+  endif()
   kepler_add_idl_import_library(${target}_idl
     PACKAGES
     com.amazon.kepler.application
@@ -114,7 +118,7 @@ function(vega_add_sdl3_app target)
   target_compile_definitions(${target} PRIVATE VEGA_PACKAGE_ID="${arg_PACKAGE_ID}")
   # The app's main() becomes the entry point vegaplat runs on its own thread.
   set_source_files_properties(${arg_SOURCES} PROPERTIES COMPILE_DEFINITIONS "main=vega_app_main")
-  target_link_libraries(${target} PRIVATE ${target}_idl SDL3::SDL3-static ${CMAKE_DL_LIBS})
+  target_link_libraries(${target} PRIVATE ${target}_idl ${arg_SDL_LIBS} ${CMAKE_DL_LIBS})
   set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${arg_PACKAGE_ID}.entry_point_factory")
   kepler_install_components(${target} IN_PROCESS "/${arg_PACKAGE_ID}.entry_point_factory")
   vpt_add_library_target(${target})

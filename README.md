@@ -57,7 +57,7 @@ This repository contains **no ROMs, no game dumps, no keys and no extracted game
 
 ## License
 - **Engine, tools, demos and the arcade launcher:** MIT, © 2026 Mitul Shah ([LICENSE](LICENSE)). The two exceptions below have their own LICENSE files, which take precedence for those directories.
-- **`engine/sdl3-vega/src`** (the SDL video and audio drivers): zlib, the same license as SDL, so they can be upstreamed ([LICENSE.txt](engine/sdl3-vega/LICENSE.txt)).
+- **`engine/sdl3-vega/src`** (the SDL video and audio drivers): zlib, the same license as SDL ([LICENSE.txt](engine/sdl3-vega/LICENSE.txt)).
 - **`apps/doom` and `apps/quake`:** GPL-2.0-or-later, because they link GPL engine code (doomgeneric, Chocolate Doom, id's WinQuake). See the LICENSE file in each directory.
 - **Third-party components keep their own licenses:** SDL (zlib), Nuked OPL3 (LGPL-2.1+), Freedoom (BSD-3), LibreQuake (BSD-3 art, GPL-2 QuakeC).
 - **The Amazon Vega SDK is not included.** Install it yourself under Amazon's terms.

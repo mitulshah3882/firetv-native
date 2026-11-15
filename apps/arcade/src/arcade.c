@@ -59,6 +59,11 @@ typedef struct {
 } Game;
 
 static Game g_games[] = {
+    {"Gravity Choir", "Original game \xC2\xB7 made for this project",
+     "You are a star that sings. Pull the swarm in, flip your field, and",
+     "smash it into itself: nothing shoots, and every crash is a note.",
+     {"ORIGINAL", "OPENGL ES 3", "LIVE SYNTH", "1-4 PLAYERS"},
+     "pkg://com.firetvnative.gravitychoir.main", "art/gravitychoir.png", {0.80f, 0.40f, 1.0f, 1}, CARD_ART, NULL, NULL, true, {{0}}},
     {"Freedoom", "Doom engine · 1993 · Freedoom: Phase 2",
      "The classic Doom engine running natively at 60 fps, with authentic",
      "OPL3 FM music synthesized live. Free game data by the Freedoom project.",
@@ -577,7 +582,7 @@ static void draw_about(void) {
     const float t = ease_out(A.about_t / 0.25f);
     SDL_SetRenderDrawBlendMode(A.r, SDL_BLENDMODE_BLEND);
     quad_grad(0, 0, W, H, rgba(0, 0, 0, 0.6f * t), rgba(0, 0, 0, 0.6f * t));
-    const SDL_FRect p = {W / 2 - 620, H / 2 - 330 + (1 - t) * 40, 1240, 660};
+    const SDL_FRect p = {W / 2 - 620, H / 2 - 380 + (1 - t) * 40, 1240, 760};
     fill_rrect(p, 22, rgba(0.06f, 0.03f, 0.12f, 0.96f * t));
     stroke_rrect(p, 22, 2, rgba(1, 0.3f, 0.75f, 0.6f * t));
     batch_flush(NULL);
@@ -590,6 +595,7 @@ static void draw_about(void) {
     };
     static const char *rows[][2] = {
         {"Engine", "SDL 3.4 with our Vega video and audio drivers (zlib)"},
+        {"Gravity Choir", "original game made for this project (MIT), music synthesized live"},
         {"Freedoom", "doomgeneric + Chocolate Doom OPL music (GPL-2.0), Freedoom data (BSD-3)"},
         {"LibreQuake", "quakegeneric + id Software WinQuake (GPL-2.0), LibreQuake data (BSD-3, GPL-2)"},
         {"SuperTux", "SuperTux 0.7 (GPL-3.0) on sdl2-compat (zlib); data CC-BY-SA / GPL"},
@@ -602,7 +608,7 @@ static void draw_about(void) {
     for (size_t i = 0; i < SDL_arraysize(intro); ++i, y += 40)
         text_draw(A.r, A.body, p.x + 52, y, intro[i], rgba(0.9f, 0.88f, 0.98f, 0.92f * t), 1);
     y += 30;
-    for (size_t i = 0; i < SDL_arraysize(rows); ++i, y += 40) {
+    for (size_t i = 0; i < SDL_arraysize(rows); ++i, y += 38) {
         text_draw(A.r, A.body, p.x + 52, y, rows[i][0], rgba(1, 0.45f, 0.8f, 0.95f * t), 1);
         text_draw(A.r, A.body, p.x + 232, y, rows[i][1], rgba(0.9f, 0.88f, 0.98f, 0.92f * t), 1);
     }

@@ -1,0 +1,8 @@
+{
+  "name": "gravity-choir",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gravity Choir: an original neon arena game for the Fire TV remote (native C, SDL3, OpenGL ES).",
+  "license": "MIT",
+  "kepler": { "projectType": "native", "targets": ["tv"] }
+}

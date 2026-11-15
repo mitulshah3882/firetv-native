@@ -2,7 +2,7 @@
 
 An experiment in getting games running **natively** on Amazon Fire TV devices running **Vega OS**, Amazon's Linux-based TV operating system. Native here means compiled C/C++ talking straight to the device's graphics, audio and input APIs, not an emulator or a web wrapper. The porting work is done with Claude Code.
 
-> Status: **Doom and Quake run natively on a Fire TV Stick (Vega OS)** via our SDL3 port, behind a native **arcade launcher**: Freedoom with OPL3 music at 56–60 fps, and LibreQuake with its soundtrack at 59.9 fps. Plus **Brew Volley, an N64 homebrew game statically recompiled from MIPS to ARM**, playable at 60 fps. See the [case study draft](docs/case-study/README.md).
+> Status: **seven games run natively on a Fire TV Stick (Vega OS)** behind a native **arcade launcher**, on our SDL3 port: **Gravity Choir**, an original game made for this project (60 fps, music synthesized live); Freedoom with OPL3 music (56–60 fps); LibreQuake with its soundtrack (59.9 fps); SuperTux; SuperTuxKart, the 3D kart racer (60 fps on the lighter tracks, 25–59 on the busiest); and two **N64 homebrew games statically recompiled from MIPS to ARM**, Brew Volley and Land Grab. See the [case study draft](docs/case-study/README.md).
 
 ![Native Arcade running on Fire TV](docs/case-study/media/07-native-arcade-on-tv.jpg)
 
@@ -40,6 +40,7 @@ Each game also runs on its own (`tools/vega.sh run apps/doom com.firetvnative.do
 | `apps/quake` | quakegeneric + LibreQuake: our SDL3 backend, restored WinQuake mixer with an SDL3 DMA driver, OGG soundtrack |
 | `apps/sdl-demo` | SDL3 renderer, input and audio demo |
 | `apps/supertux` | SuperTux 0.7 (GPL-3.0): SDL2 game code on sdl2-compat over our SDL3 backend, all dependencies built from source |
+| `apps/gravity-choir` | Gravity Choir, an original game: a neon arena where enemies die only by colliding and every crash is a note; music synthesized live (MIT) |
 | `apps/supertuxkart` | SuperTuxKart 1.5 (GPL-3.0): the 3D kart racer on OpenGL ES 3, its data trimmed for the stick (ASTC textures) |
 | `engine/sdl2-compat-vega`, `engine/thirdparty` | SDL2 API on our static SDL3 (renamed symbols), and pinned third-party libraries built per app |
 | `n64/jam24/` | Static-link harness for N64brew Game Jam 2024 minigames (`tools/n64-jam24.sh`) |

@@ -95,6 +95,13 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 - **Launcher icons must be exactly 512×512 PNG (< 1 MB).** `tools/make-icons.sh` generates them; game icons come from the arcade card art.
 - **Profiling native apps (CPU):** push the SDK's target simpleperf (strip it first with the toolchain's `llvm-strip`: 55 MB → 7 MB) with `vda push <file> /tmp/scratch/<pkg-id>`. Run it with `vda shell -t component-id <pkg-id>.main "cd /scratch && ./simpleperf record -e cpu-clock -f 2000 -p 2 --duration 20"`; the app is pid 2 in its namespace. Then `vda pull` perf.data. Report with the SDK's host simpleperf. Our `.so` shows as `[+offset]`: symbolize with `llvm-nm` on `build/<arch>-release/lib/*.so.debug`, at address = offset + the text segment's page-aligned vaddr. `vda` is in `$SDK/bin/tools/`.
 - **Log streams leak:** `vega device start-log-stream` is a wrapper script over python and node, so `kill $!` leaves the stream (and a `loggingctl` reader on the stick) running, and the next stream fails. Kill the whole process tree (see `apps/supertuxkart/tools/bench-tracks.sh`).
+- **Gravity Choir (`apps/gravity-choir`):**
+  - Iterate on the Mac: `host-preview.sh run` opens a window; `host-preview.sh shots <title|play|crescendo|idle|icon> [every] [count]` renders PNGs and prints the stats line every 2 s.
+  - `tools/audio-test.sh` checks the synthesizer without a device.
+  - On the device, `SDL: gravity-choir: fps ...` lines arrive in the log stream every 2 s.
+  - Hand-resolved GL pointers must be `visibility("hidden")` (decision 45), or they bind to the driver's own symbols.
+- **vegaplat extras every app gets:** audio focus (listener, background release; `audio focus:` log lines) and a loading splash from `<app>/icon/splash.astc` if present (`tools/make-splashes.sh`; `splash:` log line).
+- **Benchmarks on an idle stick:** the screensaver takes the foreground about 2 s after a launch, and a launch sent while the previous instance is still exiting is dropped. Send a key before launching and wait for the exit (`bench-tracks.sh` does both).
 - **STK benchmarks:** `apps/supertuxkart/tools/bench-tracks.sh [-t tune] [tracks]`. Interleave A/B runs: noise is ±3 fps. Every STK build adds a 161 MB debug file to `build/debug/.build-id`; delete the old ones.
 - **3D ports (see `apps/supertuxkart`):**
   - `glBindFramebuffer(0)` from `vp_gl_get_proc` binds the window surface's FBO, so desktop-style code works.
@@ -105,7 +112,7 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 
 ## Layout
 - `engine/vegaplat/`: C platform layer. `engine/sdl3-vega/`: SDL3 drivers and CMake integration.
-- `apps/vega-probe/`: Phase 0 capability probe (pure C++ app). `apps/sdl-demo/`: SDL3 demo. `apps/doom/`, `apps/quake/`, `apps/supertux/`, `apps/supertuxkart/`: game ports. `apps/sdl2-smoke/`: SDL2 API smoke test. `apps/arcade/`: the Native Arcade launcher. `apps/gpu-bench/`: GPU/CPU benchmark (`tools/run-bench.sh`; measured budget in `docs/research/gpu-bench.md`: use it when designing original games).
+- `apps/vega-probe/`: Phase 0 capability probe (pure C++ app). `apps/sdl-demo/`: SDL3 demo. `apps/doom/`, `apps/quake/`, `apps/supertux/`, `apps/supertuxkart/`: game ports. `apps/sdl2-smoke/`: SDL2 API smoke test. `apps/arcade/`: the Native Arcade launcher. `apps/gpu-bench/`: GPU/CPU benchmark (`tools/run-bench.sh`; measured budget in `docs/research/gpu-bench.md`: use it when designing original games). `apps/gravity-choir/`: the first original game (SDL3 + GLES 3.0; its own renderer, spring grid, particles and synthesizer).
 - Phase 2 (N64): the toolchain is at `~/n64-toolchain` (`export N64_INST=$HOME/n64-toolchain`). libdragon is installed there, and its examples are built in `third_party/_src/libdragon-*/examples/*/*.elf`.
 - **N64 workflow** (details in `n64/README.md`):
   - `tools/n64-recomp.sh n64/recomp/<name>.toml`

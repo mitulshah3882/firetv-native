@@ -459,3 +459,92 @@ Before designing an original game, a subagent wrote `apps/gpu-bench`: a native b
 - `glInvalidateFramebuffer` on the window surface accepts `GL_DEPTH` but rejects `GL_DEPTH_ATTACHMENT`: Mesa treats vegaplat's surface as a window-system framebuffer.
 
 A 150 s soak at full GPU load showed no throttling. The 4K sticks weren't measured; the open question there is whether scaling the 1080p canvas to 4K costs GPU time.
+
+## 2026-11-15: SuperTuxKart, round two
+
+The first round left the busy tracks CPU-bound, so this round started with a CPU profile. `simpleperf` on the stick (pushed to the app's scratch directory, symbolized against our `.so.debug`) showed where Black Forest and Cocoa Temple spend the game thread:
+- **Library objects ticked forever.** A library node (a group of objects placed as one) has an `update()` that only runs its start and reset scripts, once each. Round one's active-object filter kept every library node because it has scripts. Now one leaves the list once its scripts have run, and a reset brings it back. This was the biggest single gain.
+- **Level-of-detail nodes, thousands per frame.** Each LOD node animated every level and re-set the visibility of all of them every frame. Now only the shown level animates, visibility changes only when the level changes, and level 0's position is cached. Irrlicht already skips unchanged transforms; what's left is cache misses from touching that many nodes.
+- **Draw-call collection.** Each mesh buffer searched the draw-call sets it belonged to and allocated temporaries on the heap. A per-pass memo and fixed arrays replaced both.
+
+Together these patches gave about 5% at a fixed 0.5 scale, on top of the library fix. Measured at a fixed 0.5 scale, the busy tracks moved a lot: Black Forest 22 → 31 fps, Cocoa Temple 35 → 44, Cornfield Crossing 40 → 48, Candela City 39 → 44, Gran Paradiso Island 42 → 46, Ravenbridge Mansion 43 → 46, Mines 55 → 59, Zen Garden 53 → 58.
+
+The patches are applied to STK's source at build time. A new `_vega_stk_replace()` replaces exactly one match and fails the build on zero matches or several, so an upstream change can't silently skip a patch.
+
+**Dynamic resolution, take two.** Round one's controller stepped the 3D view's scale down when the GPU was the limit and kept a step only if it gained 5%. On the TV it misjudged: one part of a lap differs from another by more than one scale step differs from the next, so it stepped down on a slow corner and back up on the next straight. The logs show 0.667 → 0.583 → 0.667 → 0.583 within one race. It was replaced by a table measured per track. The first version of the table was wrong too: it kept Abyss and Lighthouse at 0.667 on the belief that their GPU work doesn't shrink with resolution. The full survey disagreed, and interleaved A/B runs settled it:
+
+| Track | 0.667 (fps) | 0.5 (fps) |
+|---|---|---|
+| Abyss | 36 | 44 |
+| Lighthouse | 40 | 51 |
+| Sandtrack | 48 | 59 |
+| Hacienda | 58 | 60 |
+
+Now each track gets the sharpest scale that holds about 60 fps:
+- 0.5 for eleven tracks
+- 0.583 for eight
+- 0.667 only for Snow Tux Peak and XR591
+
+An unknown track (an add-on) starts at the top and only ever steps down, after 3 s under 50 fps while the GPU is the limit.
+
+**Benchmark traps, all found the hard way:**
+- **`tune=` overrides persisted.** STK saves its config, so a benchmark's `scale:0.5` stayed for normal play. Every track was capped at 0.5 until this was noticed. Overrides are now session-only: the original values are written to a restore file and put back at the next start.
+- **The screensaver takes the foreground about 2 s after a launch on an idle stick.** One track came back with no data.
+- **A launch sent while the previous instance is still exiting is dropped.**
+
+The benchmark script now wakes the stick with a key press, waits for the old instance to exit, and resumes the game if it is backgrounded mid-run.
+
+**Result**, after hours of load:
+- 13 of 21 tracks hold 57.6–59.9 fps.
+- Lighthouse reaches 51. Cornfield Crossing, Gran Paradiso, Ravenbridge, Abyss and Candela City run in the 40s, and Cocoa Temple 38–44.
+- Black Forest runs 25–31 fps, depending on how hot the stick is.
+
+The busiest tracks are still bound by one game thread on a 1.7 GHz in-order core.
+
+## 2026-11-15: Gravity Choir, an original game
+
+The first game made for this project, picked from `docs/research/original-game-concepts.md`.
+
+**The idea.** You are a star with a gravity field, in a neon arena that bends around you. Nothing shoots. You pull the swarm in, flip your field to push, and enemies die only by smashing into each other or into the walls. Every crash is a note in the music. A chain climbs an arpeggio, and the multiplier brings in the arrangement's layers. Kills fill the Crescendo meter. When it's full, Play/Pause starts it: everything spirals into the centre for two bars and detonates on the downbeat.
+
+**Built to the measured budget** (decision 41):
+- a "lite" glow: glowing things are drawn a second time into a 480×270 target, blurred there and added back as one layer
+- instanced soft lines for the grid and enemies
+- point-sprite particles
+- SDF text from the OFL Chakra Petch font
+- a 96×54 spring grid simulated on the CPU at 120 Hz
+- up to 32k CPU particles, stored as separate arrays per field
+
+**The Mac first.** The whole game runs on the Mac with desktop GL 3.3, and scripted runs (`title`, `play`, `crescendo`, `idle`, `icon`) render PNGs: `apps/gravity-choir/host-preview.sh`. The demo AI that plays the title screen also plays the scripted runs. Keeping that loop is why particles stay on the CPU: macOS's GL has no compute shaders, and 2–6k live particles cost the A55 little.
+
+**Music by a subagent.** I wrote the audio interface (`audio.h`) and a subagent wrote the synthesizer behind it: 2,100 lines of C, with no samples.
+- 112 BPM, four movements in related minor keys, and five layers (pad, drums, bass, lead, choir) that fade in with the multiplier.
+- Each crash plays a note on the next 16th, taken from the current chord: plucks, bells, pads, a formant choir.
+- The Crescendo leaves a silent bar before the hit.
+- Host cost: about 0.35% of one Apple-silicon core.
+
+**The first launch on the TV crashed** inside `gl_load()`, writing the first function pointer. Our pointers were ordinary globals named like the GL functions (`glClear`, ...). On Vega the dynamic linker bound those names to the driver's own functions, so loading wrote into the driver's read-only code. Hidden visibility on the pointers fixed it (decision 45).
+
+**On the TV:** a steady 60 fps. Over a 2-hour run with up to 75 enemies and 5,700 particles, the lowest 2-second window was 58.4 fps.
+
+That same run found a design bug: nobody was playing, and the game never ended. A held push field was about five times stronger than an enemy's seeking, so an idle player sat in a permanent shield. Push is now a shove: full strength for a second, then it fades to 15% over 1.4 s, and the field's edge fades with it (decision 47). An idle player now loses in about 15 seconds, while the AI still reaches the x8 multiplier.
+
+Smaller polish from the TV:
+- the swarm drifts clear of the score on the results screen
+- the results screen falls back to the title after 45 s, so the attract mode plays
+- backgrounding pauses the game, and resuming returns to the pause menu
+
+Gravity Choir is now the arcade's first card.
+
+**Not checked:**
+- gamepads and 2–4 players (no pads here)
+- the music through the TV's speakers. The stream opens at 48 kHz on the stick, but nobody has listened to it there. On the Mac, `tools/audio-test.sh` checks the engine without a listener: pitch, quantization, the beat clock, a 64 s scripted session (levels, clipping, dropouts, CPU) and the Crescendo's silent bar
+
+## 2026-11-15: Getting ready for the Appstore
+
+The user's next horizon is the Amazon Appstore, so a subagent read Amazon's Vega docs and wrote `docs/research/appstore-submission.md`: what a native package needs, what the store's test cases check, and how ready each of our apps is. Two findings applied to every app, so they went into vegaplat:
+
+- **Audio focus.** vegaplat asked for focus once and never listened. Now it registers a focus listener before requesting, follows every change (ducked: a quarter of the volume; paused, stopped, muted or released: silent, with the stream still running so audio clocks stay true), gives focus up in the background and asks again in the foreground. On the TV, switching between the arcade and Gravity Choir hands focus back and forth as the logs show. Alexa's ducking couldn't be tested here.
+- **A loading splash instead of a black first frame.** vegaplat already presented one black frame at start-up, because Vega kills an app that shows nothing for 20 s. Now that frame is the game's art, its title and "LOADING", stored as ASTC so the GPU decodes it and the device needs no image decoder. SuperTux, which loads for over 20 s, no longer sits on black. `tools/make-splashes.sh` makes them from the arcade's card art.
+
+A second subagent made **Land Grab read correctly for a remote**. A patch applied at build time, so the jam's checkout stays untouched, renames every hint ("Hold MENU to skip your turn"), replaces the control legend's N64 icons with remote buttons we drew, and maps the actions that had no remote button. Holding Rewind or Fast-forward changes piece size, and holding Menu quits from the pause screen.

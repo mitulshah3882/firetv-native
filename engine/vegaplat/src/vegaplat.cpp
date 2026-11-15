@@ -324,6 +324,16 @@ static void noteLaunchMessage(View<km::IMessage> msg, const char* what) {
     vp_log("lifecycle: %s (%s) uri=%s", what, VEGA_PACKAGE_ID, uri.empty() ? "-" : uri.c_str());
 }
 
+static std::atomic<vp_lifecycle_fn> gLifecycleFn{nullptr};
+static std::atomic<void*> gLifecycleUser{nullptr};
+extern "C" void vp_set_lifecycle_callback(vp_lifecycle_fn fn, void* user) {
+    gLifecycleUser = user;
+    gLifecycleFn = fn;
+}
+static void notifyLifecycle(bool foreground) {
+    if (vp_lifecycle_fn fn = gLifecycleFn.load()) fn(foreground, gLifecycleUser.load());
+}
+
 struct VpComponent : ApmfBase<VpComponent, ka::IInteractiveComponent> {
     void onStart(View<kr::IComponentInstance> instance, View<km::IMessage> msg) {
         S().instance = Ptr<kr::IComponentInstance>(instance);
@@ -338,12 +348,14 @@ struct VpComponent : ApmfBase<VpComponent, ka::IInteractiveComponent> {
             if (S().appThread.joinable()) S().appThread.join();
             S().appThread = std::thread(runApp);
         } else {
+            notifyLifecycle(true);
             push(makeEvent(VP_EVENT_FOREGROUND));
         }
     }
     void onBackground(View<kr::IComponentInstance>) {
         vp_log("lifecycle: background");
         S().foreground = false;
+        notifyLifecycle(false);
         push(makeEvent(VP_EVENT_BACKGROUND));
     }
     void onStop(View<kr::IComponentInstance>) {
@@ -394,6 +406,7 @@ extern "C" bool vp_wait_event(vp_event* ev, int timeout_ms) {
 
 extern "C" void vp_wake(void) { S().cv.notify_all(); }
 extern "C" bool vp_is_foreground(void) { return S().foreground; }
+
 extern "C" bool vp_quit_requested(void) { return S().quit; }
 
 // ------------------------------------------------------------------------------------------------
@@ -465,9 +478,22 @@ extern "C" bool vp_gl_load(void) {
     return s.glLib != nullptr;
 }
 
+// The window surface is an FBO, not framebuffer 0. Games written for a desktop/EGL default
+// framebuffer bind 0 to draw to the screen, so the glBindFramebuffer we hand out maps 0 to it.
+using BindFramebufferFn = void (*)(unsigned, unsigned);
+static BindFramebufferFn gRealBindFramebuffer = nullptr;
+static void vpBindFramebuffer(unsigned target, unsigned framebuffer) {
+    gRealBindFramebuffer(target, framebuffer ? framebuffer : S().fbo);
+}
+
 extern "C" void* vp_gl_get_proc(const char* name) {
     auto& s = S();
     if (!s.glLib && !vp_gl_load()) return nullptr;
+    if (strcmp(name, "glBindFramebuffer") == 0 || strcmp(name, "glBindFramebufferOES") == 0) {
+        if (!gRealBindFramebuffer)
+            gRealBindFramebuffer = reinterpret_cast<BindFramebufferFn>(dlsym(s.glLib, "glBindFramebuffer"));
+        return gRealBindFramebuffer ? reinterpret_cast<void*>(&vpBindFramebuffer) : nullptr;
+    }
     if (void* p = dlsym(s.glLib, name)) return p;
     if (s.gpu) {
         try {
@@ -542,9 +568,51 @@ extern "C" bool vp_gl_make_current(bool current) {
 
 extern "C" unsigned vp_gl_framebuffer(void) { return S().fbo; }
 
+// Optional frame-rate log: VP_FPS_LOG=<seconds> prints, for each interval in the foreground,
+// frames per second, the longest frame, the average time spent in vp_gl_swap (waiting for the GPU
+// and the display: high means GPU-bound, low means the app's own CPU work is the limit) and the
+// resident memory, e.g. "fps 59.8, worst 21.3 ms, swap 4.1 ms, rss 212 MB".
+static int fpsLogInterval() {
+    static const int interval = [] {
+        const char* v = getenv("VP_FPS_LOG");
+        return v ? atoi(v) : 0;
+    }();
+    return interval;
+}
+
+static void logFrameRate(uint64_t swapNs) {
+    const int interval = fpsLogInterval();
+    if (interval <= 0) return;
+    static uint64_t start = 0, last = 0, worst = 0, swapTotal = 0;
+    static int frames = 0;
+    const uint64_t now = nowNs();
+    if (!start || now - last > 1000000000ull) {  // first frame, or back from a pause/background
+        start = last = now;
+        frames = 0;
+        worst = swapTotal = 0;
+        return;
+    }
+    worst = std::max<uint64_t>(worst, now - last);
+    swapTotal += swapNs;
+    last = now;
+    if (++frames && now - start >= static_cast<uint64_t>(interval) * 1000000000ull) {
+        long pages = 0, resident = 0;
+        if (FILE* f = fopen("/proc/self/statm", "r")) {
+            if (fscanf(f, "%ld %ld", &pages, &resident) != 2) resident = 0;
+            fclose(f);
+        }
+        vp_log("fps %.1f, worst %.1f ms, swap %.1f ms, rss %ld MB", frames * 1e9 / double(now - start),
+               worst / 1e6, swapTotal / 1e6 / frames, resident * (sysconf(_SC_PAGESIZE) / 1024) / 1024);
+        start = now;
+        frames = 0;
+        worst = swapTotal = 0;
+    }
+}
+
 extern "C" bool vp_gl_swap(void) {
     auto& s = S();
     if (!s.surface) return false;
+    const uint64_t swapStart = fpsLogInterval() > 0 ? nowNs() : 0;
     try {
         if (s.drawing) {
             s.surface->endDraw();
@@ -558,6 +626,7 @@ extern "C" bool vp_gl_swap(void) {
         }
         s.surface->prepareToDraw(Array<kg::RectI>{});
         s.drawing = true;
+        if (swapStart) logFrameRate(nowNs() - swapStart);
         return true;
     } catch (const std::exception& e) {
         vp_log("vp_gl_swap failed: %s", e.what());

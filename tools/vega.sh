@@ -42,6 +42,9 @@ case "$cmd" in
       vega device uninstall-app --appName "$comp" >/dev/null 2>&1 || true
       vega device install-app --packagePath "$p"
     fi
+    # install-app stages the package in the device's /tmp, a RAM-backed tmpfs, and leaves it
+    # there: a 250 MB game package then costs 250 MB of the stick's 1 GB of RAM. Remove it.
+    vega device run-cmd --command "rm -f /tmp/$(basename "$p")" >/dev/null 2>&1 || true
     ;;
   launch)
     vega device launch-app --appName "$1"

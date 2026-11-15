@@ -346,3 +346,24 @@ Two misses had to be found on the device:
 Then the remote: OK jumps (SuperTux's menus also accept jump as select), and Back skips cutscenes and opens the menu. A config saved by an earlier build overrode the new defaults, so the build drops it once.
 
 **The ponytail eval found a real bug in our code.** Its bug-fix sessions all rendered helloworld's text solid, while our committed fix drew hollow outlines. libdragon's outlined mono fonts store a bit pair per layer, and we drew only the outline bit. It's fixed now: the outline is drawn in the style's `outline_color` and the fill on top.
+
+## 2026-11-15: SuperTuxKart
+
+A subagent ported SuperTuxKart 1.5, the open-source 3D kart racer, on the SDL2 path SuperTux opened. It is the heaviest port yet: Irrlicht, Bullet physics, AngelScript, HarfBuzz text shaping, curl over mbedTLS, libjpeg-turbo with NEON, and 774 MB of game data for a stick with 1 GB of RAM.
+
+**Getting it on screen.**
+- Four more libraries joined VegaDeps (HarfBuzz as its single-file amalgamation, mbedTLS 3.6 LTS, curl with HTTPS only, libjpeg-turbo).
+- STK draws to framebuffer 0, and Vega's window surface is an FBO, so vegaplat's `glBindFramebuffer` now maps 0 to the surface.
+- Story mode crashed in script calls: AngelScript's ARM calling code assumes soft-float whenever `__ARM_PCS` is defined, and clang defines it for hard-float too. Its portable mode fixed it, as STK already uses on aarch64.
+- The remote's Play/Pause reached the game as an unrelated key. SDL3 renumbered the media keys and sdl2-compat passed the new numbers through; it now returns SDL2's.
+
+**Making it fit.** `make-assets.sh` trims the data to 377 MB without dropping a single track, kart or song. The biggest step precompresses 1,450 model textures to ASTC 6×6, which the Mali-G310 reads directly. GPU memory in a race fell from over 500 MB (the stick was swapping) to about 300 MB.
+
+**Making it fast.** A race on Antediluvian Abyss started at about 25 fps.
+- The 3D view is drawn at 2/3 resolution and scaled up, while menus and the HUD stay at 1080p (STK only scaled its deferred renderer).
+- STK waited every frame for the GPU to finish the previous one, a wait only persistent-mapped buffers need, and this driver has none. Skipping it was the biggest single gain.
+- Result: 53–60 fps on Abyss, 56–60 on Nessie's Pond, 47–55 on Hacienda. Cornfield Crossing stays near 35 fps; nothing tried so far moved it.
+
+**The remote.** A TV remote's D-pad can't hold Up while steering, so a remote player accelerates from "Go!" and brakes with Down. OK fires, Back pauses, Rewind calls the rescue bird, Play/Pause is nitro, fast-forward skids, Menu looks back. The in-game hints say "OK" and "Play/Pause" instead of keyboard names. A "Player" profile is created on first run, since there is no keyboard to type a name.
+
+**Checked again in the main session** before committing: menu, kart and track select, and a race on Hacienda (47–48 fps with the kart against a fence, 117 MB resident), plus the arcade's background-and-resume path, since the lifecycle events moved threads.

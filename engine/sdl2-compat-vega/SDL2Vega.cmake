@@ -36,6 +36,14 @@ _sdl3vega_patch("${SDL2VEGA_COMPAT_SOURCE}/src/sdl2_compat.c"
   "    case SDL_SCANCODE_MEDIA_PLAY:\n        return SDL2_SCANCODE_AUDIOPLAY;"
   "    case SDL_SCANCODE_MEDIA_PLAY_PAUSE: /* vega-port: the remote's Play/Pause */\n"
   "SDL_SCANCODE_MEDIA_PLAY_PAUSE: /* vega-port")
+# Build-time patch: SDL3 renumbered the media keys, and sdl2-compat passes SDL3's keycodes for
+# them through, so the remote's Play/Pause and rewind arrived with the keycodes of unrelated SDL2
+# keys (AUDIOMUTE, CALCULATOR). Keys without a character get the SDL2 keycode of their SDL2
+# scancode, as in SDL2 itself (this matters to keycode-based games, e.g. Irrlicht's SDL device).
+_sdl3vega_patch("${SDL2VEGA_COMPAT_SOURCE}/src/sdl2_compat.c"
+  "    /* Keys without the extended mask are passed through. */"
+  "    if ((keycode & SDLK_SCANCODE_MASK) && !(keycode & SDLK_EXTENDED_MASK)) { /* vega-port: SDL2 keycodes */\n        return SDL_SCANCODE_TO_KEYCODE(SDL3ScancodeToSDL2Scancode(scancode));\n    }\n"
+  "/* vega-port: SDL2 keycodes */")
 # sdl2-compat is compiled directly (not through its CMakeLists, which also defines a shared
 # target literally named `SDL2`, the name SDL2 projects such as SuperTux link against).
 set(_sdl2gen "${CMAKE_BINARY_DIR}/sdl2-compat-gen")

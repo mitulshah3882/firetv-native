@@ -31,6 +31,12 @@ DEPS=(
   "openal|1.24.3|https://github.com/kcat/openal-soft/archive/refs/tags/1.24.3.tar.gz|openal-soft-1.24.3"
   "ogg|1.3.6|https://github.com/xiph/ogg/releases/download/v1.3.6/libogg-1.3.6.tar.gz|libogg-1.3.6"
   "vorbis|1.3.7|https://github.com/xiph/vorbis/releases/download/v1.3.7/libvorbis-1.3.7.tar.gz|libvorbis-1.3.7"
+  "harfbuzz|14.6.0|https://github.com/harfbuzz/harfbuzz/releases/download/14.6.0/harfbuzz-14.6.0.tar.xz|harfbuzz-14.6.0"
+  "mbedtls|3.6.7|https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2|mbedtls-3.6.7"
+  "curl|8.23.0|https://github.com/curl/curl/releases/download/curl-8_23_0/curl-8.23.0.tar.gz|curl-8.23.0"
+  "libjpeg|3.1.4.1|https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.4.1/libjpeg-turbo-3.1.4.1.tar.gz|libjpeg-turbo-3.1.4.1"
+  # Host tool for apps/supertuxkart/make-assets.sh (precompresses textures to ASTC).
+  "astcenc|5.7.0|https://github.com/ARM-software/astc-encoder/archive/refs/tags/5.7.0.tar.gz|astc-encoder-5.7.0"
   "stk|1.5|https://github.com/supertuxkart/stk-code/releases/download/1.5/SuperTuxKart-1.5-src.tar.gz|SuperTuxKart-1.5-src"
   "doomgeneric|e257a09|https://github.com/ozkl/doomgeneric/archive/e257a09527062bfb986b6e5e0780839b6cbd5b71.tar.gz|doomgeneric-e257a09527062bfb986b6e5e0780839b6cbd5b71"
   "chocolate-doom|2.3.0|https://github.com/chocolate-doom/chocolate-doom/archive/refs/tags/chocolate-doom-2.3.0.tar.gz|chocolate-doom-chocolate-doom-2.3.0"
@@ -85,7 +91,7 @@ fetch() {
   fi
   case "$tarball" in
     *.zip) if unzip -Z1 "$tarball" | head -1 | grep -q "^$dir/"; then unzip -q "$tarball" -d "$SRC"; else unzip -q "$tarball" -d "$SRC/$dir"; fi ;;
-    *) tar -xzf "$tarball" -C "$SRC" ;;
+    *) tar -xf "$tarball" -C "$SRC" ;;  # gz, xz and bz2 (bsdtar/GNU tar auto-detect)
   esac
   rm -f "$tarball"
   echo "[$name] extracted to $SRC/$dir"

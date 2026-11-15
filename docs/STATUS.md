@@ -1,10 +1,14 @@
 # Status
 
-_Last updated: 2026-11-14 evening (sdl2-compat; SuperTux playable; SuperTuxKart in progress). Update this file at every milestone._
+_Last updated: 2026-11-14 night (SuperTux and SuperTuxKart playable). Update this file at every milestone._
 
 **In flight:**
 - **SuperTux 0.7.0 is playable on the TV** (`apps/sdl2-smoke` proves the SDL2 path). Launch it from the arcade; OK jumps and Back opens the menu.
-- **SuperTuxKart 1.5 is next.** Its source is fetched. It needs HarfBuzz, libcurl, mbedTLS and libjpeg added to VegaDeps, plus trimmed assets (774 MB of data against 2 GB free on the stick).
+- **SuperTuxKart 1.5 is playable on the TV** (`apps/supertuxkart`), launched from the arcade.
+  - About 18 s to the menu. Menus run at 60 fps; races at 47–60 fps on most tracks, about 35 on Cornfield Crossing.
+  - The remote steers and the kart accelerates by itself. OK fires, Back pauses, Rewind calls the rescue bird.
+  - Data is trimmed from 774 MB to 377 MB by `apps/supertuxkart/make-assets.sh` (ASTC 6×6 model textures, JPEG, lower-rate Vorbis). The package is 245 MB.
+  - Not verified: gamepads, online play and add-ons (the manifest has no network permission), the visible effect of nitro/skid/look-back, STK's own Quit button.
 - **Research is in `docs/research/`:** `original-game-concepts.md` (top picks: Gravity Choir, Chroma Orbit, Prism Spire) and `n64-homebrew-candidates.md` (N64brew Jam 2024 harness, Hydra Harmonics, tiny3d).
 - **Ponytail eval (partial):** no win on what ran, with polish slightly worse. The report is in the scratchpad (`ponytail-eval/report.md`).
 
@@ -65,14 +69,15 @@ _Last updated: 2026-11-14 evening (sdl2-compat; SuperTux playable; SuperTuxKart 
   - `apps/n64-helloworld` and `apps/n64-brew-volley`: Vega packages via `n64_add_recomp_app()`.
 
 ## Next
-1. **Decide on ponytail** (the user's question). The evaluation is done: see the 2026-11-14 journal entry. The recommendation is to borrow the review/audit prompts and a few rules, and skip the always-on plugin unless a before/after eval favours it.
-2. More libdragon examples or N64brew jam games (all open source). Each new title will exercise more rdpq HLE, and patch 9 shows that new titles may hit new recompiler gaps.
-3. Polish:
+1. **The user picks the next track:** an original game (Gravity Choir, Chroma Orbit or Prism Spire, after a half-day GPU benchmark), or more N64 (the 2D N64brew Jam 2024 games, then tiny3d).
+2. **SuperTuxKart follow-ups:** Cornfield Crossing's frame rate, about 150 MB of GPU memory at the menu that isn't textures, black strips at the overworld horizon, one stray white quad on Antediluvian Abyss, and testing a gamepad.
+3. More libdragon examples or N64brew jam games (all open source). Each new title will exercise more rdpq HLE, and patch 9 shows that new titles may hit new recompiler gaps.
+4. Polish:
    - arcade attract video/screenshots
    - case-study writeup
    - splash screen (format undocumented; the splash service looks for `assets/raw/SplashScreenImages.zip`)
-4. Follow-up: profile LibreQuake's 9–13 s map loads (`simpleperf`).
-5. Tests: there are none yet. Good first candidates:
+5. Follow-up: profile LibreQuake's 9–13 s map loads (`simpleperf`).
+6. Tests: there are none yet. Good first candidates:
    - a host test for the VADPCM decoder against the source WAVs
    - a test for the font bit order
    - the address masking
@@ -83,8 +88,9 @@ _Last updated: 2026-11-14 evening (sdl2-compat; SuperTux playable; SuperTuxKart 
 ## Watch items
 - The home screen's "Your apps and channels" row didn't list our apps even with 512×512 icons. They do show in Settings → Applications. A TV-UI launch path for sideloaded apps is still open.
 - A physical remote isn't paired to the stick; after reconnects the "Unable to Detect Your Remote" notice can swallow injected keys. Dismiss it with OK.
-- Weekly usage: 18% at 19:15. The 5-hour window was at 23%.
-- Disk: about 15 GB free.
+- Weekly usage: 33% at 02:30 UTC on 2026-11-15.
+- Disk: about 6 GB free on the Mac (SuperTuxKart's build tree is 2.5 GB). Free space before the next big port.
+- Stick storage: SuperTuxKart takes about 0.4 GB of `/data`. `tools/vega.sh install` now removes the package copy `install-app` leaves in the stick's RAM-backed `/tmp`.
 - `vega device start-log-stream` shows only new lines; start it **before** acting. Run only one at a time.
 - Each `tools/vega.sh key` call takes about 1–1.5 s. Pass several keys in one call for fast sequences.
 - Brew Volley's countdown ignores input. Each point resets the players, so screenshots often miss the short play phase.

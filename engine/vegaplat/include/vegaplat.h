@@ -46,7 +46,8 @@ bool vp_video_init(vp_display_info *out);   /* creates the display controller (i
 bool vp_window_create(void);                /* full-screen application window (idempotent) */
 void vp_window_size(int *w, int *h);        /* drawable size */
 bool vp_gl_load(void);                      /* dlopen libGLESv2 */
-void *vp_gl_get_proc(const char *name);     /* core symbol or extension entry point */
+void *vp_gl_get_proc(const char *name);     /* core symbol or extension entry point; the returned
+                                               glBindFramebuffer maps framebuffer 0 to the surface */
 bool vp_gl_create_context(void);            /* GPU device, context and window surface */
 bool vp_gl_make_current(bool current);
 unsigned vp_gl_framebuffer(void);           /* FBO backing the window surface (often 0) */
@@ -79,6 +80,11 @@ bool vp_poll_event(vp_event *ev);                   /* non-blocking */
 bool vp_wait_event(vp_event *ev, int timeout_ms);   /* timeout_ms < 0: wait forever */
 void vp_wake(void);                                 /* unblock a waiter */
 bool vp_is_foreground(void);
+/* Called on the lifecycle thread as the app enters the background (false) or returns (true), before
+   the matching VP_EVENT_* is queued. The game thread may already be parked in vp_gl_swap() by then,
+   so this is the moment to save state (SDL's app events, as on Android). */
+typedef void (*vp_lifecycle_fn)(bool foreground, void *user);
+void vp_set_lifecycle_callback(vp_lifecycle_fn fn, void *user);
 bool vp_quit_requested(void);
 
 /* ---- audio ----------------------------------------------------------------------------------- */

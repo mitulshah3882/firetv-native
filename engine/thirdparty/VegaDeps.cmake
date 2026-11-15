@@ -4,10 +4,12 @@
 #   include(<repo>/engine/sdl2-compat-vega/SDL2Vega.cmake)   # first: provides SDL2 targets
 #   include(<repo>/engine/thirdparty/VegaDeps.cmake)
 #   vega_deps(zlib png physfs freetype fmt glm ogg vorbis sdl2_image openal)
+#   vega_deps(harfbuzz mbedtls curl jpeg)   # also: text shaping, TLS/crypto, HTTP(S), JPEG
 #
 # Each library keeps its own target names (zlibstatic, png_static, physfs-static, freetype, fmt,
-# ogg, vorbis, vorbisfile, SDL2_image, OpenAL) plus the usual namespaced aliases (ZLIB::ZLIB,
-# PNG::PNG, Ogg::ogg, ...). Cross-library find_package() calls (libpng->ZLIB, vorbis->Ogg,
+# ogg, vorbis, vorbisfile, SDL2_image, OpenAL, harfbuzz, mbedtls/mbedx509/mbedcrypto,
+# libcurl_static, jpeg-static) plus the usual namespaced aliases (ZLIB::ZLIB, PNG::PNG, Ogg::ogg,
+# JPEG::JPEG, ...). Cross-library find_package() calls (libpng->ZLIB, vorbis->Ogg,
 # SDL2_image/OpenAL->SDL2) resolve to these in-tree targets, so link order follows build order.
 #
 # SPDX-FileCopyrightText: 2026 Mitul Shah
@@ -136,6 +138,97 @@ macro(vega_deps)
       _vegadep_opt(ALSOFT_BACKEND_SDL2 ON)  # through sdl2-compat onto our SDL3 Vega audio driver
       _vegadep_opt(ALSOFT_REQUIRE_SDL2 ON)
       add_subdirectory("${_d}" "${CMAKE_BINARY_DIR}/deps/openal" EXCLUDE_FROM_ALL)
+    elseif(_dep STREQUAL "harfbuzz" AND NOT TARGET harfbuzz)
+      # The single-file amalgamation (src/harfbuzz.cc) with FreeType interop: smaller and simpler
+      # than HarfBuzz's own CMake project. Needs `freetype` first.
+      _vegadep_dir(_d harfbuzz-14.6.0 harfbuzz)
+      add_library(harfbuzz STATIC "${_d}/src/harfbuzz.cc")
+      target_compile_definitions(harfbuzz PRIVATE HAVE_FREETYPE=1 HAVE_PTHREAD=1 HAVE_ATEXIT=1
+        HAVE_FT_GET_VAR_BLEND_COORDINATES=1 HAVE_FT_SET_VAR_BLEND_COORDINATES=1 HAVE_FT_DONE_MM_VAR=1
+        HAVE_FT_GET_TRANSFORM=1)
+      target_compile_features(harfbuzz PRIVATE cxx_std_11)
+      target_compile_options(harfbuzz PRIVATE -fno-exceptions -fno-rtti -fno-threadsafe-statics)
+      target_link_libraries(harfbuzz PUBLIC freetype)
+      # Consumers include either <hb.h> or <harfbuzz/hb.h>.
+      set(_hbinc "${CMAKE_BINARY_DIR}/deps/harfbuzz/include")
+      file(MAKE_DIRECTORY "${_hbinc}")
+      if(NOT EXISTS "${_hbinc}/harfbuzz")
+        file(CREATE_LINK "${_d}/src" "${_hbinc}/harfbuzz" SYMBOLIC)
+      endif()
+      target_include_directories(harfbuzz PUBLIC "${_d}/src" "${_hbinc}")
+      add_library(harfbuzz::harfbuzz ALIAS harfbuzz)
+    elseif(_dep STREQUAL "mbedtls" AND NOT TARGET mbedcrypto)
+      _vegadep_dir(_d mbedtls-3.6.7 mbedtls)  # 3.6 LTS: 4.x drops the legacy crypto API STK uses
+      foreach(_o ENABLE_PROGRAMS ENABLE_TESTING USE_SHARED_MBEDTLS_LIBRARY GEN_FILES MBEDTLS_FATAL_WARNINGS
+                 INSTALL_MBEDTLS_HEADERS)
+        _vegadep_opt(${_o} OFF)
+      endforeach()
+      _vegadep_opt(USE_STATIC_MBEDTLS_LIBRARY ON)
+      add_subdirectory("${_d}" "${CMAKE_BINARY_DIR}/deps/mbedtls" EXCLUDE_FROM_ALL)
+      # Cache variables for consumers' find_path()/find_library() (curl's FindMbedTLS, STK).
+      set(MBEDTLS_INCLUDE_DIR "${_d}/include" CACHE PATH "" FORCE)
+      set(MBEDTLS_INCLUDE_DIRS "${_d}/include" CACHE PATH "" FORCE)
+      set(MBEDTLS_LIBRARY mbedtls CACHE STRING "" FORCE)
+      set(MBEDX509_LIBRARY mbedx509 CACHE STRING "" FORCE)
+      set(MBEDCRYPTO_LIBRARY mbedcrypto CACHE STRING "" FORCE)
+    elseif(_dep STREQUAL "curl" AND NOT TARGET libcurl_static)
+      # HTTP(S) only (every other protocol disabled), TLS through mbedTLS (needs `zlib` and `mbedtls` first). Certificates come from
+      # the application (CURLOPT_CAINFO): there is no system CA bundle to probe for.
+      _vegadep_dir(_d curl-8.23.0 curl)
+      foreach(_o BUILD_CURL_EXE BUILD_SHARED_LIBS BUILD_LIBCURL_DOCS BUILD_MISC_DOCS ENABLE_CURL_MANUAL
+                 BUILD_EXAMPLES CURL_USE_OPENSSL CURL_USE_LIBPSL CURL_USE_LIBSSH2 CURL_USE_LIBSSH
+                 CURL_USE_GSSAPI CURL_BROTLI CURL_ZSTD USE_NGHTTP2 USE_LIBIDN2 USE_LIBRTMP ENABLE_ARES
+                 CURL_USE_PKGCONFIG CURL_USE_CMAKECONFIG CURL_ENABLE_EXPORT_TARGET CURL_DISABLE_INSTALL_DOCS
+                 USE_ECH USE_HTTPSRR ENABLE_UNIX_SOCKETS PICKY_COMPILER)
+        _vegadep_opt(${_o} OFF)
+      endforeach()
+      foreach(_o BUILD_STATIC_LIBS CURL_USE_MBEDTLS CURL_DISABLE_INSTALL CURL_DISABLE_LDAP
+                 CURL_DISABLE_LDAPS CURL_DISABLE_DICT CURL_DISABLE_FILE CURL_DISABLE_FTP
+                 CURL_DISABLE_GOPHER CURL_DISABLE_IMAP CURL_DISABLE_MQTT CURL_DISABLE_POP3
+                 CURL_DISABLE_RTSP CURL_DISABLE_SMTP CURL_DISABLE_TELNET CURL_DISABLE_TFTP
+                 CURL_DISABLE_IPFS CURL_DISABLE_WEBSOCKETS CURL_DISABLE_CA_SEARCH)
+        _vegadep_opt(${_o} ON)
+      endforeach()
+      set(CURL_ZLIB ON CACHE STRING "" FORCE)
+      set(CURL_CA_BUNDLE "none" CACHE STRING "" FORCE)
+      set(CURL_CA_PATH "none" CACHE STRING "" FORCE)
+      add_subdirectory("${_d}" "${CMAKE_BINARY_DIR}/deps/curl" EXCLUDE_FROM_ALL)
+      set(CURL_INCLUDE_DIR "${_d}/include" CACHE PATH "" FORCE)
+      set(CURL_LIBRARY libcurl_static CACHE STRING "" FORCE)
+    elseif(_dep STREQUAL "jpeg" AND NOT TARGET jpeg-static)
+      _vegadep_dir(_d libjpeg-turbo-3.1.4.1 libjpeg)
+      foreach(_o ENABLE_SHARED WITH_TURBOJPEG WITH_TOOLS WITH_TESTS WITH_FUZZ WITH_JAVA REQUIRE_SIMD)
+        _vegadep_opt(${_o} OFF)
+      endforeach()
+      _vegadep_opt(ENABLE_STATIC ON)
+      _vegadep_opt(WITH_SIMD ON)  # NEON on armv7/aarch64
+      # Build-time patch: libjpeg-turbo refuses add_subdirectory() by comparing CMAKE_SOURCE_DIR
+      # with its own directory. Its remaining CMAKE_SOURCE_DIR uses (wrappers, tests, docs) all
+      # mean its own root, so set that in its directory scope.
+      _sdl3vega_patch("${_d}/CMakeLists.txt"
+        "if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)\n  message(FATAL_ERROR"
+        "set(CMAKE_SOURCE_DIR \"\${CMAKE_CURRENT_SOURCE_DIR}\") # vega-port: built as a subproject\n"
+        "# vega-port: built as a subproject")
+      # It also insists on non-blank install dirs, which the Vega toolchain leaves empty.
+      foreach(_v BINDIR:bin DOCDIR:share/doc/libjpeg-turbo INCLUDEDIR:include LIBDIR:lib MANDIR:share/man)
+        string(REPLACE ":" ";" _v "${_v}")
+        list(GET _v 0 _k)
+        list(GET _v 1 _val)
+        set(CMAKE_INSTALL_${_k} "${_val}")
+      endforeach()
+      add_subdirectory("${_d}" "${CMAKE_BINARY_DIR}/deps/libjpeg" EXCLUDE_FROM_ALL)
+      unset(CMAKE_INSTALL_BINDIR)
+      unset(CMAKE_INSTALL_DOCDIR)
+      unset(CMAKE_INSTALL_INCLUDEDIR)
+      unset(CMAKE_INSTALL_LIBDIR)
+      unset(CMAKE_INSTALL_MANDIR)
+      target_include_directories(jpeg-static INTERFACE "$<BUILD_INTERFACE:${_d}/src>"
+        "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/deps/libjpeg>")
+      if(NOT TARGET JPEG::JPEG)
+        add_library(JPEG::JPEG ALIAS jpeg-static)
+      endif()
+      set(JPEG_INCLUDE_DIR "${_d}/src;${CMAKE_BINARY_DIR}/deps/libjpeg" CACHE PATH "" FORCE)
+      set(JPEG_LIBRARY jpeg-static CACHE STRING "" FORCE)
     endif()
   endforeach()
   set(CMAKE_POSITION_INDEPENDENT_CODE ${_vegadeps_saved_pic})

@@ -59,6 +59,7 @@ static const VEGA_KeyMap vega_keymap[] = {
     { "PAUSE", SDL_SCANCODE_MEDIA_PAUSE },
     { "REWIND", SDL_SCANCODE_MEDIA_REWIND },
     { "FASTFORWARD", SDL_SCANCODE_MEDIA_FAST_FORWARD },
+    { "FORWARD", SDL_SCANCODE_MEDIA_FAST_FORWARD }, /* the remote's fast-forward (Linux KEY_FASTFORWARD) */
     { "SPACE", SDL_SCANCODE_SPACE },
     { "TAB", SDL_SCANCODE_TAB },
     { "BACKSPACE", SDL_SCANCODE_BACKSPACE },
@@ -241,6 +242,8 @@ static void VEGA_HandleEvent(const vp_event *ev)
         const SDL_Scancode sc = VEGA_TranslateKey(ev->name);
         if (sc != SDL_SCANCODE_UNKNOWN) {
             SDL_SendKeyboardKey(0, SDL_DEFAULT_KEYBOARD_ID, 0, sc, ev->down);
+        } else if (ev->down && !ev->repeat) {
+            vp_log("SDL: no SDL key for Vega key %s", ev->name);
         }
         break;
     }
@@ -254,10 +257,10 @@ static void VEGA_HandleEvent(const vp_event *ev)
         VEGA_HandlePadAxis(ev);
         break;
     case VP_EVENT_BACKGROUND:
+        /* The app events went out from the lifecycle thread (VEGA_Lifecycle); the window state
+           changes here, on the game thread. */
         if (vega_data.foreground) {
             vega_data.foreground = false;
-            SDL_OnApplicationWillEnterBackground();
-            SDL_OnApplicationDidEnterBackground();
             if (vega_data.window) {
                 SDL_SendWindowEvent(vega_data.window, SDL_EVENT_WINDOW_FOCUS_LOST, 0, 0);
                 SDL_SendWindowEvent(vega_data.window, SDL_EVENT_WINDOW_HIDDEN, 0, 0);
@@ -267,8 +270,6 @@ static void VEGA_HandleEvent(const vp_event *ev)
     case VP_EVENT_FOREGROUND:
         if (!vega_data.foreground) {
             vega_data.foreground = true;
-            SDL_OnApplicationWillEnterForeground();
-            SDL_OnApplicationDidEnterForeground();
             if (vega_data.window) {
                 SDL_SendWindowEvent(vega_data.window, SDL_EVENT_WINDOW_SHOWN, 0, 0);
                 SDL_SendWindowEvent(vega_data.window, SDL_EVENT_WINDOW_FOCUS_GAINED, 0, 0);
@@ -280,6 +281,19 @@ static void VEGA_HandleEvent(const vp_event *ev)
         break;
     default:
         break;
+    }
+}
+
+/* Vega lifecycle -> SDL app events, called on the lifecycle thread (as SDL does on Android): event
+   watchers get "entering background" even when the game thread is already blocked presenting. */
+static void VEGA_Lifecycle(bool foreground, void *user)
+{
+    if (foreground) {
+        SDL_SendAppEvent(SDL_EVENT_WILL_ENTER_FOREGROUND);
+        SDL_SendAppEvent(SDL_EVENT_DID_ENTER_FOREGROUND);
+    } else {
+        SDL_SendAppEvent(SDL_EVENT_WILL_ENTER_BACKGROUND);
+        SDL_SendAppEvent(SDL_EVENT_DID_ENTER_BACKGROUND);
     }
 }
 
@@ -428,6 +442,7 @@ static bool VEGA_VideoInit(SDL_VideoDevice *_this)
     }
     SDL_AddKeyboard(SDL_DEFAULT_KEYBOARD_ID, "Vega remote");
     vega_data.foreground = vp_is_foreground();
+    vp_set_lifecycle_callback(VEGA_Lifecycle, NULL);
     return true;
 }
 
@@ -441,6 +456,7 @@ static void VEGA_VideoQuit(SDL_VideoDevice *_this)
         SDL_DetachVirtualJoystick(vega_data.pad_id);
         vega_data.pad_id = 0;
     }
+    vp_set_lifecycle_callback(NULL, NULL);
     vp_video_quit();
 }
 

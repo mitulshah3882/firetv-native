@@ -91,10 +91,16 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 - **AppNotResponding about 20 s after launch** means no first frame. vegaplat presents a black frame at GL init, so long loads are fine now.
 - **This toolchain's libc++ lacks C++20 `std::format`.** Pin libraries that are still C++17 (OpenAL Soft 1.24.3).
 - **Launcher icons must be exactly 512×512 PNG (< 1 MB).** `tools/make-icons.sh` generates them; game icons come from the arcade card art.
+- **3D ports (see `apps/supertuxkart`):**
+  - `glBindFramebuffer(0)` from `vp_gl_get_proc` binds the window surface's FBO, so desktop-style code works.
+  - `VP_FPS_LOG=10` logs fps, worst frame, swap time and RSS to the device log.
+  - Big data: trim it on the Mac (ASTC 6×6 textures; the Mali-G310 reads them natively). A package over about 250 MB is too much for the stick.
+  - Save state in SDL's `WILL_ENTER_BACKGROUND` watcher (sent from the lifecycle thread); the game thread may already be blocked in present.
+  - AngelScript on armhf needs `AS_MAX_PORTABILITY`.
 
 ## Layout
 - `engine/vegaplat/`: C platform layer. `engine/sdl3-vega/`: SDL3 drivers and CMake integration.
-- `apps/vega-probe/`: Phase 0 capability probe (pure C++ app). `apps/sdl-demo/`: SDL3 demo. `apps/doom/`, `apps/quake/`, `apps/supertux/`: game ports. `apps/sdl2-smoke/`: SDL2 API smoke test. `apps/arcade/`: the Native Arcade launcher.
+- `apps/vega-probe/`: Phase 0 capability probe (pure C++ app). `apps/sdl-demo/`: SDL3 demo. `apps/doom/`, `apps/quake/`, `apps/supertux/`, `apps/supertuxkart/`: game ports. `apps/sdl2-smoke/`: SDL2 API smoke test. `apps/arcade/`: the Native Arcade launcher.
 - Phase 2 (N64): the toolchain is at `~/n64-toolchain` (`export N64_INST=$HOME/n64-toolchain`). libdragon is installed there, and its examples are built in `third_party/_src/libdragon-*/examples/*/*.elf`.
 - **N64 workflow** (details in `n64/README.md`):
   - `tools/n64-recomp.sh n64/recomp/<name>.toml`

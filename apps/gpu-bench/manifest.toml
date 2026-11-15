@@ -1,0 +1,31 @@
+schema-version = 1
+
+[package]
+title = "GPU Bench"
+icon = "@image/icon.png"
+version = "0.1.0"
+build-number = 1
+id = "com.firetvnative.gpubench"
+
+[os.version]
+min = "2.0"
+target = "2.0"
+
+[components]
+# Pure native interactive component (no runtime-module): the system loads
+# /<package-id>.entry_point_factory from this package's shared library.
+[[components.interactive]]
+id = "com.firetvnative.gpubench.main"
+launch-type = "singleton"
+categories = ["com.amazon.category.main"]
+
+# vegaplat links the audio interfaces; the services are declared so the IPC links resolve.
+[wants]
+[[wants.service]]
+id = "com.amazon.audio.stream"
+[[wants.service]]
+id = "com.amazon.audio.control"
+
+[needs]
+[[needs.module]]
+id = "/com.amazon.vega.os@IVega_2_0"

@@ -46,6 +46,7 @@ Each game also runs on its own (`tools/vega.sh run apps/doom com.firetvnative.do
 | `n64/` | N64 static recompilation: N64Recomp configs and HLE rules (`recomp/`), the n64rt runtime and libdragon HLE (`runtime/`), host runner ([n64/README.md](n64/README.md)) |
 | `apps/n64-*` | Recompiled N64 programs packaged for Vega (helloworld, Brew Volley, Land Grab from the N64brew Game Jam 2024) |
 | `apps/vega-probe` | pure-C++ Vega capability probe |
+| `apps/gpu-bench` | GPU/CPU benchmark (fill, shader math, particles, bloom, draw calls, CPU threads); results and a 60 fps budget in [docs/research/gpu-bench.md](docs/research/gpu-bench.md) |
 | `tools/` | `vega.sh` (build, install, launch, key injection, screenshot, logs), `fetch-deps.sh` |
 | `docs/` | [porting guide](docs/PORTING.md), case study, journal, status, decisions |
 

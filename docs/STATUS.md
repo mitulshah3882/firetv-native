@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-11-15 early morning (SuperTuxKart tuned; N64 Jam 2024 Land Grab on the TV). Update this file at every milestone._
+_Last updated: 2026-11-15 morning (SuperTuxKart tuned; N64 Jam 2024 Land Grab on the TV; GPU benchmark measured). Update this file at every milestone._
 
 **In flight:**
 - **SuperTux 0.7.0 is playable on the TV** (`apps/sdl2-smoke` proves the SDL2 path). Launch it from the arcade; OK jumps and Back opens the menu.
@@ -21,6 +21,12 @@ _Last updated: 2026-11-15 early morning (SuperTuxKart tuned; N64 Jam 2024 Land G
     - a black rectangle at the story-mode overworld's horizon
     - Abyss's lamps draw flat white (no bloom)
 - **N64brew Game Jam 2024: Land Grab runs on the TV** (`apps/n64-landgrab`, card in the arcade). Mallard runs on the Mac but isn't cleared to ship (undocumented music and art licences). See `n64/jam24/CREDITS.md` and the journal.
+- **GPU/CPU benchmark measured** (`apps/gpu-bench`, report in `docs/research/gpu-bench.md`):
+  - About 1 Gpix/s (2.1 ms per blended 1080p layer), 30 GFLOPS fp32 / 58 with `mediump`, about 80 ns per particle sprite, about 6 µs of CPU per draw call.
+  - FP16 blending costs 2.5x; RGB10A2 costs the same as RGBA8. The classic bloom chain costs 10–14 ms; a "lite" bloom at 480×270 costs about 4 ms.
+  - The neon scene for Gravity Choir: naive pipeline 47 fps, lite pipeline a steady 60 fps with 32k particles (10.2 ms GPU, about 3 ms left for content).
+  - No throttling over a 150 s soak at 100% GPU. Single GPU passes of 50 ms or more occasionally stalled for minutes (cause unknown).
+  - Not measured on a 4K stick: whether the 4K upscale costs GPU time (`scene_swap` vs `scene_offscreen` will show it).
 - **Research is in `docs/research/`:** `original-game-concepts.md` (top picks: Gravity Choir, Chroma Orbit, Prism Spire) and `n64-homebrew-candidates.md` (N64brew Jam 2024 harness, Hydra Harmonics, tiny3d).
 - **Ponytail eval (partial):** no win on what ran, with polish slightly worse. The report is in the scratchpad (`ponytail-eval/report.md`).
 
@@ -81,7 +87,7 @@ _Last updated: 2026-11-15 early morning (SuperTuxKart tuned; N64 Jam 2024 Land G
   - `apps/n64-helloworld` and `apps/n64-brew-volley`: Vega packages via `n64_add_recomp_app()`.
 
 ## Next
-1. **Graphics benchmark** (`apps/gpu-bench`, queued by the user), then the original-game prototype.
+1. **Original-game prototype** (Gravity Choir's neon engine), built to the measured budget in `docs/research/gpu-bench.md`: lite bloom, 32k compute particles, RGBA8/RGB10A2, about 100 draws.
 2. **N64:** Hydra Harmonics (swap its commercial font for an OFL one), clear or replace Mallard's assets, then a GLES RDP backend and tiny3d for the 3D jam games.
 3. **SuperTuxKart follow-ups:** the heavy tracks' CPU cost (scene traversal, Mesa draw overhead), the overworld's black rectangle, a gamepad test, and checks on the 4K sticks.
 3. More libdragon examples or N64brew jam games (all open source). Each new title will exercise more rdpq HLE, and patch 9 shows that new titles may hit new recompiler gaps.
@@ -96,15 +102,16 @@ _Last updated: 2026-11-15 early morning (SuperTuxKart tuned; N64 Jam 2024 Land G
    - the address masking
 
 ## Needs a user decision
-- Testing on the other two sticks (the user plans to test at home).
+- Testing on the other two sticks (the user plans to test at home). On a 4K stick, also run `apps/gpu-bench/tools/run-bench.sh -q 'only=scene'` to see whether the 4K upscale costs GPU time.
 
 ## Watch items
 - The home screen's "Your apps and channels" row didn't list our apps even with 512×512 icons. They do show in Settings → Applications. A TV-UI launch path for sideloaded apps is still open.
 - A physical remote isn't paired to the stick; after reconnects the "Unable to Detect Your Remote" notice can swallow injected keys. Dismiss it with OK.
-- Weekly usage: 33% at 02:30 UTC on 2026-11-15.
-- Disk: about 6 GB free on the Mac (SuperTuxKart's build tree is 2.5 GB). Free space before the next big port.
+- Weekly usage: 38% at 11:00 UTC on 2026-11-15 (resets 01:00 UTC on 2026-11-16).
+- Disk: about 4.6 GB free on the Mac (SuperTuxKart's build tree is 2.5 GB; each Vega build adds a debug copy under `build/debug/.build-id`). Free space before the next big port.
 - Stick storage: SuperTuxKart takes about 0.4 GB of `/data`. `tools/vega.sh install` now removes the package copy `install-app` leaves in the stick's RAM-backed `/tmp`.
 - `vega device start-log-stream` shows only new lines; start it **before** acting. Run only one at a time.
 - Each `tools/vega.sh key` call takes about 1–1.5 s. Pass several keys in one call for fast sequences.
+- The screensaver takes the foreground after about 5 minutes without input and parks the render thread in `vp_gl_swap()`. Long unattended runs need a periodic ignored key press (see `apps/gpu-bench/tools/run-bench.sh`); an attract mode will need a keep-awake answer.
 - Brew Volley's countdown ignores input. Each point resets the players, so screenshots often miss the short play phase.
 - Memory: several of our apps resident at once push the stick into memory pressure; the system trims them.

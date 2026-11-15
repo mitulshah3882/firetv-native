@@ -105,7 +105,7 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 
 ## Layout
 - `engine/vegaplat/`: C platform layer. `engine/sdl3-vega/`: SDL3 drivers and CMake integration.
-- `apps/vega-probe/`: Phase 0 capability probe (pure C++ app). `apps/sdl-demo/`: SDL3 demo. `apps/doom/`, `apps/quake/`, `apps/supertux/`, `apps/supertuxkart/`: game ports. `apps/sdl2-smoke/`: SDL2 API smoke test. `apps/arcade/`: the Native Arcade launcher.
+- `apps/vega-probe/`: Phase 0 capability probe (pure C++ app). `apps/sdl-demo/`: SDL3 demo. `apps/doom/`, `apps/quake/`, `apps/supertux/`, `apps/supertuxkart/`: game ports. `apps/sdl2-smoke/`: SDL2 API smoke test. `apps/arcade/`: the Native Arcade launcher. `apps/gpu-bench/`: GPU/CPU benchmark (`tools/run-bench.sh`; measured budget in `docs/research/gpu-bench.md`: use it when designing original games).
 - Phase 2 (N64): the toolchain is at `~/n64-toolchain` (`export N64_INST=$HOME/n64-toolchain`). libdragon is installed there, and its examples are built in `third_party/_src/libdragon-*/examples/*/*.elf`.
 - **N64 workflow** (details in `n64/README.md`):
   - `tools/n64-recomp.sh n64/recomp/<name>.toml`

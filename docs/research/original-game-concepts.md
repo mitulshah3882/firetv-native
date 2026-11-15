@@ -93,6 +93,8 @@ Existing games are cited only as references for genre and style. Every concept b
 ## 2. Visual styles that look premium on a Mali-G310
 
 ### 2.1 The budget (public specs, not yet measured; section 6 measures them)
+> **Measured on 2026-11-15:** [gpu-bench.md](gpu-bench.md) replaces the estimates in 2.1 and 2.3. In short: about 1 Gpix/s, 30 GFLOPS fp32 (58 with `mediump`), about 80 ns per particle sprite, no FP16 targets, and a "lite" bloom. The naive neon pipeline runs at 47 fps; the lite one holds a steady 60 fps with 32k particles.
+
 - **The SoC.** MediaTek MT8698: 4× Cortex-A55 at 1.7 GHz, with a **Mali-G310 v2 at up to 500 MHz**. ([CNX Software](https://www.cnx-software.com/2025/10/03/linux-based-vega-os-replaces-android-based-fire-os-in-amazon-fire-tv-stick-4k-select/))
   - The new 3rd-gen Fire TV Stick 4K uses nearly identical silicon. ([AFTVnews](https://www.aftvnews.com/amazon-announces-new-3rd-gen-fire-tv-stick-4k-running-vega-os-with-an-all-new-remote/))
 - **The GPU.** The G310 is a single Valhall core, configurable at **32–128 GFLOPS FP32 and 2–4 Gpix/s at 1 GHz**. ([Wikipedia: Mali](https://en.wikipedia.org/wiki/Mali_(processor)))
@@ -125,6 +127,8 @@ Assume real efficiency is about 50%. A 64-step raymarch with a 20–30 FLOP SDF 
 | **Juice** (hit-stop, screen shake, tweening, flashes) | Most of what makes a simple game "feel expensive". ([GDC: Juice It or Lose It](https://gdcvault.com/play/1016487/)) | CPU only. | **Always** |
 
 ### 2.3 Frame budget template (16.6 ms, all estimates until section 6 is run)
+> Superseded by the measured budget in [gpu-bench.md](gpu-bench.md#budget-for-a-60-fps-1080p-game).
+
 | Pass | Resolution | Target |
 |---|---|---|
 | Scene geometry (vector lines, low-poly, 4x MSAA, resolved on the tile) | 1080p | 4–6 ms |

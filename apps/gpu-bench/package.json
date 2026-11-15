@@ -1,0 +1,11 @@
+{
+  "name": "gpu-bench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GPU/CPU capability benchmark for Vega OS Fire TV sticks (pure native C++, OpenGL ES 3.1).",
+  "license": "MIT",
+  "kepler": {
+    "projectType": "native",
+    "targets": ["tv"]
+  }
+}

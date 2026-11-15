@@ -437,3 +437,25 @@ The HLE grew a model of the RDP's state (combiner, blender, mode stack, scissor,
 - Brew Volley was rechecked on the TV after the HLE rework.
 
 **One slip, recorded honestly.** The subagent's first look at the jam repo used `git ls-tree --long` in a blobless clone. That silently fetched about 258 file blobs, including Hydra Harmonics' commercial font. They went into a temporary git store, were never checked out, and were deleted within minutes. The fetch now uses a pinned sparse checkout of only the needed paths, with a warning in `tools/fetch-deps.sh`.
+
+## 2026-11-15: What the stick can draw, measured
+
+Before designing an original game, a subagent wrote `apps/gpu-bench`: a native benchmark that measures the stick's fill rate, shader math, particles, bloom, render-target formats, geometry, draw calls and CPU threads, then turns the numbers into a budget for a 1080p, 60 fps game (`docs/research/gpu-bench.md`).
+
+**Measuring without GPU timers.** Timer queries split the Mali tiler's render passes (decision 37), so each test renders into an offscreen target with at most two frames in flight and is timed by wall clock up to a `glFinish`. A game-like scene was also run through the real swap: offscreen and on-screen frame times agreed within 0.1 ms, which validated the method.
+
+**What it found:**
+- The GPU is at the low end of the public estimates for pixels: about 1 Gpix/s, so a blended full-screen layer at 1080p costs 2.1 ms. Opaque overdraw is nearly free (tile-based hidden-surface removal).
+- Math is mid-range: 30 GFLOPS fp32, 58 with `mediump`, but only in straight-line code. Mesa doesn't unroll long loops, which halves the rate.
+- Particles cost what it takes to draw them (about 80 ns per point sprite); updating 64k with a compute shader costs 0.5 ms.
+- Float render targets are a trap (2.5x per blended layer), and so is a tonemap through framebuffer fetch (21 ms). RGB10A2 costs the same as RGBA8.
+- Each draw call costs about 6 µs of CPU time on the A55, so a 60 fps frame holds a few hundred at most.
+
+**The neon look, priced.** The textbook pipeline (HDR target, bloom chain, tonemap pass) ran the Gravity Choir test scene at 47 fps. Drawing the glowing things a second time into a 480×270 target, blurring that, and adding it back as one layer held a steady 60 fps with 32k particles and about 3 ms to spare. A rerun from the main session matched every scene number within 0.5%.
+
+**Surprises:**
+- Single GPU passes of 50 ms or more occasionally stalled the GPU for minutes (once, one frame took 85 s), then everything carried on. Each had passed in other runs. Games never submit passes that long, but the benchmark now caps them.
+- The screensaver takes over after five minutes without input and parks the app's render thread; unattended runs need a periodic key press.
+- `glInvalidateFramebuffer` on the window surface accepts `GL_DEPTH` but rejects `GL_DEPTH_ATTACHMENT`: Mesa treats vegaplat's surface as a window-system framebuffer.
+
+A 150 s soak at full GPU load showed no throttling. The 4K sticks weren't measured; the open question there is whether scaling the 1080p canvas to 4K costs GPU time.

@@ -5,6 +5,7 @@
 # system's `free -m` are summarised per track.
 #
 #   apps/supertuxkart/tools/bench-tracks.sh [-s seconds] [-k karts] [-t tune] [track ...] > results.md
+#   (BENCH_LOGS=<dir> keeps the raw logs.)
 #
 # Default: every race track, 30 s each after loading, 4 karts. -t passes the launch URI's tune=
 # option (e.g. scale:0.5). Needs the app installed and `source ~/vega/env`.
@@ -22,8 +23,9 @@ tracks=("$@")
   fortmagma gran_paradiso_island hacienda lighthouse mines minigolf olivermath ravenbridge_mansion
   sandtrack scotland snowmountain snowtuxpeak stk_enterprise volcano_island xr591 zengarden)
 comp=com.firetvnative.supertuxkart.main
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# BENCH_LOGS=<dir> keeps each track's raw log stream there.
+tmp="${BENCH_LOGS:-}"
+if [[ -n "$tmp" ]]; then mkdir -p "$tmp"; else tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT; fi
 
 # `vega device start-log-stream` is a wrapper script over python and node: stop the whole tree, or
 # the stream keeps running and the next one fails (the device allows one at a time).
@@ -35,9 +37,20 @@ kill_tree() {
 
 echo "| Track | fps (mean) | fps (lowest 10 s) | worst frame (ms) | game thread busy | 3D scale (end) | load (s) | GPU shared (MB) | available (MB) | swap used (MB) |"
 echo "|---|---|---|---|---|---|---|---|---|---|"
+# Waits (up to 30 s) until STK is no longer running: a launch sent while the previous instance is
+# still shutting down (after its race, profile mode exits by itself) is dropped.
+wait_stopped() {
+  local _
+  for _ in $(seq 1 15); do
+    vega device running-apps 2>/dev/null | grep -qx "$comp" || return 0
+    sleep 2
+  done
+}
+
 for t in "${tracks[@]}"; do
   vega device terminate-app --appName "$comp" >/dev/null 2>&1
-  sleep 3
+  wait_stopped
+  sleep 1
   log="$tmp/$t.log"
   vega device start-log-stream > "$log" 2>&1 &
   streamer=$!
@@ -45,10 +58,19 @@ for t in "${tracks[@]}"; do
   query="args=--track=$t,--profile-time=$secs,--numkarts=$karts"
   [[ -n "$tune" ]] && query="tune=$tune&$query"
   start=$(date +%s)
-  vega device run-cmd --command "vlcm launch-app 'pkg://$comp?$query'" >/dev/null 2>&1
-  mem=""; first=""
+  # An idle stick's screensaver takes the foreground a couple of seconds after a launch (and STK
+  # then waits, parked, for the whole run): wake it first.
+  vega device run-cmd --command "inputd-cli button_press KEY_LEFT >/dev/null 2>&1; sleep 1; vlcm launch-app 'pkg://$comp?$query'" >/dev/null 2>&1
+  mem=""; first=""; resumed=0
   for _ in $(seq 1 60); do
     sleep 5
+    # Sent to the background before the race started (screensaver)? Bring the same instance back.
+    bg=$(grep -c "supertuxkart.main)<F>: Trigger event BACKGROUND in state VISIBLE. Completed: true" "$log")
+    if [[ -z "$first" && $bg -gt $resumed && $resumed -lt 3 ]]; then
+      resumed=$bg
+      echo "  ($t: backgrounded before the race, resuming)" >&2
+      vega device run-cmd --command "inputd-cli button_press KEY_LEFT >/dev/null 2>&1; sleep 1; vlcm launch-app pkg://$comp" >/dev/null 2>&1
+    fi
     if [[ -z "$first" ]] && grep -q "\] fps " "$log"; then first=$(( $(date +%s) - start )); fi
     # Memory snapshot once the race has run ~15 s.
     if [[ -n "$first" && -z "$mem" && $(( $(date +%s) - start - first )) -ge 15 ]]; then

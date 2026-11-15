@@ -164,14 +164,15 @@ _sdl3vega_patch("${STK_SRC}/src/graphics/sp/sp_base.cpp"
 # Track objects: STK calls update() on every object at every physics tick (120 Hz) and
 # updateGraphics() every frame, but only a few kinds do anything there (library nodes' start/reset
 # scripts, sounds, billboards, particles, animated and physics-driven objects). On scenery-heavy
-# tracks the empty calls cost a fifth of the frame. Only the active objects are visited.
+# tracks the empty calls cost a fifth of the frame. Only the active objects are visited, and a
+# library node only until its start/reset scripts have run (Black Forest has thousands).
 _sdl3vega_patch("${STK_SRC}/src/tracks/track_object_manager.hpp"
   "    /** A second list which holds all objects that karts can drive on. */"
-  "#ifdef VEGA_PORT /* vega-port: active object lists */\n    // The objects whose per-tick update() and per-frame updateGraphics() do something (see\n    // src/vega_stk.cpp); static scenery is skipped. Rebuilt after objects are added, removed or\n    // reset.\n    std::vector<TrackObject*> m_vega_tick, m_vega_frame;\n    bool m_vega_dirty = true;\n    void vegaRefreshActive()\n    {\n        if (!m_vega_dirty)\n            return;\n        m_vega_dirty = false;\n        m_vega_tick.clear();\n        m_vega_frame.clear();\n        for (TrackObject* o : m_all_objects)\n        {\n            if (vega_stk_object_ticks(o))\n                m_vega_tick.push_back(o);\n            if (vega_stk_object_draws(o))\n                m_vega_frame.push_back(o);\n        }\n    }\n#endif\n"
+  "#ifdef VEGA_PORT /* vega-port: active object lists */\n    // The objects whose per-tick update() and per-frame updateGraphics() do something (see\n    // src/vega_stk.cpp); static scenery is skipped. Rebuilt after objects are added, removed or\n    // reset.\n    std::vector<TrackObject*> m_vega_tick, m_vega_frame;\n    bool m_vega_dirty = true;\n    void vegaRefreshActive()\n    {\n        if (!m_vega_dirty && !vega_stk_take_objects_changed())\n            return;\n        m_vega_dirty = false;\n        m_vega_tick.clear();\n        m_vega_frame.clear();\n        for (TrackObject* o : m_all_objects)\n        {\n            if (vega_stk_object_ticks(o))\n                m_vega_tick.push_back(o);\n            if (vega_stk_object_draws(o))\n                m_vega_frame.push_back(o);\n        }\n    }\n#endif\n"
   "VEGA_PORT /* vega-port: active object lists */")
 _sdl3vega_patch("${STK_SRC}/src/tracks/track_object_manager.hpp"
   "/**\n  * \\ingroup tracks\n  */\nclass TrackObjectManager\n{"
-  "#ifdef VEGA_PORT /* vega-port: active object decl */\nbool vega_stk_object_ticks(TrackObject* object);\nbool vega_stk_object_draws(TrackObject* object);\n#endif\n"
+  "#ifdef VEGA_PORT /* vega-port: active object decl */\nbool vega_stk_object_ticks(TrackObject* object);\nbool vega_stk_object_draws(TrackObject* object);\nbool vega_stk_take_objects_changed();\n#endif\n"
   "VEGA_PORT /* vega-port: active object decl */")
 _sdl3vega_patch("${STK_SRC}/src/tracks/track_object_manager.cpp"
   "    TrackObject* curr;\n    for_in (curr, m_all_objects)\n    {\n        curr->update(dt);"
@@ -205,6 +206,103 @@ _sdl3vega_patch("${STK_SRC}/src/graphics/draw_calls.cpp"
   "#ifdef VEGA_PORT /* vega-port: no casts for plain nodes */\n        else if (List[i]->getType() != ESNT_PARTICLE_SYSTEM &&\n                 List[i]->getType() != ESNT_BILLBOARD &&\n                 List[i]->getType() != ESNT_TEXT &&\n                 List[i]->getType() != ESNT_UNKNOWN)\n        {\n            // Meshes, empties, lights, cameras...: none of the three types tested below.\n            parseSceneManager(List[i]->getChildren(), cam);\n            continue;\n        }\n#endif\n"
   "VEGA_PORT /* vega-port: no casts for plain nodes */")
 
+# Replaces the single occurrence of OLD in FILE with NEW (which contains MARKER), unless MARKER is
+# already there. The insert-only _sdl3vega_patch can't swap code out; this stops the build if OLD
+# is missing or ambiguous.
+function(_vega_stk_replace file old new marker)
+  file(READ "${file}" _content)
+  string(FIND "${_content}" "${marker}" _has)
+  if(_has EQUAL -1)
+    string(FIND "${_content}" "${old}" _first)
+    string(FIND "${_content}" "${old}" _last REVERSE)
+    if(_first EQUAL -1 OR NOT _first EQUAL _last)
+      message(FATAL_ERROR "vega-port: expected exactly one match in ${file}: ${old}")
+    endif()
+    string(REPLACE "${old}" "${new}" _content "${_content}")
+    file(WRITE "${file}" "${_content}")
+    message(STATUS "vega-port: patched ${file}")
+  endif()
+endfunction()
+
+# Scene graph and draw-call setup, per frame (profiled on Black Forest and Cocoa Temple):
+# - LOD nodes animate every level and STK walks them through a heap array per node; only the shown
+#   level is animated now (all of them when the node moves), with a reusable array for the walk.
+# - Each instance of a mesh buffer re-inserted the buffer into string-keyed hash sets; now once per
+#   buffer and pass. The frustum test's flags no longer go through a heap vector<bool>.
+# All of it is switched with the launch URI's tune=scene:0 for A/B runs.
+_sdl3vega_patch("${STK_SRC}/src/tracks/track_object_presentation.hpp"
+  "class TrackObjectPresentationLibraryNode : public TrackObjectPresentationSceneNode"
+  "#ifdef VEGA_PORT /* vega-port: objects changed decl */\nvoid vega_stk_objects_changed();\n#endif\n"
+  "VEGA_PORT /* vega-port: objects changed decl */")
+_sdl3vega_patch("${STK_SRC}/src/tracks/track_object_presentation.hpp"
+  "};   // TrackObjectPresentationLibraryNode"
+  "#ifdef VEGA_PORT /* vega-port: library scripts pending */\n    bool vegaScriptsPending() const { return !m_start_executed || !m_reset_executed; }\n#endif\n"
+  "VEGA_PORT /* vega-port: library scripts pending */")
+_sdl3vega_patch("${STK_SRC}/src/tracks/track_object_presentation.hpp"
+  "        m_reset_executed = false;\n        TrackObjectPresentationSceneNode::reset();"
+  "#ifdef VEGA_PORT /* vega-port: library reset notify */\n        vega_stk_objects_changed();  // its onReset script has to run again\n#endif\n"
+  "VEGA_PORT /* vega-port: library reset notify */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/lod_node.hpp"
+  "    bool m_lod_distances_updated;\n"
+  "#ifdef VEGA_PORT /* vega-port: lod members */\n    int m_vega_shown = -1;          // the level shown since the last updateVisibility()\n    irr::u32 m_vega_anim_ms = 0;    // time of the last OnAnimate()\n    irr::u32 m_vega_static_mask = 0;  // levels that are plain static meshes\n    bool m_vega_all_visible = true;   // OnAnimate showed every level: updateVisibility() must run\n    bool m_vega_pos0_valid = false;   // m_vega_pos0 is level 0's position (getLevel())\n    irr::core::vector3df m_vega_pos0;\n#endif\n"
+  "VEGA_PORT /* vega-port: lod members */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/lod_node.cpp"
+  "LODNode::LODNode("
+  "#ifdef VEGA_PORT /* vega-port: scene opt decl */\nextern bool vega_stk_scene_opt;\n#endif\n"
+  "VEGA_PORT /* vega-port: scene opt decl */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/lod_node.cpp"
+  "    if (isVisible() && m_nodes.size() > 0)\n    {\n        // update absolute position\n        updateAbsolutePosition();\n"
+  "#ifdef VEGA_PORT /* vega-port: animate the shown level only */\n    // STK animates every level of every LOD node each frame (and shows them all until\n    // updateVisibility() hides the unused ones). When the node hasn't moved, the hidden levels'\n    // transforms are still valid: only the shown level is animated, and a level that becomes\n    // visible is animated when it is switched in (updateVisibility()).\n    if (vega_stk_scene_opt && !m_update_box_every_frame && isVisible() && m_nodes.size() > 0)\n    {\n        m_vega_anim_ms = timeMs;\n        updateAbsolutePosition();\n        if (UpdatedAbsTrans)\n        {\n            m_vega_static_mask = 0;\n            for (size_t i = 0; i < m_nodes.size(); i++)\n            {\n                m_nodes[i]->setVisible(true);\n                m_nodes[i]->OnAnimate(timeMs);\n                // A plain static mesh's OnAnimate() does nothing while its LOD node stays put.\n                scene::ISceneNode* n = m_nodes[i];\n                if (i < 32 && n->getType() == scene::ESNT_ANIMATED_MESH &&\n                    !static_cast<SP::SPMeshNode*>(n)->getAnimationState() &&\n                    n->getAnimators().empty() && n->getChildren().empty())\n                    m_vega_static_mask |= 1u << i;\n            }\n            m_vega_all_visible = true;  // updateVisibility() hides the unused levels again\n            m_vega_pos0 = m_nodes[0]->getAbsolutePosition();\n            m_vega_pos0_valid = true;\n        }\n        else if (m_vega_shown >= 0 && m_vega_shown < (int)m_nodes.size() &&\n                 !(m_vega_shown < 32 && (m_vega_static_mask & (1u << m_vega_shown))))\n        {\n            m_nodes[m_vega_shown]->OnAnimate(timeMs);\n        }\n        if (Children.size() != m_nodes.size())\n        {\n            for (unsigned i = 0; i < Children.size(); ++i)\n            {\n                if (m_nodes_set.find(Children[i]) == m_nodes_set.end() && Children[i]->isVisible())\n                    Children[i]->OnAnimate(timeMs);\n            }\n        }\n        return;\n    }\n#endif\n"
+  "VEGA_PORT /* vega-port: animate the shown level only */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/lod_node.cpp"
+  "}\n\nvoid LODNode::OnRegisterSceneNode()"
+  "#ifdef VEGA_PORT /* vega-port: animate a newly shown level */\n    if (vega_stk_scene_opt && (int)level != m_vega_shown)\n    {\n        m_vega_shown = (int)level;\n        if ((int)level >= 0 && level < m_nodes.size() &&\n            !(level < 32 && (m_vega_static_mask & (1u << level))))\n            m_nodes[level]->OnAnimate(m_vega_anim_ms);\n    }\n#endif\n"
+  "VEGA_PORT /* vega-port: animate a newly shown level */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/draw_calls.cpp"
+  "void DrawCalls::parseSceneManager("
+  "#ifdef VEGA_PORT /* vega-port: scene opt decl */\nextern bool vega_stk_scene_opt;\n#endif\n"
+  "VEGA_PORT /* vega-port: scene opt decl */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/draw_calls.cpp"
+  "            core::array<scene::ISceneNode*> child;\n            if (node->getLevel() >= 0)"
+  "#ifdef VEGA_PORT /* vega-port: LOD without temporaries */\n            if (vega_stk_scene_opt)\n            {\n                // A reusable array per nesting depth, not a heap array per LOD node and frame.\n                static core::array<scene::ISceneNode*> s_child[8];\n                static unsigned s_depth = 0;\n                if (s_depth < 8)\n                {\n                    core::array<scene::ISceneNode*>& c = s_child[s_depth];\n                    c.set_used(0);\n                    const int level = node->getLevel();\n                    if (level >= 0)\n                        c.push_back(node->getAllNodes()[level]);\n                    // Children other than the levels (rare): only then the set lookups.\n                    if (node->getChildren().size() != node->getAllNodes().size())\n                    {\n                        for (unsigned int k = 0; k < node->getChildren().size(); k++)\n                        {\n                            if (node->getNodesSet().find(node->getChildren()[k]) ==\n                                node->getNodesSet().end())\n                                c.push_back(node->getChildren()[k]);\n                        }\n                    }\n                    s_depth++;\n                    parseSceneManager(c, cam);\n                    s_depth--;\n                    continue;\n                }\n            }\n#endif\n"
+  "VEGA_PORT /* vega-port: LOD without temporaries */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/sp/sp_mesh_buffer.hpp"
+  "    void addInstanceData(const SPInstancedData& id, DrawCallType dct)\n"
+  "#ifdef VEGA_PORT /* vega-port: draw-call set memo */\n    // The draw-call pass and shader this buffer was last put in the draw-call sets for.\n    unsigned m_vega_dc_pass[DCT_FOR_VAO] = {};\n    const void* m_vega_dc_shader[DCT_FOR_VAO] = {};\n    /** True if this buffer is already in this pass's draw-call sets for (dct, shader); otherwise\n     *  records that it is about to be. */\n    bool vegaInSets(DrawCallType dct, const void* shader, unsigned pass)\n    {\n        if (m_vega_dc_pass[dct] == pass && m_vega_dc_shader[dct] == shader)\n            return true;\n        m_vega_dc_pass[dct] = pass;\n        m_vega_dc_shader[dct] = shader;\n        return false;\n    }\n#endif\n"
+  "VEGA_PORT /* vega-port: draw-call set memo */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/sp/sp_base.cpp"
+  "namespace SP\n{"
+  "#ifdef VEGA_PORT /* vega-port: scene opt decl */\nextern bool vega_stk_scene_opt;\n#endif\n"
+  "VEGA_PORT /* vega-port: scene opt decl */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/sp/sp_base.cpp"
+  "DrawCall g_draw_calls[DCT_FOR_VAO];"
+  "#ifdef VEGA_PORT /* vega-port: draw-call pass counter */\nunsigned g_vega_dc_pass = 1;  // bumped each time the draw-call sets are cleared\n#endif\n"
+  "VEGA_PORT /* vega-port: draw-call pass counter */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/sp/sp_base.cpp"
+  "    for (auto& p : g_draw_calls)\n    {\n        p.clear();"
+  "#ifdef VEGA_PORT /* vega-port: next draw-call pass */\n    g_vega_dc_pass++;\n#endif\n"
+  "VEGA_PORT /* vega-port: next draw-call pass */")
+_vega_stk_replace("${STK_SRC}/src/graphics/sp/sp_base.cpp"
+  "        std::vector<bool> discard;\n        const bool handle_shadow = node->isInShadowPass() &&\n            g_handle_shadow && shader->hasShader(RP_SHADOW);\n        discard.resize((handle_shadow ? 5 : 1), false);\n"
+  "#ifdef VEGA_PORT /* vega-port: no heap per buffer */\n        bool discard[5] = { false, false, false, false, false };\n        const bool handle_shadow = node->isInShadowPass() &&\n            g_handle_shadow && shader->hasShader(RP_SHADOW);\n#else\n        std::vector<bool> discard;\n        const bool handle_shadow = node->isInShadowPass() &&\n            g_handle_shadow && shader->hasShader(RP_SHADOW);\n        discard.resize((handle_shadow ? 5 : 1), false);\n#endif\n"
+  "VEGA_PORT /* vega-port: no heap per buffer */")
+_vega_stk_replace("${STK_SRC}/src/graphics/sp/sp_base.cpp"
+  "                sp_shadow_poly_count += mb->getIndexCount() / 3;\n            }\n"
+  "                sp_shadow_poly_count += mb->getIndexCount() / 3;\n            }\n#ifdef VEGA_PORT /* vega-port: draw-call sets once per buffer */\n            // Every instance of a mesh buffer re-inserts the buffer into the draw-call sets\n            // (string-keyed hash maps) and g_instances; after the first, only its instance data\n            // is new. (Glow, deferred only, keeps the full path.)\n            if (vega_stk_scene_opt &&\n                !(UserConfigParams::m_glow && node->hasGlowColor() && CVS->isDeferredEnabled()))\n            {\n                const bool transparent = shader->isTransparent();\n                if (transparent && dc_type != 0)\n                    continue;\n                const DrawCallType dct =\n                    transparent ? DCT_TRANSPARENT : (DrawCallType)dc_type;\n                if (mb->vegaInSets(dct, shader, g_vega_dc_pass))\n                {\n                    mb->addInstanceData(id, dct);\n                    continue;\n                }\n            }\n#endif\n"
+  "VEGA_PORT /* vega-port: draw-call sets once per buffer */")
+
+_sdl3vega_patch("${STK_SRC}/src/graphics/lod_node.cpp"
+  "#include \"graphics/lod_node.hpp\"\n"
+  "#include \"graphics/sp/sp_mesh_node.hpp\" // vega-port: static levels\n"
+  "vega-port: static levels")
+_sdl3vega_patch("${STK_SRC}/src/graphics/lod_node.cpp"
+  "    for (size_t i = 0; i < m_nodes.size(); i++)\n    {\n        m_nodes[i]->setVisible(i == level);"
+  "#ifdef VEGA_PORT /* vega-port: visibility only on change */\n    // Same level as last frame and no level shown in between: the visibility flags are right\n    // (setting them touches every level's node, for thousands of LOD nodes per frame).\n    if (vega_stk_scene_opt && !m_update_box_every_frame && (int)level == m_vega_shown &&\n        !m_vega_all_visible)\n        return;\n    m_vega_all_visible = false;\n#endif\n"
+  "VEGA_PORT /* vega-port: visibility only on change */")
+_vega_stk_replace("${STK_SRC}/src/graphics/lod_node.cpp"
+  "        (int)((m_nodes[0]->getAbsolutePosition()).getDistanceFromSQ(pos.toIrrVector() ));\n"
+  "#ifdef VEGA_PORT /* vega-port: cached level 0 position */\n        (int)((m_vega_pos0_valid ? m_vega_pos0 : m_nodes[0]->getAbsolutePosition())\n            .getDistanceFromSQ(pos.toIrrVector()));\n#else\n        (int)((m_nodes[0]->getAbsolutePosition()).getDistanceFromSQ(pos.toIrrVector() ));\n#endif\n"
+  "VEGA_PORT /* vega-port: cached level 0 position */")
 # Like STK's Android TV build: no "play the tutorial?" prompt (it is in the main menu's Help).
 _sdl3vega_patch("${STK_SRC}/src/states_screens/main_menu_screen.cpp"
   "#ifdef ANDROID\n    // Don't show tutorial dialog on Android TV"

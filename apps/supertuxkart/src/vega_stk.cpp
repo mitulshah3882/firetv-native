@@ -36,63 +36,107 @@
 
 // Bump when the defaults below change: an existing install picks them up once (the user can
 // still change everything in Options afterwards).
-static const char* kDefaultsMarker = "vega-tv-defaults-v6";
+static const char* kDefaultsMarker = "vega-tv-defaults-v7";
 
 // Developer switches (launch URI tune=ring:0,dynres:0) for A/B measurements.
 static bool g_vega_ring_enabled = true;
 static bool g_vega_dynres_enabled = true;
 static bool g_vega_objects_enabled = true;
+// Scene-graph and draw-call setup patches (CMakeLists.txt): LOD animation, draw-call sets.
+bool vega_stk_scene_opt = true;
 
-/** Called once per launch, right after STK reads config.xml. Applies the TV defaults on the first
- *  launch (and after a defaults bump): full screen at the panel size, a graphics preset for the
- *  stick's Mali-G310, and the remote bindings (STK keeps bindings in input.xml, so a stale one is
- *  removed to let the remote defaults apply). */
-void vega_stk_config_defaults()
+// ---- Developer overrides ------------------------------------------------------------------------
+// For tuning on the device without a rebuild, from the launch URI:
+//   vlcm launch-app 'pkg://com.firetvnative.supertuxkart.main?tune=scale:0.5,lights:1'
+// (vega_main.cpp passes the query on as $VEGA_STK_TUNE). STK saves its options at exit, so the
+// original values of the options a tuned session changes are kept in a file and put back on the
+// next normal launch: a benchmark run must not leave the TV at its settings. (It did once: a
+// sweep at scale 0.5 capped every later race at 0.5.)
+static const char* kTuneRestore = "vega-tune-restore.txt";
+
+/** Reads (`get`) and/or writes (`set`) the option a tune key controls. False for unknown keys and
+ *  for the session-only switches (ring, dynres, objects, scene), which nothing saves. */
+static bool tune_option(const std::string& k, float* get, const float* set)
 {
-    // No keyboard for a name entry: STK creates a profile ("Player", from $USER) and uses it.
-    UserConfigParams::m_enforce_current_player = true;
+#define VEGA_TUNE(name, param, type)                                                               \
+    if (k == name)                                                                                 \
+    {                                                                                              \
+        if (get) *get = (float)(param);                                                            \
+        if (set) param = (type)(*set);                                                             \
+        return true;                                                                               \
+    }
+    VEGA_TUNE("scale", UserConfigParams::m_scale_rtts_factor, float)
+    VEGA_TUNE("lights", UserConfigParams::m_dynamic_lights, bool)
+    VEGA_TUNE("particles", UserConfigParams::m_particles_effects, int)
+    VEGA_TUNE("animated", UserConfigParams::m_animated_characters, bool)
+    VEGA_TUNE("geometry", UserConfigParams::m_geometry_level, int)
+    VEGA_TUNE("anisotropic", UserConfigParams::m_anisotropic, int)
+    VEGA_TUNE("max_fps", UserConfigParams::m_max_fps, int)
+    VEGA_TUNE("show_fps", UserConfigParams::m_display_fps, bool)
+    VEGA_TUNE("internet", UserConfigParams::m_internet_status, int)  // 1 allow, 2 deny
+#undef VEGA_TUNE
+    return false;
+}
 
-    // Developer overrides for tuning on the device without a rebuild, from the launch URI:
-    //   vlcm launch-app 'pkg://com.firetvnative.supertuxkart.main?tune=scale:0.5,lights:1'
-    // (vega_main.cpp passes the query on as $VEGA_STK_TUNE). They last for that session.
-    if (const char* tune = getenv("VEGA_STK_TUNE"))
+/** After a tuned session: put the user's options back. */
+static void undo_previous_tune()
+{
+    const std::string path = file_manager->getUserConfigFile(kTuneRestore);
+    FILE* f = fopen(path.c_str(), "r");
+    if (!f)
+        return;
+    char key[32];
+    float value;
+    while (fscanf(f, "%31s %f", key, &value) == 2)
     {
-        for (const std::string& item : StringUtils::split(std::string(tune), ','))
+        tune_option(key, nullptr, &value);
+        Log::info("vega", "tune: restored %s = %g", key, value);
+    }
+    fclose(f);
+    remove(path.c_str());
+    user_config->saveConfig();
+}
+
+static void apply_tune()
+{
+    const char* tune = getenv("VEGA_STK_TUNE");
+    if (!tune)
+        return;
+    // Keep the originals (only the first tuned session in a row writes them).
+    const std::string path = file_manager->getUserConfigFile(kTuneRestore);
+    FILE* restore = nullptr;
+    if (FILE* existing = fopen(path.c_str(), "r"))
+        fclose(existing);
+    else
+        restore = fopen(path.c_str(), "w");
+    for (const std::string& item : StringUtils::split(std::string(tune), ','))
+    {
+        const std::vector<std::string> kv = StringUtils::split(item, ':', false);
+        if (kv.size() != 2)
+            continue;
+        const std::string& k = kv[0];
+        const float value = (float)atof(kv[1].c_str());
+        float original = 0.0f;
+        if (tune_option(k, &original, nullptr))
         {
-            const std::vector<std::string> kv = StringUtils::split(item, ':', false);
-            if (kv.size() != 2)
-                continue;
-            const std::string& k = kv[0];
-            const float value = (float)atof(kv[1].c_str());
-            if (k == "scale") UserConfigParams::m_scale_rtts_factor = value;
-            else if (k == "lights") UserConfigParams::m_dynamic_lights = value != 0;
-            else if (k == "particles") UserConfigParams::m_particles_effects = (int)value;
-            else if (k == "animated") UserConfigParams::m_animated_characters = value != 0;
-            else if (k == "geometry") UserConfigParams::m_geometry_level = (int)value;
-            else if (k == "anisotropic") UserConfigParams::m_anisotropic = (int)value;
-            else if (k == "max_fps") UserConfigParams::m_max_fps = (int)value;
-            else if (k == "show_fps") UserConfigParams::m_display_fps = value != 0;
-            else if (k == "internet") UserConfigParams::m_internet_status = (int)value;  // 1 allow, 2 deny
-            else if (k == "ring") g_vega_ring_enabled = value != 0;
-            else if (k == "dynres") g_vega_dynres_enabled = value != 0;
-            else if (k == "objects") g_vega_objects_enabled = value != 0;
-            else continue;
-            Log::info("vega", "tune: %s = %g", k.c_str(), value);
+            if (restore)
+                fprintf(restore, "%s %g\n", k.c_str(), original);
+            tune_option(k, nullptr, &value);
         }
+        else if (k == "ring") g_vega_ring_enabled = value != 0;
+        else if (k == "dynres") g_vega_dynres_enabled = value != 0;
+        else if (k == "objects") g_vega_objects_enabled = value != 0;
+        else if (k == "scene") vega_stk_scene_opt = value != 0;
+        else continue;
+        Log::info("vega", "tune: %s = %g", k.c_str(), value);
     }
+    if (restore)
+        fclose(restore);
+}
 
-    // Full screen at Vega's canvas size (1920x1080 on TVs; the system scales it to the display,
-    // 4K included), every launch, so a saved config from another TV can't leave a wrong size.
-    vp_display_info info{};
-    if (vp_video_init(&info) && info.canvas_width > 0 && info.canvas_height > 0)
-    {
-        UserConfigParams::m_fullscreen = true;
-        UserConfigParams::m_real_width = UserConfigParams::m_prev_real_width = info.canvas_width;
-        UserConfigParams::m_real_height = UserConfigParams::m_prev_real_height = info.canvas_height;
-        UserConfigParams::m_width = info.canvas_width;
-        UserConfigParams::m_height = info.canvas_height;
-    }
-
+/** The TV defaults, on the first launch and after a defaults bump. */
+static void apply_defaults_once()
+{
     const std::string marker = file_manager->getUserConfigFile(kDefaultsMarker);
     if (FILE* f = fopen(marker.c_str(), "r"))
     {
@@ -138,6 +182,33 @@ void vega_stk_config_defaults()
         fclose(f);
 }
 
+/** Called once per launch, right after STK reads config.xml. Applies the TV defaults on the first
+ *  launch (and after a defaults bump): full screen at the panel size, a graphics preset for the
+ *  stick's Mali-G310, and the remote bindings (STK keeps bindings in input.xml, so a stale one is
+ *  removed to let the remote defaults apply). */
+void vega_stk_config_defaults()
+{
+    // No keyboard for a name entry: STK creates a profile ("Player", from $USER) and uses it.
+    UserConfigParams::m_enforce_current_player = true;
+
+    undo_previous_tune();
+
+    // Full screen at Vega's canvas size (1920x1080 on TVs; the system scales it to the display,
+    // 4K included), every launch, so a saved config from another TV can't leave a wrong size.
+    vp_display_info info{};
+    if (vp_video_init(&info) && info.canvas_width > 0 && info.canvas_height > 0)
+    {
+        UserConfigParams::m_fullscreen = true;
+        UserConfigParams::m_real_width = UserConfigParams::m_prev_real_width = info.canvas_width;
+        UserConfigParams::m_real_height = UserConfigParams::m_prev_real_height = info.canvas_height;
+        UserConfigParams::m_width = info.canvas_width;
+        UserConfigParams::m_height = info.canvas_height;
+    }
+
+    apply_defaults_once();
+    apply_tune();
+}
+
 /** True for a player on the TV remote (STK's keyboard device): it accelerates automatically,
  *  since the remote's D-pad cannot hold Up while steering. */
 bool vega_stk_auto_accel(StateManager::ActivePlayer* player)
@@ -174,50 +245,51 @@ void vega_stk_after_init()
 }
 
 
-// ---- Dynamic resolution ------------------------------------------------------------------------
+// ---- 3D view resolution ------------------------------------------------------------------------
 // The forward renderer draws the 3D view into an offscreen target at a fraction of the screen and
 // upscales it (the HUD and menus stay at full resolution); see the render-scale patches in
-// ../CMakeLists.txt. How much the stick's Mali-G310 can draw at 60 fps differs a lot by track, so
-// the fraction adapts while racing, measured over half-second windows:
-//  - below ~56 fps for 1.5 s of racing while the game thread waits for the GPU (it runs under 88% of
-//    the frame, vp_gl_thread_busy()): one step down. If that doesn't raise the frame rate by 8%,
-//    pixels weren't the limit (Mali's geometry work doesn't shrink with them): the step is undone
-//    and becomes this track's floor. Busy tracks are mostly limited by the CPU, and stay sharp.
-//  - a steady 60 for 6 s: one step up. A step up that drops below 56 is undone, and not retried
-//    for 30 s (doubling each time), so a track at its limit settles.
-// Each track remembers its scale and floor for the next race. UserConfigParams::m_scale_rtts_factor
-// is the upper limit (1.0 turns the adaptation off).
+// ../CMakeLists.txt. 0.667 (1280x720) is sharp; 0.5 (960x540) is what the heavy tracks need.
+//
+// The scale per track comes from measurements (tools/bench-tracks.sh, HD stick, 2026-11-15, after
+// hours of load, interleaved A/B runs): each track gets the sharpest step that holds about 60 fps.
+// Most tracks are GPU-bound at 0.667: Abyss 36 -> 44 fps at 0.5, Lighthouse 40 -> 51, Sandtrack
+// 48 -> 59, Black Forest 22 -> 31. Only Snow Tux Peak and XR591 hold 60 at 0.667. A self-tuning controller (step down when slow, probe,
+// step back up) was tried first and dropped: frame rates vary more between parts of a track than
+// the effect being measured, so its probes misjudged, and every switch cost a hitch. Unknown
+// tracks (add-ons) start sharp and only ever step down: after 3 s of racing under 50 fps while the
+// game thread waits for the GPU (it runs under 90% of the frame, vp_gl_thread_busy()).
+// UserConfigParams::m_scale_rtts_factor is the upper limit (1.0 turns this off).
 namespace
 {
 const float kScaleSteps[] = { 0.5f, 0.5833f, 0.6667f, 0.75f, 0.8333f };
 const int kNumSteps = sizeof(kScaleSteps) / sizeof(kScaleSteps[0]);
 const uint64_t kSecond = 1000000000ull;
 
-struct Learned
-{
-    int step;
-    int floor;
+// Measured scale per track, as an index into kScaleSteps (capped by max_step()).
+const struct { const char* track; int step; } kMeasured[] = {
+    // 0.5: below 60 fps even there, or only reaching it there
+    { "abyss", 0 }, { "black_forest", 0 }, { "candela_city", 0 }, { "cocoa_temple", 0 },
+    { "cornfield_crossing", 0 }, { "gran_paradiso_island", 0 }, { "lighthouse", 0 }, { "mines", 0 },
+    { "ravenbridge_mansion", 0 }, { "sandtrack", 0 }, { "zengarden", 0 },
+    // 0.583: 53-58 fps at 0.667, about 60 at 0.5
+    { "fortmagma", 1 }, { "hacienda", 1 }, { "minigolf", 1 }, { "olivermath", 1 }, { "scotland", 1 },
+    { "snowmountain", 1 }, { "stk_enterprise", 1 }, { "volcano_island", 1 },
+    // 0.667: 60 fps
+    { "snowtuxpeak", 2 }, { "xr591", 2 },
 };
 
 struct DynRes
 {
     int step = -1;              // current index in kScaleSteps
-    int floor = 0;              // lowest step that helps on this track
+    bool known = false;         // a measured track: no adjustment
     uint64_t last_ns = 0;       // previous frame
-    uint64_t window_start = 0;  // current measuring window
+    uint64_t window_start = 0;  // current measuring window (0.5 s)
     int window_frames = 0;
-    int slow_windows = 0;       // consecutive windows below the target
-    double slow_fps = 0;        // their frame rate
-    uint64_t steady_since = 0;  // start of the current run of windows at 60 fps
-    uint64_t changed_at = 0;    // last scale change
-    int probe = 0;              // the last change, still to be judged: -1 down, +1 up
-    double probe_fps = 0;       // frame rate before a step down
-    uint64_t retry_after = 0;   // no step up before this
-    uint64_t ban_ns = 30 * kSecond;
+    int slow_windows = 0;       // consecutive slow windows
 };
 DynRes g_dynres;
 std::string g_dynres_track;
-std::map<std::string, Learned> g_dynres_learned;
+std::map<std::string, int> g_dynres_learned;  // unknown tracks: the step they settled at
 
 uint64_t now_ns()
 {
@@ -234,36 +306,34 @@ int max_step()
             top = i;
     return top;
 }
-
-float change_to(DynRes& d, int step, int probe, double fps, uint64_t now, const char* why)
-{
-    Log::info("vega", "3D view scale %.3f -> %.3f (%.1f fps, %s)", kScaleSteps[d.step],
-              kScaleSteps[step], fps, why);
-    d.step = step;
-    d.probe = probe;
-    d.changed_at = now;
-    d.slow_windows = 0;
-    d.steady_since = 0;
-    return kScaleSteps[step];
-}
 }  // namespace
 
-/** Scale for the 3D view when a track loads: what this track settled at last time, else the
- *  configured upper limit. */
+/** Scale for the 3D view when a track loads. */
 float vega_stk_dynres_initial(const std::string& track)
 {
-    if (g_dynres.step >= 0 && !g_dynres_track.empty())
-        g_dynres_learned[g_dynres_track] = Learned{ g_dynres.step, g_dynres.floor };
+    if (g_dynres.step >= 0 && !g_dynres.known && !g_dynres_track.empty())
+        g_dynres_learned[g_dynres_track] = g_dynres.step;
     g_dynres = DynRes();
     g_dynres_track = track;
     g_dynres.step = max_step();
-    auto it = g_dynres_learned.find(track);
-    if (it != g_dynres_learned.end())
+    for (const auto& m : kMeasured)
     {
-        g_dynres.step = std::min(it->second.step, max_step());
-        g_dynres.floor = std::min(it->second.floor, g_dynres.step);
+        if (track == m.track)
+        {
+            g_dynres.step = std::min(m.step, max_step());
+            g_dynres.known = true;
+        }
     }
-    Log::info("vega", "3D view scale for %s: %.3f", track.c_str(), kScaleSteps[g_dynres.step]);
+    if (!g_dynres.known)
+    {
+        auto it = g_dynres_learned.find(track);
+        if (it != g_dynres_learned.end())
+            g_dynres.step = std::min(it->second, max_step());
+    }
+    if (!g_vega_dynres_enabled)
+        g_dynres.step = max_step();
+    Log::info("vega", "3D view scale for %s: %.3f%s", track.c_str(), kScaleSteps[g_dynres.step],
+              g_dynres.known ? " (measured)" : "");
     return kScaleSteps[g_dynres.step];
 }
 
@@ -272,18 +342,16 @@ float vega_stk_dynres_initial(const std::string& track)
 float vega_stk_dynres_frame(bool measuring)
 {
     DynRes& d = g_dynres;
-    if (d.step < 0 || UserConfigParams::m_scale_rtts_factor >= 0.999f || !g_vega_dynres_enabled)
+    if (d.step <= 0 || d.known || UserConfigParams::m_scale_rtts_factor >= 0.999f || !g_vega_dynres_enabled)
         return 0.0f;
     const uint64_t now = now_ns();
     const uint64_t frame = d.last_ns ? now - d.last_ns : 0;
     d.last_ns = now;
-    // Restart the window after a pause, a stall (loading) or within a second of a change (the
-    // new target's first frames).
-    if (!measuring || frame == 0 || frame > kSecond / 4 || now - d.changed_at < kSecond)
+    if (!measuring || frame == 0 || frame > kSecond / 4)
     {
         d.window_start = now;
         d.window_frames = 0;
-        d.steady_since = 0;
+        d.slow_windows = 0;
         return 0.0f;
     }
     d.window_frames++;
@@ -292,52 +360,18 @@ float vega_stk_dynres_frame(bool measuring)
     const double fps = d.window_frames * 1e9 / double(now - d.window_start);
     d.window_start = now;
     d.window_frames = 0;
-
-    // Judge the last change on the first full window after it.
-    if (d.probe < 0)
+    if (fps >= 50.0 || vp_gl_thread_busy() >= 0.90f)
     {
-        d.probe = 0;
-        if (fps < d.probe_fps * 1.08)  // fewer pixels didn't help: not pixel-bound here
-        {
-            d.floor = d.step + 1;
-            return change_to(d, d.step + 1, 0, fps, now, "no gain, CPU-bound");
-        }
-    }
-    else if (d.probe > 0)
-    {
-        d.probe = 0;
-        if (fps < 56.0)
-        {
-            d.retry_after = now + d.ban_ns;
-            d.ban_ns = std::min<uint64_t>(d.ban_ns * 2, 240 * kSecond);
-            return change_to(d, d.step - 1, 0, fps, now, "step up too much");
-        }
-    }
-
-    if (fps < 56.0)
-    {
-        d.steady_since = 0;
-        d.slow_fps = d.slow_windows ? (d.slow_fps + fps) / 2 : fps;
-        // Fewer pixels only help if the game thread waits for the GPU; when it's busy nearly the
-        // whole frame, the CPU is the limit and a lower resolution would only blur.
-        if (++d.slow_windows >= 3 && d.step > d.floor && vp_gl_thread_busy() < 0.88f)
-        {
-            d.probe_fps = d.slow_fps;
-            return change_to(d, d.step - 1, -1, fps, now, "slow, GPU-bound");
-        }
+        d.slow_windows = 0;
         return 0.0f;
     }
+    if (++d.slow_windows < 6)
+        return 0.0f;
     d.slow_windows = 0;
-    if (fps < 59.0)
-    {
-        d.steady_since = 0;
-        return 0.0f;
-    }
-    if (!d.steady_since)
-        d.steady_since = now;
-    if (now - d.steady_since >= 6 * kSecond && d.step < max_step() && now >= d.retry_after)
-        return change_to(d, d.step + 1, +1, fps, now, "headroom");
-    return 0.0f;
+    Log::info("vega", "3D view scale %.3f -> %.3f (%.1f fps, GPU-bound)", kScaleSteps[d.step],
+              kScaleSteps[d.step - 1], fps);
+    d.step--;
+    return kScaleSteps[d.step];
 }
 
 // ---- Active track objects ------------------------------------------------------------------------
@@ -345,14 +379,40 @@ float vega_stk_dynres_frame(bool measuring)
 // Mirrors TrackObject::update()/updateGraphics(): each forwards to its presentation, its physical
 // object (which returns at once unless dynamic) and its animator.
 
+static bool g_objects_changed = false;  // the active lists need a rebuild
+
 /** Does update(), called at every physics tick, do anything for this object? */
 bool vega_stk_object_ticks(TrackObject* object)
 {
     if (!g_vega_objects_enabled)
         return true;
     const PhysicalObject* physics = object->getPhysicalObject();
-    return object->getAnimator() != NULL || (physics && physics->isDynamic()) ||
-           object->getPresentation<TrackObjectPresentationLibraryNode>() != NULL;  // start/reset scripts
+    if (object->getAnimator() != NULL || (physics && physics->isDynamic()))
+        return true;
+    // A library node's update() only runs its onStart/onReset scripts, once each: keep it until
+    // they have run, then rebuild the lists without it (a reset brings it back).
+    const TrackObjectPresentationLibraryNode* library =
+        object->getPresentation<TrackObjectPresentationLibraryNode>();
+    if (library && library->vegaScriptsPending())
+    {
+        g_objects_changed = true;
+        return true;
+    }
+    return false;
+}
+
+/** A track object's activity changed (a library node was reset): rebuild the active lists. */
+void vega_stk_objects_changed()
+{
+    g_objects_changed = true;
+}
+
+/** Called by the object manager before using its lists: true once after a change. */
+bool vega_stk_take_objects_changed()
+{
+    const bool changed = g_objects_changed;
+    g_objects_changed = false;
+    return changed;
 }
 
 /** Does updateGraphics(), called every frame, do anything for this object? */

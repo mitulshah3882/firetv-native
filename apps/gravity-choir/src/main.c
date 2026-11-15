@@ -179,7 +179,7 @@ int main(int argc, char **argv)
         return 1;
     }
     SDL_GL_MakeCurrent(A.win, A.gl);
-    SDL_GL_SetSwapInterval(1);
+    SDL_GL_SetSwapInterval(shot_dir ? 0 : 1);  /* shots: no vsync (a hidden window can block forever waiting for it) */
     const char *missing = gl_load();
     if (missing) {
         SDL_Log("gravity-choir: missing GL function %s", missing);

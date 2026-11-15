@@ -143,6 +143,7 @@ static struct {
     bool paused_audio;
     bool icon_mode;          /* host script "icon": the launcher icon's scene */
     bool credits;            /* the title's credits page is open */
+    bool keyart;             /* host script "keyart": the title scene for store art, no hints */
     float dim;               /* world dimming behind menus (smoothed) */
     char debug[160];
 } G;
@@ -340,6 +341,7 @@ bool game_init(const char *script, bool deterministic)
         start_run();
     if (script && !strcmp(script, "icon")) G.icon_mode = true;
     if (script && !strcmp(script, "credits")) G.credits = true;
+    if (script && !strcmp(script, "keyart")) G.keyart = true;
     return true;
 }
 
@@ -1172,6 +1174,9 @@ static void draw_center_text(void)
             gfx_text(lines[i][1], GC_W * 0.5f + 30.0f, y, 30.0f, white, -1, 0.0f);
         }
         gfx_text("BACK  close", GC_W * 0.5f, 900.0f, 26.0f, dim, 0, 0.0f);
+    } else if (G.state == ST_TITLE && G.keyart) {
+        gfx_text("GRAVITY CHOIR", GC_W * 0.5f, 400.0f, 190.0f, white, 0, 1.0f);
+        gfx_text("You are a star that sings.", GC_W * 0.5f, 640.0f, 52.0f, dim, 0, 0.2f);
     } else if (G.state == ST_TITLE) {
         const float a = clampf(G.t / 1.5f, 0.0f, 1.0f);
         gfx_text("GRAVITY CHOIR", GC_W * 0.5f, 330.0f, 148.0f, col_scale(white, a), 0, 0.9f);

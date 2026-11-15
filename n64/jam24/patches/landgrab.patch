@@ -1,0 +1,297 @@
+Land Grab (N64brew Game Jam 2024, code/landgrab at 0dea720) for the Fire TV remote.
+
+A remote has OK, a direction ring, MENU, PLAY/PAUSE, rewind and fast-forward, and n64rt makes each
+of the last four tap-or-hold (N64_REMOTE_MAP_DEFAULT in apps/n64-landgrab/CMakeLists.txt):
+OK = A (place), MENU = Start (pause), hold MENU = B (skip turn), PLAY/PAUSE = R (flip),
+hold PLAY/PAUSE = L (mirror), << / >> = C-left / C-right (change piece),
+hold << / >> = C-down / C-up (smaller / bigger piece).
+
+This patch makes the game say so:
+  - the random hints name the remote's buttons instead of B, L/Z, R and the C buttons;
+  - the control legend (scoreboard_controls_render) draws remote buttons, our own icons from
+    n64/jam24/assets-remote/landgrab (make-icons.py), instead of the joypad icons;
+  - "Hold" is written in gold (a new squarewave font style, FONT_STYLE_GOLD / FMT_HOLD);
+  - the pause screen quits on a held B (half a second; holding MENU sends B), which a remote can
+    do, as well as on A + B + Start, which it can't.
+
+n64/jam24/Makefile applies it to a copy of code/landgrab in the build directory, so the jam
+checkout stays as fetched. The build stops if it no longer applies.
+
+SPDX-FileCopyrightText: 2026 Mitul Shah
+SPDX-License-Identifier: MIT
+
+diff --git a/code/landgrab/font.c b/code/landgrab/font.c
+--- a/code/landgrab/font.c
++++ b/code/landgrab/font.c
+@@ -34,6 +34,12 @@ font_init (void)
+   rdpq_font_style (font_squarewave, FONT_STYLE_WHITE, &style);
+   rdpq_font_style (font_anita, FONT_STYLE_WHITE, &style);
+   rdpq_font_style (font_bbrick, FONT_STYLE_WHITE, &style);
++
++  rdpq_fontstyle_t gold_style
++      = { .color = RGBA32 (0xF8, 0xD0, 0x40, 0xFF),
++          .outline_color = COLOR_DARK_GRAY };
++
++  rdpq_font_style (font_squarewave, FONT_STYLE_GOLD, &gold_style);
+ }
+ 
+ void
+diff --git a/code/landgrab/font.h b/code/landgrab/font.h
+--- a/code/landgrab/font.h
++++ b/code/landgrab/font.h
+@@ -21,6 +21,7 @@ typedef enum
+   FONT_STYLE_P3 = 0x02,
+   FONT_STYLE_P4 = 0x03,
+   FONT_STYLE_WHITE = 0x04,
++  FONT_STYLE_GOLD = 0x05,
+ } FontStyle;
+ 
+ #define FMT_STYLE_P1 "^00"
+@@ -28,6 +29,10 @@ typedef enum
+ #define FMT_STYLE_P3 "^02"
+ #define FMT_STYLE_P4 "^03"
+ #define FMT_STYLE_WHITE "^04"
++#define FMT_STYLE_GOLD "^05"
++
++// A long press of a Fire TV remote button
++#define FMT_HOLD FMT_STYLE_GOLD "Hold" FMT_STYLE_WHITE
+ 
+ void font_init (void);
+ 
+diff --git a/code/landgrab/minigame.c b/code/landgrab/minigame.c
+--- a/code/landgrab/minigame.c
++++ b/code/landgrab/minigame.c
+@@ -21,6 +21,7 @@ const MinigameDef minigame_def
+                         "The player with the most land at the end wins!" };
+ 
+ #define PAUSE_INPUT_DELAY 0.5f
++#define PAUSE_QUIT_HOLD 0.5f
+ #define END_INPUT_DELAY 5.0f
+ #define RANDOM_HINT_DELAY 10.0f
+ 
+@@ -44,6 +45,7 @@ static Player *winners[MAXPLAYERS];
+ static size_t winner_count;
+ static size_t turn_count;
+ static float menu_input_delay;
++static float pause_quit_timer;
+ static xm64player_t music;
+ static bool show_controls;
+ static float random_hint_timer = 0.0f;
+@@ -57,17 +59,18 @@ static const char *TURN_MESSAGES[] = {
+   FMT_STYLE_P4 "Player 4's Turn",
+ };
+ 
++// Fire TV remote: a tap or a hold of MENU, PLAY/PAUSE, << (rewind), >> (fast-forward)
+ static const char *RANDOM_HINTS[] = {
+-  "Press B to skip your turn",
+-  "Press B to skip your turn",
+-  "Change pieces with C-Left/C-Right",
+-  "Change pieces with C-Left/C-Right",
+-  "Press L/Z to mirror your piece",
+-  "Press L/Z to mirror your piece",
+-  "Press R to flip your piece",
+-  "Press R to flip your piece",
+-  "Press C-Down for smaller pieces",
+-  "Press C-Down for smaller pieces",
++  FMT_HOLD " MENU to skip your turn",
++  FMT_HOLD " MENU to skip your turn",
++  "Change pieces with << or >>",
++  "Change pieces with << or >>",
++  FMT_HOLD " PLAY/PAUSE to mirror",
++  FMT_HOLD " PLAY/PAUSE to mirror",
++  "Press PLAY/PAUSE to flip",
++  "Press PLAY/PAUSE to flip",
++  FMT_HOLD " << for smaller pieces",
++  FMT_HOLD " >> for bigger pieces",
+   "Corner connections are key!",
+   "Your pieces must all connect",
+   "Other colors can block you!",
+@@ -153,6 +156,7 @@ minigame_set_state (MinigameState new_state)
+     {
+       xm64player_stop (&music);
+       menu_input_delay = PAUSE_INPUT_DELAY;
++      pause_quit_timer = 0.0f;
+     }
+ 
+   if (new_state == MINIGAME_STATE_END)
+@@ -396,7 +400,7 @@ minigame_pause_render (void)
+   PLAYER_FOREACH (p) { player_render (&players[p], false); }
+ 
+   minigame_upper_msg_print ("Game Paused");
+-  minigame_lower_msg_print ("Press A + B + Start to exit");
++  minigame_lower_msg_print ("MENU: resume  " FMT_HOLD " MENU: quit");
+ 
+   scoreboard_controls_render ();
+ 
+@@ -417,6 +421,7 @@ minigame_pause_loop (float deltatime)
+   else
+     {
+       // Any player can unpause or quit the game
++      bool quit_held = false;
+       PLAYER_FOREACH (p)
+       {
+         if (!plynum_is_ai (p))
+@@ -424,6 +429,7 @@ minigame_pause_loop (float deltatime)
+             port = core_get_playercontroller (p);
+             btn = joypad_get_buttons (port);
+             pressed = joypad_get_buttons_pressed (port);
++            quit_held |= btn.b;
+ 
+             if (pressed.start)
+               {
+@@ -439,6 +445,15 @@ minigame_pause_loop (float deltatime)
+               }
+           }
+       }
++
++      // Fire TV remote: holding MENU sends B, so holding B quits
++      pause_quit_timer = quit_held ? pause_quit_timer + deltatime : 0.0f;
++      if (pause_quit_timer >= PAUSE_QUIT_HOLD
++          && minigame_state == MINIGAME_STATE_PAUSE)
++        {
++          pause_quit_timer = 0.0f;
++          minigame_end ();
++        }
+     }
+ 
+   minigame_pause_render ();
+diff --git a/code/landgrab/scoreboard.c b/code/landgrab/scoreboard.c
+--- a/code/landgrab/scoreboard.c
++++ b/code/landgrab/scoreboard.c
+@@ -6,43 +6,24 @@
+ 
+ static sprite_t *star_sprite;
+ 
++// Fire TV remote buttons (n64/jam24/assets-remote): 11 px round, 12x12 sprites
+ typedef enum
+ {
+-  ICON_A,
+-  ICON_B,
+-  ICON_C_DOWN,
+-  ICON_C_LEFT,
+-  ICON_C_RIGHT,
+-  ICON_C_UP,
+-  ICON_D_DOWN,
+-  ICON_D_LEFT,
+-  ICON_D_RIGHT,
+-  ICON_D_UP,
+-  ICON_DPAD,
+-  ICON_L,
+-  ICON_R,
+-  ICON_START,
+-  ICON_STICK,
+-  ICON_Z,
++  ICON_RING,
++  ICON_OK,
++  ICON_MENU,
++  ICON_PLAYPAUSE,
++  ICON_REWIND,
++  ICON_FF,
+ } Icon;
+ 
+ static const char *icon_paths[] = {
+-  "rom:/landgrab/joypad_a.rgba16.sprite",
+-  "rom:/landgrab/joypad_b.rgba16.sprite",
+-  "rom:/landgrab/joypad_c_down.rgba16.sprite",
+-  "rom:/landgrab/joypad_c_left.rgba16.sprite",
+-  "rom:/landgrab/joypad_c_right.rgba16.sprite",
+-  "rom:/landgrab/joypad_c_up.rgba16.sprite",
+-  "rom:/landgrab/joypad_d_down.rgba16.sprite",
+-  "rom:/landgrab/joypad_d_left.rgba16.sprite",
+-  "rom:/landgrab/joypad_d_right.rgba16.sprite",
+-  "rom:/landgrab/joypad_d_up.rgba16.sprite",
+-  "rom:/landgrab/joypad_dpad.rgba16.sprite",
+-  "rom:/landgrab/joypad_l.rgba16.sprite",
+-  "rom:/landgrab/joypad_r.rgba16.sprite",
+-  "rom:/landgrab/joypad_start.rgba16.sprite",
+-  "rom:/landgrab/joypad_stick.rgba16.sprite",
+-  "rom:/landgrab/joypad_z.rgba16.sprite",
++  "rom:/landgrab/remote_ring.rgba16.sprite",
++  "rom:/landgrab/remote_ok.rgba16.sprite",
++  "rom:/landgrab/remote_menu.rgba16.sprite",
++  "rom:/landgrab/remote_playpause.rgba16.sprite",
++  "rom:/landgrab/remote_rewind.rgba16.sprite",
++  "rom:/landgrab/remote_ff.rgba16.sprite",
+ };
+ 
+ static sprite_t *icons[ARRAY_SIZE (icon_paths)];
+@@ -201,61 +182,60 @@ scoreboard_controls_render (void)
+                                   .line_spacing = -3,
+                                   .wrap = WRAP_WORD };
+ 
++  // The Fire TV remote: each button does one thing on a tap, another on a hold
+   x = 16;
+   y = 30;
+ 
+-  icon_center_x = x + (50 / 2) - (12 / 2);
++  icon_center_x = x + (50 / 2) - (11 / 2);
+   icon_left_x = x + 12;
+   icon_right_x = icon_left_x + 16;
+ 
+-  scoreboard_icon_render (ICON_STICK, icon_left_x, y);
+-  scoreboard_icon_render (ICON_DPAD, icon_right_x, y);
++  scoreboard_icon_render (ICON_RING, icon_center_x, y);
+   y += icon_drop;
+   rdpq_text_print (&text_parms, FONT_SQUAREWAVE, x, y, "Move Cursor");
+   y += text_drop;
+ 
+-  scoreboard_icon_render (ICON_A, icon_center_x, y);
++  scoreboard_icon_render (ICON_OK, icon_center_x, y);
+   y += icon_drop;
+   rdpq_text_print (&text_parms, FONT_SQUAREWAVE, x, y, "Place Piece");
+   y += text_drop;
+ 
+-  scoreboard_icon_render (ICON_B, icon_center_x, y);
++  scoreboard_icon_render (ICON_MENU, icon_center_x, y);
+   y += icon_drop;
+-  rdpq_text_print (&text_parms, FONT_SQUAREWAVE, x, y, "Skip Turn");
++  rdpq_text_print (&text_parms, FONT_SQUAREWAVE, x, y, "Pause Game");
+   y += text_drop;
+ 
+-  scoreboard_icon_render (ICON_START, icon_center_x, y);
++  scoreboard_icon_render (ICON_MENU, icon_center_x, y);
+   y += icon_drop;
+-  rdpq_text_print (&text_parms, FONT_SQUAREWAVE, x, y, "Pause Game");
++  rdpq_text_print (&text_parms, FONT_SQUAREWAVE, x, y, FMT_HOLD " to Skip");
+   y += text_drop;
+ 
+   x = 259;
+   y = 30;
+ 
+-  icon_center_x = x + (50 / 2) - (12 / 2);
++  icon_center_x = x + (50 / 2) - (11 / 2);
+   icon_left_x = x + 12;
+   icon_right_x = icon_left_x + 16;
+ 
+-  scoreboard_icon_render (ICON_L, icon_left_x, y);
+-  scoreboard_icon_render (ICON_Z, icon_right_x, y);
++  scoreboard_icon_render (ICON_PLAYPAUSE, icon_center_x, y);
+   y += icon_drop;
+-  rdpq_text_print (&text_parms, FONT_SQUAREWAVE, x, y, "Mirror Piece");
++  rdpq_text_print (&text_parms, FONT_SQUAREWAVE, x, y, "Flip Piece");
+   y += text_drop;
+ 
+-  scoreboard_icon_render (ICON_R, icon_center_x, y);
++  scoreboard_icon_render (ICON_PLAYPAUSE, icon_center_x, y);
+   y += icon_drop;
+-  rdpq_text_print (&text_parms, FONT_SQUAREWAVE, x, y, "Flip Piece");
++  rdpq_text_print (&text_parms, FONT_SQUAREWAVE, x, y, FMT_HOLD " to Mirror");
+   y += text_drop;
+ 
+-  scoreboard_icon_render (ICON_C_LEFT, icon_left_x, y);
+-  scoreboard_icon_render (ICON_C_RIGHT, icon_right_x, y);
++  scoreboard_icon_render (ICON_REWIND, icon_left_x, y);
++  scoreboard_icon_render (ICON_FF, icon_right_x, y);
+   y += icon_drop;
+   rdpq_text_print (&text_parms, FONT_SQUAREWAVE, x, y, "Change Piece");
+   y += text_drop;
+ 
+-  scoreboard_icon_render (ICON_C_UP, icon_left_x, y);
+-  scoreboard_icon_render (ICON_C_DOWN, icon_right_x, y);
++  scoreboard_icon_render (ICON_REWIND, icon_left_x, y);
++  scoreboard_icon_render (ICON_FF, icon_right_x, y);
+   y += icon_drop;
+-  rdpq_text_print (&text_parms, FONT_SQUAREWAVE, x, y, "Change Value");
++  rdpq_text_print (&text_parms, FONT_SQUAREWAVE, x, y, FMT_HOLD " for Size -/+");
+   y += text_drop;
+ }

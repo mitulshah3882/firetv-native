@@ -217,7 +217,7 @@ void menu_loop(float deltatime) {
         copy_line(next, sizeof next, game_title(next_game));
         rdpq_text_printf(&center, FONT_RESULTS, 0, 180, "^05<  ^00%s^05  >", next);
     }
-    rdpq_text_printf(&center, FONT_RESULTS, 0, 205, "^05Press A to play");
+    rdpq_text_printf(&center, FONT_RESULTS, 0, 205, "^05Press OK to play");
     rdpq_detach_show();
 }
 

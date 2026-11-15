@@ -102,6 +102,17 @@ tools/vega.sh build apps/n64-landgrab armv7 Release
 ```
 Licences and credits: `jam24/CREDITS.md`.
 
+**Remote patches.** A Fire TV remote has no N64 buttons, so a minigame can carry our patch,
+`jam24/patches/<game>.patch`. The Makefile copies `code/<game>` to `build-<target>/<game>-src`,
+applies the patch there (the jam checkout stays as fetched) and compiles the copy. A patch that
+no longer applies stops the build. New sprites the patch loads come from
+`jam24/assets-remote/<game>/*.png`, our own art (`assets-remote/make-icons.py` redraws them).
+Land Grab's patch names the remote's buttons in its hints, pause screen and control legend, to
+match its mapping in `apps/n64-landgrab/CMakeLists.txt`: OK places, MENU pauses (held: skip
+turn), PLAY/PAUSE flips (held: mirror), rewind/fast-forward change piece (held: smaller/bigger
+piece). In the pause screen, holding MENU for about a second (B for half a second) quits the
+round.
+
 ## Status
 | Program | Host (Mac) | Fire TV Stick 4K Select |
 |---|---|---|

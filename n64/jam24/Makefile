@@ -47,8 +47,29 @@ $(FILESYSTEM_DIR)/squarewave.font64: MKFONT_FLAGS += --outline 1 --range all
 # local after `ld -r` is resolved against the relocatable's own gp, 0x7ff0 off.
 MG_SYMS = minigame_init minigame_loop minigame_fixedloop minigame_cleanup minigame_def
 MG_DATA_SYMS = __jam_data_start __jam_data_end __jam_bss_start __jam_bss_end
+
+# Our patches for the Fire TV remote (patches/<game>.patch: on-screen button names, the control
+# legend, remote-friendly inputs). The jam checkout stays as fetched: the minigame's sources are
+# copied to $(BUILD_DIR)/<game>-src and patched there (two levels down, like code/<game>, so the
+# "../../core.h" includes still resolve), and the copy is compiled instead. A patch that no longer
+# applies stops the build. Its new sprites come from assets-remote/<game>/*.png (our own art).
+define PATCHED_template
+$$(BUILD_DIR)/$(1)-src/.patched: $$(JAM24_DIR)/patches/$(1).patch $$(wildcard code/$(1)/*.[ch] code/$(1)/*/*.[ch])
+	@echo "    [PATCH] $$<"
+	@rm -rf $$(@D) && mkdir -p $$(@D) && cp -R code/$(1)/. $$(@D)/
+	@patch -s -f -F 0 -p3 -d $$(@D) -i $$< </dev/null || \
+		{ echo "error: $$< no longer applies to code/$(1); update it for this jam revision" >&2; exit 1; }
+	@touch $$@
+SRC_$(1) := $$(SRC_$(1):code/$(1)/%=$$(BUILD_DIR)/$(1)-src/%)
+$$(SRC_$(1)): $$(BUILD_DIR)/$(1)-src/.patched ;
+ASSETS_LIST += $$(patsubst $$(JAM24_DIR)/assets-remote/%.png,$$(FILESYSTEM_DIR)/%.sprite,$$(wildcard $$(JAM24_DIR)/assets-remote/$(1)/*.png))
+endef
+
 define MINIGAME_template
 SRC_$(1) := $$(wildcard code/$(1)/*.c) $$(wildcard code/$(1)/*/*.c)
+ifneq ($$(wildcard $$(JAM24_DIR)/patches/$(1).patch),)
+$$(eval $$(call PATCHED_template,$(1)))
+endif
 $$(SRC_$(1):%.c=$$(BUILD_DIR)/%.o): CFLAGS += -G 0 -DN64_DSO
 $$(BUILD_DIR)/mg_$(1).o: $$(SRC_$(1):%.c=$$(BUILD_DIR)/%.o) $$(JAM24_DIR)/minigame.ld
 	@echo "    [MINIGAME] $$@"
@@ -64,6 +85,11 @@ $(foreach m,$(MINIGAMES),$(eval $(call MINIGAME_template,$(m))))
 
 # ---- asset conversion (the jam Makefile's rules) ----------------------------------------------
 $(FILESYSTEM_DIR)/%.sprite: $(ASSETS_DIR)/%.png
+	@mkdir -p $(dir $@)
+	@echo "    [SPRITE] $@"
+	$(N64_MKSPRITE) $(MKSPRITE_FLAGS) -o $(dir $@) "$<"
+REMOTE_SPRITES := $(patsubst $(JAM24_DIR)/assets-remote/%.png,$(FILESYSTEM_DIR)/%.sprite,$(wildcard $(JAM24_DIR)/assets-remote/*/*.png))
+$(REMOTE_SPRITES): $(FILESYSTEM_DIR)/%.sprite: $(JAM24_DIR)/assets-remote/%.png
 	@mkdir -p $(dir $@)
 	@echo "    [SPRITE] $@"
 	$(N64_MKSPRITE) $(MKSPRITE_FLAGS) -o $(dir $@) "$<"

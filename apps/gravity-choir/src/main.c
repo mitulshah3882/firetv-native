@@ -53,7 +53,10 @@ static void on_key(SDL_Keycode key, bool down, bool repeat)
     default: return;
     }
     if (repeat) return;
-    if (!game_button(0, b, down)) A.running = false;  /* Back on the title screen: quit */
+    if (!game_button(0, b, down)) {  /* Back on the title screen: quit */
+        A.running = false;
+        SDL_Log("gravity-choir: exit requested");
+    }
 }
 
 static void on_pad_button(SDL_JoystickID id, Uint8 button, bool down)
@@ -266,10 +269,12 @@ int main(int argc, char **argv)
         SDL_GL_SwapWindow(A.win);
     }
     (void)shots;
+    const Uint64 q0 = SDL_GetTicksNS();
     game_shutdown();
     gfx_shutdown();
     SDL_GL_DestroyContext(A.gl);
     SDL_DestroyWindow(A.win);
+    SDL_Log("gravity-choir: shut down in %.0f ms", (SDL_GetTicksNS() - q0) / 1e6);
     SDL_Quit();
     return 0;
 }

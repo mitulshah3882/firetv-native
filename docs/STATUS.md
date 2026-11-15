@@ -29,6 +29,13 @@ _Last updated: 2026-11-15 evening (Gravity Choir on the TV; SuperTuxKart round t
   - Focus is requested with a listener, given up in the background and requested again in the foreground; ducking lowers the volume and a loss silences it. Verified by the logs on the TV (arcade ↔ Gravity Choir).
   - Each game's package carries `assets/image/splash.astc` (`tools/make-splashes.sh`), drawn as the first frame instead of black.
 - **Appstore research:** `docs/research/appstore-submission.md`. Gravity Choir is the first candidate; the open items are listed there.
+  - Gravity Choir's listing kit is in `apps/gravity-choir/store/`: 1280×720 icon, screenshots, background and draft text. Not submitted.
+  - Every package ships `assets/licenses/` with a `NOTICE.txt` (credits, exact upstream versions, licences, source link).
+- **Polish round (2026-11-15 evening):** every game was launched on the TV, with OK and Back pressed and the logs checked. Fixed:
+  - Brew Volley's sound effects and Land Grab's XM instruments were silent on the device (VADPCM never decoded; decision 51).
+  - `vega device terminate-app` stops the wrong app when one package id is a prefix of another; our scripts use `vlcm terminate-app --pkg-id` now.
+  - Land Grab's hints, legend and controls are remote-friendly.
+  - Exits froze on the last frame for up to 6 s: our SDL audio driver blocked while holding SDL's device lock (decision 54). Exits now take about 90 ms.
 - **N64brew Game Jam 2024: Land Grab runs on the TV** (`apps/n64-landgrab`, card in the arcade). Mallard runs on the Mac but isn't cleared to ship (undocumented music and art licences). See `n64/jam24/CREDITS.md` and the journal.
 - **GPU/CPU benchmark measured** (`apps/gpu-bench`, report in `docs/research/gpu-bench.md`):
   - About 1 Gpix/s (2.1 ms per blended 1080p layer), 30 GFLOPS fp32 / 58 with `mediump`, about 80 ns per particle sprite, about 6 µs of CPU per draw call.

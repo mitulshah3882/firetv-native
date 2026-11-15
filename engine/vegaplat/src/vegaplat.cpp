@@ -1020,13 +1020,19 @@ extern "C" void vp_audio_close(vp_audio* a) {
         std::lock_guard<std::mutex> lk(gAudioMu);
         gAudios.erase(std::remove(gAudios.begin(), gAudios.end(), a), gAudios.end());
     }
+    const uint64_t t0 = nowNs();
     try {
         if (a->playback) a->playback->stop();
     } catch (...) {
     }
+    const uint64_t t1 = nowNs();
     releaseFocus(a, "close");
     a->focusSub = nullptr;
+    a->playback = nullptr;
+    const uint64_t t2 = nowNs();
     delete a;
+    vp_log("audio: closed (stop %.0f ms, focus %.0f ms, free %.0f ms)", (t1 - t0) / 1e6, (t2 - t1) / 1e6,
+           (nowNs() - t2) / 1e6);
 }
 
 // ------------------------------------------------------------------------------------------------

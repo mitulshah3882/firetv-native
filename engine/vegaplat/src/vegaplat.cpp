@@ -26,6 +26,7 @@
 #include <apmf/iface/com/amazon/kepler/audio/IAudioStream.h>
 #include <apmf/iface/com/amazon/kepler/audio/IAudioStreamPlayback.h>
 #include <apmf/iface/com/amazon/kepler/audio/IAudioStreamPlaybackBuilder.h>
+#include <apmf/iface/com/amazon/kepler/audio/IFocusChangedListener.h>
 #include <apmf/iface/com/amazon/kepler/graphics/ICanvasConfig.h>
 #include <apmf/iface/com/amazon/kepler/graphics/CompressionPolicy.h>
 #include <apmf/iface/com/amazon/kepler/graphics/ContextConfigAttributes.h>
@@ -73,6 +74,7 @@
 #include <cstring>
 #include <deque>
 #include <mutex>
+#include <vector>
 #include <string>
 #include <thread>
 
@@ -330,6 +332,7 @@ extern "C" void vp_set_lifecycle_callback(vp_lifecycle_fn fn, void* user) {
     gLifecycleUser = user;
     gLifecycleFn = fn;
 }
+static void audioLifecycle(bool foreground);  // audio focus, see Audio below
 static void notifyLifecycle(bool foreground) {
     if (vp_lifecycle_fn fn = gLifecycleFn.load()) fn(foreground, gLifecycleUser.load());
 }
@@ -348,6 +351,7 @@ struct VpComponent : ApmfBase<VpComponent, ka::IInteractiveComponent> {
             if (S().appThread.joinable()) S().appThread.join();
             S().appThread = std::thread(runApp);
         } else {
+            audioLifecycle(true);
             notifyLifecycle(true);
             push(makeEvent(VP_EVENT_FOREGROUND));
         }
@@ -355,6 +359,7 @@ struct VpComponent : ApmfBase<VpComponent, ka::IInteractiveComponent> {
     void onBackground(View<kr::IComponentInstance>) {
         vp_log("lifecycle: background");
         S().foreground = false;
+        audioLifecycle(false);
         notifyLifecycle(false);
         push(makeEvent(VP_EVENT_BACKGROUND));
     }
@@ -504,6 +509,106 @@ extern "C" void* vp_gl_get_proc(const char* name) {
     return nullptr;
 }
 
+// ------------------------------------------------------------------------------------------------
+// Loading splash: assets/image/splash.astc (made by tools/make-splashes.sh), drawn full screen as the
+// first frame. ASTC is decoded by the GPU, so this needs no image decoder. Missing file: no splash.
+// ------------------------------------------------------------------------------------------------
+static void drawSplash(int width, int height) {
+    FILE* f = fopen("/pkg/assets/image/splash.astc", "rb");
+    if (!f) return;
+    std::vector<unsigned char> data;
+    unsigned char h[16];
+    bool ok = fread(h, 1, 16, f) == 16 && h[0] == 0x13 && h[1] == 0xAB && h[2] == 0xA1 && h[3] == 0x5C;
+    const int bx = h[4], by = h[5];
+    const int w = h[7] | (h[8] << 8) | (h[9] << 16), hh = h[10] | (h[11] << 8) | (h[12] << 16);
+    // GL_COMPRESSED_RGBA_ASTC_<bx>x<by>_KHR for the common block sizes.
+    static const struct { int x, y; unsigned fmt; } kFormats[] = {
+        {4, 4, 0x93B0}, {5, 5, 0x93B2}, {6, 6, 0x93B4}, {8, 8, 0x93B7}, {10, 10, 0x93BB}, {12, 12, 0x93BD}};
+    unsigned fmt = 0;
+    for (const auto& k : kFormats)
+        if (k.x == bx && k.y == by) fmt = k.fmt;
+    if (ok && fmt && w > 0 && hh > 0) {
+        const size_t size = size_t((w + bx - 1) / bx) * size_t((hh + by - 1) / by) * 16;
+        data.resize(size);
+        ok = fread(data.data(), 1, size, f) == size;
+    } else {
+        ok = false;
+    }
+    fclose(f);
+    if (!ok) {
+        vp_log("splash: unreadable splash.astc");
+        return;
+    }
+#define VP_GL(ret, name, ...) auto name = reinterpret_cast<ret (*)(__VA_ARGS__)>(vp_gl_get_proc(#name))
+    VP_GL(unsigned, glCreateShader, unsigned);
+    VP_GL(void, glShaderSource, unsigned, int, const char* const*, const int*);
+    VP_GL(void, glCompileShader, unsigned);
+    VP_GL(unsigned, glCreateProgram, void);
+    VP_GL(void, glAttachShader, unsigned, unsigned);
+    VP_GL(void, glLinkProgram, unsigned);
+    VP_GL(void, glUseProgram, unsigned);
+    VP_GL(void, glDeleteShader, unsigned);
+    VP_GL(void, glDeleteProgram, unsigned);
+    VP_GL(void, glGenTextures, int, unsigned*);
+    VP_GL(void, glBindTexture, unsigned, unsigned);
+    VP_GL(void, glTexParameteri, unsigned, unsigned, int);
+    VP_GL(void, glCompressedTexImage2D, unsigned, int, unsigned, int, int, int, int, const void*);
+    VP_GL(void, glDeleteTextures, int, const unsigned*);
+    VP_GL(void, glDrawArrays, unsigned, int, int);
+    VP_GL(void, glViewport, int, int, int, int);
+    VP_GL(unsigned, glGetError, void);
+#undef VP_GL
+    if (!glCreateShader || !glShaderSource || !glCompileShader || !glCreateProgram || !glAttachShader ||
+        !glLinkProgram || !glUseProgram || !glDeleteShader || !glDeleteProgram || !glGenTextures || !glBindTexture ||
+        !glTexParameteri || !glCompressedTexImage2D || !glDeleteTextures || !glDrawArrays || !glViewport || !glGetError)
+        return;
+    // One full-screen triangle; the splash and the canvas are both 16:9.
+    static const char* kVs =
+        "#version 300 es\n"
+        "out vec2 v_uv;\n"
+        "void main() {\n"
+        "  vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);\n"
+        "  v_uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);\n"
+        "  gl_Position = vec4(p, 0.0, 1.0);\n"
+        "}\n";
+    static const char* kFs =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "in vec2 v_uv;\n"
+        "uniform sampler2D u_tex;\n"
+        "out vec4 o;\n"
+        "void main() { o = vec4(texture(u_tex, v_uv).rgb, 1.0); }\n";
+    const unsigned vs = glCreateShader(0x8B31 /* GL_VERTEX_SHADER */);
+    const unsigned fs = glCreateShader(0x8B30 /* GL_FRAGMENT_SHADER */);
+    glShaderSource(vs, 1, &kVs, nullptr);
+    glShaderSource(fs, 1, &kFs, nullptr);
+    glCompileShader(vs);
+    glCompileShader(fs);
+    const unsigned prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    unsigned tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(0x0DE1 /* GL_TEXTURE_2D */, tex);
+    glTexParameteri(0x0DE1, 0x2801 /* MIN_FILTER */, 0x2601 /* LINEAR */);
+    glTexParameteri(0x0DE1, 0x2800 /* MAG_FILTER */, 0x2601);
+    glTexParameteri(0x0DE1, 0x2802 /* WRAP_S */, 0x812F /* CLAMP_TO_EDGE */);
+    glTexParameteri(0x0DE1, 0x2803 /* WRAP_T */, 0x812F);
+    glCompressedTexImage2D(0x0DE1, 0, fmt, w, hh, 0, int(data.size()), data.data());
+    glViewport(0, 0, width, height);
+    glUseProgram(prog);
+    glDrawArrays(0x0004 /* GL_TRIANGLES */, 0, 3);
+    const unsigned err = glGetError();
+    glUseProgram(0);
+    glBindTexture(0x0DE1, 0);
+    glDeleteTextures(1, &tex);
+    glDeleteProgram(prog);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    vp_log("splash: %dx%d ASTC %dx%d%s", w, hh, bx, by, err ? " (GL error)" : "");
+}
+
 extern "C" bool vp_gl_create_context(void) {
     auto& s = S();
     if (s.context) return true;
@@ -533,8 +638,9 @@ extern "C" bool vp_gl_create_context(void) {
         s.surface->prepareToDraw(Array<kg::RectI>{});
         s.drawing = true;
         vp_log("GL context ready: surface %dx%d, fbo %u", s.surface->getWidth(), s.surface->getHeight(), s.fbo);
-        // Present one black frame right away. Vega kills an app with no first frame about 20 s
-        // after launch (AppNotResponding), and some games load longer than that before drawing.
+        // Present a first frame right away: the package's loading splash, or black. Vega kills an
+        // app with no first frame about 20 s after launch (AppNotResponding), and some games load
+        // longer than that before drawing.
         using ClearColorFn = void (*)(float, float, float, float);
         using ClearFn = void (*)(unsigned);
         using BindFbFn = void (*)(unsigned, unsigned);
@@ -545,6 +651,7 @@ extern "C" bool vp_gl_create_context(void) {
             bindFb(0x8D40 /* GL_FRAMEBUFFER */, s.fbo);
             clearColor(0, 0, 0, 1);
             clear(0x4000 | 0x0100 | 0x0400 /* COLOR | DEPTH | STENCIL */);
+            drawSplash(s.surface->getWidth(), s.surface->getHeight());
             vp_gl_swap();
         }
         return true;
@@ -709,11 +816,100 @@ extern "C" void vp_video_quit(void) {
 // ------------------------------------------------------------------------------------------------
 // Audio
 // ------------------------------------------------------------------------------------------------
+// Audio focus follows Vega's audio focus guide: register the listener before requesting focus,
+// follow every change (ducked: quieter; paused, stopped, muted or released: silent), give focus up
+// in the background and ask for it again in the foreground. The stream keeps running through all of
+// it (writing silence when needed), so games that time themselves by their audio keep their clock.
+struct vp_audio;
+
+struct VpFocusListener : ApmfBase<VpFocusListener, kau::IFocusChangedListener> {
+    vp_audio* a = nullptr;
+    void onFocusGranted();
+    void onFocusDucked();
+    void onFocusPaused();
+    void onFocusStopped();
+    void onFocusReleased();
+    void onFocusMuted();
+};
+
 struct vp_audio {
+    Ptr<kau::IAudioFocus> focusModule;
     Ptr<kau::IAudioFocusSession> focus;
+    Ptr<kau::IAudioFocusAttributes> focusAttrs;
+    Ptr<VpFocusListener> focusListener;  // must outlive its subscription
+    Ptr<apmf::iface::com::amazon::apmf::ISubscription> focusSub;
     Ptr<kau::IAudioStreamPlayback> playback;
     bool paused = false;
+    std::mutex focusMu;                  // focus requests and releases
+    bool focusHeld = false;
+    std::atomic<int> focusEvents{0};     // focus callbacks so far
+    std::atomic<float> gainTarget{1.0f}; // 1 granted, kDuckGain ducked, 0 silent
+    float gain = 1.0f;                   // current gain (audio thread only)
+    std::vector<int16_t> scratch;        // gained copy of a buffer (audio thread only)
 };
+
+namespace {
+const float kDuckGain = 0.25f;
+std::mutex gAudioMu;
+std::vector<vp_audio*> gAudios;  // open streams, for the lifecycle
+
+void focusChanged(vp_audio* a, const char* what, float gain) {
+    if (!a) return;
+    a->focusEvents++;
+    a->gainTarget = gain;
+    vp_log("audio focus: %s", what);
+}
+
+// Ask for focus. A request that returns normally counts as granted unless a callback has already
+// said otherwise; a delayed or denied request stays silent until the granted callback arrives.
+void requestFocus(vp_audio* a, const char* why) {
+    std::lock_guard<std::mutex> lk(a->focusMu);
+    if (!a->focus || !a->focusAttrs || a->focusHeld) return;
+    const int before = a->focusEvents.load();
+    try {
+        a->focus->requestAudioFocus(a->focusAttrs);
+        a->focusHeld = true;
+        if (a->focusEvents.load() == before) a->gainTarget = 1.0f;
+        vp_log("audio focus: requested (%s)", why);
+    } catch (const std::exception& e) {
+        a->focusHeld = true;  // delayed: the system grants it later through the listener
+        if (a->focusEvents.load() == before) a->gainTarget = 0.0f;
+        vp_log("audio focus: request (%s) not granted yet: %s", why, e.what());
+    } catch (...) {
+        a->focusHeld = true;
+        if (a->focusEvents.load() == before) a->gainTarget = 0.0f;
+        vp_log("audio focus: request (%s) not granted yet", why);
+    }
+}
+
+void releaseFocus(vp_audio* a, const char* why) {
+    std::lock_guard<std::mutex> lk(a->focusMu);
+    a->gainTarget = 0.0f;
+    if (!a->focus || !a->focusHeld) return;
+    try {
+        a->focus->releaseAudioFocus();
+    } catch (...) {
+    }
+    a->focusHeld = false;
+    vp_log("audio focus: released (%s)", why);
+}
+}  // namespace
+
+void VpFocusListener::onFocusGranted() { focusChanged(a, "granted", 1.0f); }
+void VpFocusListener::onFocusDucked() { focusChanged(a, "ducked", kDuckGain); }
+void VpFocusListener::onFocusPaused() { focusChanged(a, "paused", 0.0f); }
+void VpFocusListener::onFocusStopped() { focusChanged(a, "stopped", 0.0f); }
+void VpFocusListener::onFocusReleased() { focusChanged(a, "released", 0.0f); }
+void VpFocusListener::onFocusMuted() { focusChanged(a, "muted", 0.0f); }
+
+// Called on the lifecycle thread.
+static void audioLifecycle(bool foreground) {
+    std::lock_guard<std::mutex> lk(gAudioMu);
+    for (vp_audio* a : gAudios) {
+        if (foreground) requestFocus(a, "foreground");
+        else releaseFocus(a, "background");
+    }
+}
 
 extern "C" vp_audio* vp_audio_open(int sample_rate, int channels, int* frames_per_buffer) {
     auto* a = new vp_audio();
@@ -722,11 +918,21 @@ extern "C" vp_audio* vp_audio_open(int sample_rate, int channels, int* frames_pe
         auto process = GetProcessObject();
         int32_t sessionId = -1;
         if (auto focus = process->getComponent("/com.amazon.kepler.audiofocus").TryQueryInterface<kau::IAudioFocus>()) {
+            a->focusModule = focus;
             a->focus = focus->makeAudioFocusSession();
             sessionId = a->focus->getSessionId();
             auto fab = focus->makeAudioFocusAttributesBuilder();
             fab->usage(idlConst<kau::AudioUsage>("MEDIA"));
-            a->focus->requestAudioFocus(fab->build());
+            a->focusAttrs = fab->build();
+            a->focusListener = Ptr<VpFocusListener>::Make();
+            a->focusListener->a = a;
+            try {
+                a->focusSub = a->focus->addFocusChangedListener(a->focusListener);
+            } catch (...) {
+                vp_log("audio focus: listener not registered");
+            }
+            if (S().foreground) requestFocus(a, "open");
+            else a->gainTarget = 0.0f;
         }
         step = "stream";
         auto stream = process->getComponent("/com.amazon.kepler.audiostream").TryQueryInterface<kau::IAudioStream>();
@@ -753,12 +959,18 @@ extern "C" vp_audio* vp_audio_open(int sample_rate, int channels, int* frames_pe
         if (frames_per_buffer) *frames_per_buffer = a->playback->getFramesPerBuffer();
         vp_log("audio: %d Hz x%d, %d frames x %d buffers, latency %d ms", sample_rate, channels,
                a->playback->getFramesPerBuffer(), a->playback->getBufferCount(), a->playback->getLatencyInMs());
+        {
+            std::lock_guard<std::mutex> lk(gAudioMu);
+            gAudios.push_back(a);
+        }
         return a;
     } catch (const std::exception& e) {
         vp_log("vp_audio_open failed at %s: %s", step, e.what());
     } catch (...) {
         vp_log("vp_audio_open failed at %s", step);
     }
+    if (a->focus) releaseFocus(a, "open failed");
+    a->focusSub = nullptr;
     delete a;
     return nullptr;
 }
@@ -766,6 +978,22 @@ extern "C" vp_audio* vp_audio_open(int sample_rate, int channels, int* frames_pe
 extern "C" int vp_audio_write(vp_audio* a, const void* data, int bytes) {
     if (!a || !a->playback) return -1;
     try {
+        // Focus gain, ramped across the buffer so changes don't click.
+        const float target = a->gainTarget.load();
+        if (target != 1.0f || a->gain != 1.0f) {
+            const size_t n = static_cast<size_t>(bytes) / sizeof(int16_t);
+            if (a->scratch.size() < n) a->scratch.resize(n);
+            const int16_t* in = static_cast<const int16_t*>(data);
+            const float step = n ? (target - a->gain) / static_cast<float>(n) : 0.0f;
+            float g = a->gain;
+            for (size_t i = 0; i < n; ++i) {
+                g += step;
+                a->scratch[i] = static_cast<int16_t>(static_cast<float>(in[i]) * g);
+            }
+            a->gain = target;
+            return a->playback->write(
+                ArrayView<const uint8_t>(reinterpret_cast<const uint8_t*>(a->scratch.data()), static_cast<size_t>(bytes)));
+        }
         return a->playback->write(ArrayView<const uint8_t>(static_cast<const uint8_t*>(data), static_cast<size_t>(bytes)));
     } catch (...) {
         return -1;
@@ -788,11 +1016,16 @@ extern "C" int vp_audio_latency_ms(vp_audio* a) {
 
 extern "C" void vp_audio_close(vp_audio* a) {
     if (!a) return;
+    {
+        std::lock_guard<std::mutex> lk(gAudioMu);
+        gAudios.erase(std::remove(gAudios.begin(), gAudios.end(), a), gAudios.end());
+    }
     try {
         if (a->playback) a->playback->stop();
-        if (a->focus) a->focus->releaseAudioFocus();
     } catch (...) {
     }
+    releaseFocus(a, "close");
+    a->focusSub = nullptr;
     delete a;
 }
 

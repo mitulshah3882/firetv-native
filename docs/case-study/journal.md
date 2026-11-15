@@ -367,3 +367,73 @@ A subagent ported SuperTuxKart 1.5, the open-source 3D kart racer, on the SDL2 p
 **The remote.** A TV remote's D-pad can't hold Up while steering, so a remote player accelerates from "Go!" and brakes with Down. OK fires, Back pauses, Rewind calls the rescue bird, Play/Pause is nitro, fast-forward skids, Menu looks back. The in-game hints say "OK" and "Play/Pause" instead of keyboard names. A "Player" profile is created on first run, since there is no keyboard to type a name.
 
 **Checked again in the main session** before committing: menu, kart and track select, and a race on Hacienda (47–48 fps with the kart against a fence, 117 MB resident), plus the arcade's background-and-resume path, since the lifecycle events moved threads.
+
+## 2026-11-15: SuperTuxKart, measured and tuned
+
+**Tools first.**
+- `apps/supertuxkart/tools/bench-tracks.sh` races every track with AI karts in STK's profile mode and reports, per track:
+  - frame rate (mean and lowest 10 s)
+  - worst frame
+  - the game thread's busy share
+  - the 3D view's final scale
+  - load time and the stick's memory
+- A launch-link option passes STK command-line flags (`?args=--track=...,--profile-time=40`); `tune=` switches individual optimisations on and off for A/B runs.
+- vegaplat's frame log now splits each swap into endDraw / present / prepare, and reports the rendering thread's CPU share.
+- simpleperf (shipped in the SDK) runs in the app's component shell; symbols are resolved on the Mac.
+
+**Measuring on a 1 GB stick is noisy.** The same build on the same track varied by ±3 fps from run to run (memory pressure and swap). Only interleaved A/B runs (A, B, A, B) gave usable answers.
+
+A few traps on the way:
+- The scripts leaked `vega device start-log-stream` processes, on the Mac and as `loggingctl` readers on the stick; the script now stops the whole process tree.
+- GPU timer queries split the Mali tiler's render passes: measuring halved the frame rate, so they're no use here.
+- presentBuffer()'s wait was a misleading GPU signal: GPU work is pipelined, and frames can be GPU-bound while present returns in 1–2 ms. The game thread's CPU share per frame is reliable: near 100% means CPU-bound; well below while under 60 fps means it waits on the GPU.
+
+**What limits the frame rate.** It depends on the track:
+- Light tracks are limited by pixels: the 3D view's resolution decides between 60 and 48 fps on Hacienda (0.667 vs 0.75 of 1080p).
+- Scenery-heavy tracks (Cocoa Temple, Black Forest) are limited by the CPU: the game thread is busy over 90% of each frame at any resolution.
+
+The CPU runs at its maximum 1.7 GHz on all cores.
+
+**What the profile showed on Cocoa Temple:** 75% STK's own code, 10% Mesa, 7% kernel.
+- A quarter of it was STK calling update() on every track object at every physics tick (120 Hz). Static scenery does nothing there, yet thousands of plants and pillars were visited 2–4 times per frame. Only active objects are visited now: about +15% on Cocoa Temple.
+- STK's GLES path orphans every instance buffer every frame, so Mesa allocates, maps and faults in a new GPU buffer each time. A ring of three buffers per mesh, written in place, with a fence per slot, gave about +10% on Cornfield.
+  - Mesa turns a whole-range INVALIDATE_RANGE into an orphan too, so the ring maps unsynchronized only.
+- The per-frame scene walk tried three dynamic_casts on every plain node; a type check now skips them.
+
+**Tried and dropped:**
+- ThinLTO: no measurable gain on Cocoa (32.2 vs 33.1 fps), and builds 3× longer.
+- Raising the 3D view to 0.75: too much for this GPU.
+
+**Dynamic resolution.**
+- The 3D view starts at 0.667 of 1080p.
+- It steps down while the game thread waits on the GPU below 56 fps, and back up after 6 s at a steady 60.
+- A step that doesn't help is undone and becomes the track's floor.
+- Each track remembers its scale.
+
+**Finished features:**
+- Online add-ons and news load over HTTPS (curl + mbedTLS with STK's own CA bundle; no manifest privilege needed).
+- Global online play needs an STK account; LAN play doesn't. STK's on-screen keyboard is now on by default, so text fields work with a remote.
+- STK's Quit button returns 0 from main, and the app exits cleanly to the home screen.
+
+**Where it ended**, measured after hours of continuous load: 11 of 21 tracks at 57–60 fps, Mines, Zen Garden and Lighthouse at 51–55, the rest at 22–47.
+- The busy tracks are bound by a 1.7 GHz in-order CPU running one game thread; going further means structural work (threading STK's update, cutting draw calls).
+- The first survey, on a cooler stick earlier in the night, was a few fps higher across the board. Sustained play is what owners get, so the later numbers are the honest ones.
+
+## 2026-11-15: N64brew Game Jam 2024, two minigames recompiled
+
+A subagent built the jam's harness for our recompiler, working on the Mac only while the stick ran benchmarks:
+- The harness loads minigames as DSOs with `dlopen`. Each minigame is now one `ld -r` object with only its entry points global, and `--wrap=dlopen/dlsym` answers from a table.
+- A small `jam_boot.c` replaces the jam's tiny3d menus: it boots straight into a minigame and shows a 2D results screen between rounds.
+
+Two traps:
+- **GP-relative relocations come out 0x7ff0 off** when symbols become local after `ld -r`. Mallard's globals landed in the heap; the fix is to compile minigames with `-G 0`, as the jam builds its DSOs.
+- **A statically linked minigame keeps its globals between rounds,** where a freshly loaded DSO would not: Mallard's "finished" flag ended round two at once. A linker script now gathers each minigame's data, and the boot code restores it on every load.
+
+The HLE grew a model of the RDP's state (combiner, blender, mode stack, scissor, tiles), with only the leaves of rdpq on the host. The command-building code stays recompiled.
+
+**Results:**
+- Land Grab plays on the TV against three AI rivals and launches from the arcade: D-pad cursor, OK to place. Its in-game hints still name N64 buttons.
+- Mallard runs on the Mac but isn't shipped: its music and art have no documented licence.
+- Brew Volley was rechecked on the TV after the HLE rework.
+
+**One slip, recorded honestly.** The subagent's first look at the jam repo used `git ls-tree --long` in a blobless clone. That silently fetched about 258 file blobs, including Hydra Harmonics' commercial font. They went into a temporary git store, were never checked out, and were deleted within minutes. The fetch now uses a pinned sparse checkout of only the needed paths, with a warning in `tools/fetch-deps.sh`.

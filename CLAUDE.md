@@ -60,7 +60,9 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 - **Log stream:** `vega device start-log-stream` shows only new lines, with no history. Start it in the background **before** the action, and run only one at a time (a second stream fails with `status -1`).
 - **Key latency:** each `tools/vega.sh key` call is one `run-cmd`, about 1–1.5 s. For double presses (Back ×2), pass both keys in one call.
 - **Memory:** several of our apps resident at once (arcade 48 MB + Quake 70 MB + another) pushed the stick to memory-extreme. The system trims background apps.
-- Device facts (4K Select, product "calypso", OS 2.0 Ship/532): armv7l, **Mesa 24.3.1 OpenGL ES 3.1** (GLSL ES 3.10), 126 extensions, max texture 8192, surface 1920×1080, 60 Hz. The probe runs at a steady 59.7 fps. MemTotal is about 975 MB and MemAvailable is about 570 MB when idle.
+- **Which stick is attached:** on 2026-11-15 the user said the attached stick is the **HD (2026)** (product "calypso", OS 2.0 Ship/536, serial GT542A0454970JPD). Earlier notes called it the 4K Select; treat that as unconfirmed. It outputs 1920×1080, and its 4 Cortex-A55 cores run at up to 1.696 GHz.
+- **4K sticks:** Vega gives apps a 1920×1080 "canvas" (`ICanvasConfig`) and scales it to the display, 4K included. Size windows from the canvas (`vp_video_init` → `canvas_width/height`), never from the display mode.
+- Device facts (product "calypso", OS 2.0 Ship/532): armv7l, **Mesa 24.3.1 OpenGL ES 3.1** (GLSL ES 3.10), 126 extensions, max texture 8192, surface 1920×1080, 60 Hz. The probe runs at a steady 59.7 fps. MemTotal is about 975 MB and MemAvailable is about 570 MB when idle.
 - The resource manager kills apps under memory pressure. If an app dies right after launch, check the logs for `memory-critical: request to terminate pid`.
 
 ## SDL3 on Vega (engine/)
@@ -91,9 +93,12 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 - **AppNotResponding about 20 s after launch** means no first frame. vegaplat presents a black frame at GL init, so long loads are fine now.
 - **This toolchain's libc++ lacks C++20 `std::format`.** Pin libraries that are still C++17 (OpenAL Soft 1.24.3).
 - **Launcher icons must be exactly 512×512 PNG (< 1 MB).** `tools/make-icons.sh` generates them; game icons come from the arcade card art.
+- **Profiling native apps (CPU):** push the SDK's target simpleperf (strip it first with the toolchain's `llvm-strip`: 55 MB → 7 MB) with `vda push <file> /tmp/scratch/<pkg-id>`. Run it with `vda shell -t component-id <pkg-id>.main "cd /scratch && ./simpleperf record -e cpu-clock -f 2000 -p 2 --duration 20"`; the app is pid 2 in its namespace. Then `vda pull` perf.data. Report with the SDK's host simpleperf. Our `.so` shows as `[+offset]`: symbolize with `llvm-nm` on `build/<arch>-release/lib/*.so.debug`, at address = offset + the text segment's page-aligned vaddr. `vda` is in `$SDK/bin/tools/`.
+- **Log streams leak:** `vega device start-log-stream` is a wrapper script over python and node, so `kill $!` leaves the stream (and a `loggingctl` reader on the stick) running, and the next stream fails. Kill the whole process tree (see `apps/supertuxkart/tools/bench-tracks.sh`).
+- **STK benchmarks:** `apps/supertuxkart/tools/bench-tracks.sh [-t tune] [tracks]`. Interleave A/B runs: noise is ±3 fps. Every STK build adds a 161 MB debug file to `build/debug/.build-id`; delete the old ones.
 - **3D ports (see `apps/supertuxkart`):**
   - `glBindFramebuffer(0)` from `vp_gl_get_proc` binds the window surface's FBO, so desktop-style code works.
-  - `VP_FPS_LOG=10` logs fps, worst frame, swap time and RSS to the device log.
+  - `VP_FPS_LOG=10` logs fps, worst frame, the rendering thread's busy share, swap time (endDraw/present/prepare) and RSS to the device log. Busy near 100% means CPU-bound; well below while under 60 fps means it waits on the GPU. `vp_gl_thread_busy()` gives the same signal to apps.
   - Big data: trim it on the Mac (ASTC 6×6 textures; the Mali-G310 reads them natively). A package over about 250 MB is too much for the stick.
   - Save state in SDL's `WILL_ENTER_BACKGROUND` watcher (sent from the lifecycle thread); the game thread may already be blocked in present.
   - AngelScript on armhf needs `AS_MAX_PORTABILITY`.
@@ -106,7 +111,8 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
   - `tools/n64-recomp.sh n64/recomp/<name>.toml`
   - then `n64/host-run.sh <name> [--shot N]` on the Mac
   - then `tools/vega.sh build|install apps/n64-<name>`
-  - New hardware-facing libdragon calls go in `n64/runtime/src/hle_libdragon.c`; matching `stub` rules go in `n64/recomp/libdragon.hle`.
+  - New hardware-facing libdragon calls go in `n64/runtime/src/hle_libdragon.c` (rdpq leaves and RDP state: `hle_rdpq.c`); matching `stub` rules go in `n64/recomp/libdragon.hle`.
+  - N64brew Jam 2024 minigames: `tools/fetch-deps.sh n64jam2024` (sparse checkout; never run blob-hungry git commands in it), `tools/n64-jam24.sh landgrab [mallard]`, then recomp `n64/recomp/jam_<name>.toml`. Debug input: `N64_PAD_SCRIPT`, `N64_SHOTS=<dir>,<every>`; remote mapping: `N64_REMOTE_MAP`.
 - **Debug recompiled code on the Mac first:**
   - backtraces show recompiled function names
   - `N64_WATCH=<hex addr>` dumps memory every 5 frames (get addresses from `mips64-elf-nm`)

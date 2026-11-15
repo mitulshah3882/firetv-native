@@ -42,8 +42,9 @@ Each game also runs on its own (`tools/vega.sh run apps/doom com.firetvnative.do
 | `apps/supertux` | SuperTux 0.7 (GPL-3.0): SDL2 game code on sdl2-compat over our SDL3 backend, all dependencies built from source |
 | `apps/supertuxkart` | SuperTuxKart 1.5 (GPL-3.0): the 3D kart racer on OpenGL ES 3, its data trimmed for the stick (ASTC textures) |
 | `engine/sdl2-compat-vega`, `engine/thirdparty` | SDL2 API on our static SDL3 (renamed symbols), and pinned third-party libraries built per app |
+| `n64/jam24/` | Static-link harness for N64brew Game Jam 2024 minigames (`tools/n64-jam24.sh`) |
 | `n64/` | N64 static recompilation: N64Recomp configs and HLE rules (`recomp/`), the n64rt runtime and libdragon HLE (`runtime/`), host runner ([n64/README.md](n64/README.md)) |
-| `apps/n64-*` | Recompiled N64 programs packaged for Vega (helloworld, Brew Volley) |
+| `apps/n64-*` | Recompiled N64 programs packaged for Vega (helloworld, Brew Volley, Land Grab from the N64brew Game Jam 2024) |
 | `apps/vega-probe` | pure-C++ Vega capability probe |
 | `tools/` | `vega.sh` (build, install, launch, key injection, screenshot, logs), `fetch-deps.sh` |
 | `docs/` | [porting guide](docs/PORTING.md), case study, journal, status, decisions |

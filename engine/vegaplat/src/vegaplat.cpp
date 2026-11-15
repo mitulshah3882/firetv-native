@@ -580,6 +580,26 @@ static int fpsLogInterval() {
     return interval;
 }
 
+// Smoothed CPU share of the rendering thread between swaps, see vp_gl_thread_busy().
+static std::atomic<float> gThreadBusy{1.0f};
+extern "C" float vp_gl_thread_busy(void) { return gThreadBusy.load(); }
+static void noteThreadBusy() {
+    static uint64_t lastWall = 0, lastCpu = 0;
+    struct timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    const uint64_t cpu = uint64_t(ts.tv_sec) * 1000000000ull + uint64_t(ts.tv_nsec);
+    const uint64_t wall = nowNs();
+    if (lastWall && wall > lastWall && wall - lastWall < 1000000000ull) {
+        const float busy = std::min(1.0f, float(cpu - lastCpu) / float(wall - lastWall));
+        gThreadBusy.store(0.9f * gThreadBusy.load() + 0.1f * busy);
+    }
+    lastWall = wall;
+    lastCpu = cpu;
+}
+
+// Time spent in each stage of vp_gl_swap during the current interval (VP_FPS_LOG only).
+static uint64_t gEndDrawNs = 0, gPresentNs = 0, gPrepareNs = 0;
+
 static void logFrameRate(uint64_t swapNs) {
     const int interval = fpsLogInterval();
     if (interval <= 0) return;
@@ -590,22 +610,37 @@ static void logFrameRate(uint64_t swapNs) {
         start = last = now;
         frames = 0;
         worst = swapTotal = 0;
+        gEndDrawNs = gPresentNs = gPrepareNs = 0;
         return;
     }
     worst = std::max<uint64_t>(worst, now - last);
     swapTotal += swapNs;
     last = now;
     if (++frames && now - start >= static_cast<uint64_t>(interval) * 1000000000ull) {
-        long pages = 0, resident = 0;
-        if (FILE* f = fopen("/proc/self/statm", "r")) {
-            if (fscanf(f, "%ld %ld", &pages, &resident) != 2) resident = 0;
-            fclose(f);
-        }
-        vp_log("fps %.1f, worst %.1f ms, swap %.1f ms, rss %ld MB", frames * 1e9 / double(now - start),
-               worst / 1e6, swapTotal / 1e6 / frames, resident * (sysconf(_SC_PAGESIZE) / 1024) / 1024);
+        // Resident memory in MB (the app sandbox can't read /proc/meminfo; GPU buffers don't show
+        // here: watch `free -m`'s "shared" column from the dev shell for those).
+        auto kb = [](const char* path, const char* key) -> long {
+            long value = 0;
+            if (FILE* f = fopen(path, "r")) {
+                char line[128];
+                const size_t n = strlen(key);
+                while (fgets(line, sizeof line, f))
+                    if (strncmp(line, key, n) == 0) { value = atol(line + n); break; }
+                fclose(f);
+            }
+            return value / 1024;
+        };
+        vp_log("fps %.1f, worst %.1f ms, busy %.0f%%, swap %.1f ms (endDraw %.1f, present %.1f, "
+               "prepare %.1f), rss %ld MB (anon %ld, file %ld)",
+               frames * 1e9 / double(now - start), worst / 1e6, 100.0f * gThreadBusy.load(),
+               swapTotal / 1e6 / frames,
+               gEndDrawNs / 1e6 / frames, gPresentNs / 1e6 / frames, gPrepareNs / 1e6 / frames,
+               kb("/proc/self/status", "VmRSS:"), kb("/proc/self/status", "RssAnon:"),
+               kb("/proc/self/status", "RssFile:"));
         start = now;
         frames = 0;
         worst = swapTotal = 0;
+        gEndDrawNs = gPresentNs = gPrepareNs = 0;
     }
 }
 
@@ -616,7 +651,14 @@ extern "C" bool vp_gl_swap(void) {
     try {
         if (s.drawing) {
             s.surface->endDraw();
+            noteThreadBusy();
+            const uint64_t t1 = swapStart ? nowNs() : 0;
             s.surface->presentBuffer(Array<kg::RectI>{}, 0, false);
+            if (swapStart) {
+                const uint64_t t2 = nowNs();
+                gEndDrawNs += t1 - swapStart;
+                gPresentNs += t2 - t1;
+            }
             s.drawing = false;
         }
         // While backgrounded, don't render: park the game thread until we're visible again (or quit).
@@ -624,9 +666,14 @@ extern "C" bool vp_gl_swap(void) {
             std::unique_lock<std::mutex> lock(s.mu);
             s.cv.wait(lock, [] { return S().foreground.load() || S().quit.load(); });
         }
+        const uint64_t t3 = swapStart ? nowNs() : 0;
         s.surface->prepareToDraw(Array<kg::RectI>{});
         s.drawing = true;
-        if (swapStart) logFrameRate(nowNs() - swapStart);
+        if (swapStart) {
+            const uint64_t t4 = nowNs();
+            gPrepareNs += t4 - t3;
+            logFrameRate(t4 - swapStart);
+        }
         return true;
     } catch (const std::exception& e) {
         vp_log("vp_gl_swap failed: %s", e.what());

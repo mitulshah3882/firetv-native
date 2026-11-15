@@ -85,12 +85,23 @@ _sdl3vega_patch("${STK_SRC}/src/main.cpp"
 # per-pixel work; most tracks are bound by draw calls and geometry rather than pixels.
 _sdl3vega_patch("${STK_SRC}/src/graphics/shader_based_renderer.cpp"
   "    RTT* rtts = new RTT(width, height, CVS->isDeferredEnabled() ?"
-  "#ifdef VEGA_PORT /* vega-port: forward render scale */\n    if (!CVS->isDeferredEnabled() && UserConfigParams::m_scale_rtts_factor < 1.0f)\n    {\n        setRTT(new RTT(width, height, UserConfigParams::m_scale_rtts_factor, false));\n        return;\n    }\n#endif\n"
+  "#ifdef VEGA_PORT /* vega-port: forward render scale */\n    if (!CVS->isDeferredEnabled() && UserConfigParams::m_scale_rtts_factor < 1.0f)\n    {\n        setRTT(new RTT(width, height, vega_stk_dynres_initial(Track::getCurrentTrack() ? Track::getCurrentTrack()->getIdent() : std::string()), false));\n        return;\n    }\n#endif\n"
   "VEGA_PORT /* vega-port: forward render scale */")
 _sdl3vega_patch("${STK_SRC}/src/graphics/shader_based_renderer.cpp"
   "            renderScene(camnode, dt, track->hasShadows(), false); \n"
   "#ifdef VEGA_PORT /* vega-port: forward render scale, upscale */\n            const core::recti& vp = camera->getViewport();\n            const int screen_h = (int)irr_driver->getActualScreenSize().Height;\n            if ((int)m_rtts->getWidth() < vp.getWidth())\n            {\n                renderScene(camnode, dt, track->hasShadows(), true);\n                m_rtts->getFBO(FBO_COLORS).bind();  // read (and draw) framebuffer\n                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, irr_driver->getDefaultFramebuffer());\n                glBlitFramebuffer(0, 0, (int)m_rtts->getWidth(), (int)m_rtts->getHeight(),\n                    vp.UpperLeftCorner.X, screen_h - vp.LowerRightCorner.Y,\n                    vp.LowerRightCorner.X, screen_h - vp.UpperLeftCorner.Y,\n                    GL_COLOR_BUFFER_BIT, GL_LINEAR);\n                glBindFramebuffer(GL_FRAMEBUFFER, irr_driver->getDefaultFramebuffer());\n                glViewport(0, 0, (int)irr_driver->getActualScreenSize().Width, screen_h);\n                glDisable(GL_DEPTH_TEST);\n                glDepthMask(GL_FALSE);\n            }\n            else\n#endif\n"
   "VEGA_PORT /* vega-port: forward render scale, upscale */")
+
+# Dynamic resolution (src/vega_stk.cpp): each frame may pick a new scale for the 3D view; the
+# offscreen target is then recreated at that size before the cameras draw.
+_sdl3vega_patch("${STK_SRC}/src/graphics/shader_based_renderer.cpp"
+  "    assert(Camera::getNumCameras() < MAX_PLAYER_COUNT + 1);\n    for(unsigned int cam = 0;"
+  "#ifdef VEGA_PORT /* vega-port: dynamic resolution */\n    if (!CVS->isDeferredEnabled() && m_rtts && !is_loading)\n    {\n        const float scale = vega_stk_dynres_frame(world->isRacePhase() &&\n            world->getPhase() != WorldStatus::IN_GAME_MENU_PHASE &&\n            !GUIEngine::ModalDialog::isADialogActive());\n        if (scale > 0.0f)\n        {\n            const core::recti& vp = Camera::getCamera(0)->getViewport();\n            delete m_rtts;\n            setRTT(new RTT(vp.getWidth(), vp.getHeight(), scale, false));\n        }\n    }\n#endif\n"
+  "VEGA_PORT /* vega-port: dynamic resolution */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/shader_based_renderer.cpp"
+  "#include \"graphics/shader_based_renderer.hpp\""
+  "#ifdef VEGA_PORT /* vega-port: dynamic resolution decl */\n#include <string>\nfloat vega_stk_dynres_initial(const std::string& track);\nfloat vega_stk_dynres_frame(bool measuring);\n#include \"guiengine/modaldialog.hpp\"\n#endif\n"
+  "VEGA_PORT /* vega-port: dynamic resolution decl */")
 
 # ASTC textures precompressed by make-assets.sh ("<image>.astc", see src/vega_stk.cpp): a ninth
 # of the GPU memory of STK's uncompressed RGBA8, and no image decoding while loading.
@@ -114,6 +125,85 @@ _sdl3vega_patch("${STK_SRC}/src/graphics/draw_calls.cpp"
   "#include \"graphics/draw_calls.hpp\""
   "#include \"graphics/central_settings.hpp\" // vega-port: CVS\n"
   "vega-port: CVS")
+
+# Instance data without orphaning: STK's GLES path re-allocates ("orphans") every instance buffer
+# every frame (glMapBufferRange with INVALIDATE_BUFFER), and Mesa answers each with a new GPU
+# buffer: allocation, mapping and page faults in the kernel, a large share of the CPU per frame on
+# busy tracks. Each mesh buffer instead keeps three buffers (and VAOs) per draw-call type, used in
+# turn and written in place; a fence per slot guards reuse (src/vega_stk.cpp). Split-screen keeps
+# STK's own path.
+_sdl3vega_patch("${STK_SRC}/src/graphics/sp/sp_mesh_buffer.hpp"
+  "    GLuint m_ins_array[DCT_FOR_VAO];"
+  "#ifdef VEGA_PORT /* vega-port: instance ring members */\n    // Per draw-call type, three instance buffers with their VAOs, used in turn (see vega_stk.cpp)\n    GLuint m_vega_ring_vao[3][DCT_FOR_VAO] = {};\n    GLuint m_vega_ring_ins[3][DCT_FOR_VAO] = {};\n    unsigned m_vega_ring_size[3][DCT_FOR_VAO] = {};\n    GLuint m_vega_ring_cur[DCT_FOR_VAO] = {};  // VAO to draw this frame, 0: m_vao\n#endif\n"
+  "VEGA_PORT /* vega-port: instance ring members */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/sp/sp_mesh_buffer.hpp"
+  "        glBindVertexArray(m_vao[dct]);\n        if (material_id == -1)"
+  "#ifdef VEGA_PORT /* vega-port: instance ring draw */\n        if (m_vega_ring_cur[dct] != 0)\n            glBindVertexArray(m_vega_ring_cur[dct]);\n        else\n#endif\n"
+  "VEGA_PORT /* vega-port: instance ring draw */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/sp/sp_mesh_buffer.cpp"
+  "    if (m_ibo != 0)\n    {\n        glDeleteBuffers(1, &m_ibo);\n    }\n    if (m_vbo != 0)\n    {\n        glDeleteBuffers(1, &m_vbo);\n    }\n#endif\n}   // ~SPMeshBuffer"
+  "#ifdef VEGA_PORT /* vega-port: instance ring cleanup */\n    for (unsigned r = 0; r < 3; r++)\n    {\n        for (unsigned i = 0; i < DCT_FOR_VAO; i++)\n        {\n            if (m_vega_ring_vao[r][i] != 0)\n                glDeleteVertexArrays(1, &m_vega_ring_vao[r][i]);\n            if (m_vega_ring_ins[r][i] != 0)\n                glDeleteBuffers(1, &m_vega_ring_ins[r][i]);\n        }\n    }\n#endif\n"
+  "VEGA_PORT /* vega-port: instance ring cleanup */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/sp/sp_mesh_buffer.cpp"
+  "        unsigned new_size =\n            m_gl_instance_size[i] == 0 ? 1 : m_gl_instance_size[i];"
+  "#ifdef VEGA_PORT /* vega-port: instance ring upload */\n        const int r = vega_stk_ring_slot();\n        if (r >= 0 && !CVS->isARBBufferStorageUsable())\n        {\n            // This slot's buffer was last drawn from three frames ago: write it in place, with no\n            // invalidate flag (Mesa turns one covering the whole buffer into an orphan: a new GPU\n            // buffer, its mapping and page faults).\n            unsigned size = m_vega_ring_size[r][i] == 0 ? 1 : m_vega_ring_size[r][i];\n            while (m_ins_dat[i].size() > size)\n                size <<= 1;\n            if (size != m_vega_ring_size[r][i])\n            {\n                // recreateVAO() builds m_vao[i] and m_ins_array[i]: let it build this slot's.\n                std::swap(m_vao[i], m_vega_ring_vao[r][i]);\n                std::swap(m_ins_array[i], m_vega_ring_ins[r][i]);\n                std::swap(m_gl_instance_size[i], m_vega_ring_size[r][i]);\n                m_gl_instance_size[i] = size;\n                recreateVAO(i);\n                std::swap(m_vao[i], m_vega_ring_vao[r][i]);\n                std::swap(m_ins_array[i], m_vega_ring_ins[r][i]);\n                std::swap(m_gl_instance_size[i], m_vega_ring_size[r][i]);\n            }\n            glBindBuffer(GL_ARRAY_BUFFER, m_vega_ring_ins[r][i]);\n            void* ptr = glMapBufferRange(GL_ARRAY_BUFFER, 0, m_ins_dat[i].size() * 44,\n                GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);\n            if (ptr)\n                memcpy(ptr, m_ins_dat[i].data(), m_ins_dat[i].size() * 44);\n            glUnmapBuffer(GL_ARRAY_BUFFER);\n            glBindBuffer(GL_ARRAY_BUFFER, 0);\n            m_vega_ring_cur[i] = m_vega_ring_vao[r][i];\n            continue;\n        }\n        m_vega_ring_cur[i] = 0;\n#endif\n"
+  "VEGA_PORT /* vega-port: instance ring upload */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/sp/sp_mesh_buffer.cpp"
+  "namespace SP\n{"
+  "#ifdef VEGA_PORT /* vega-port: instance ring decl */\nint vega_stk_ring_slot();\n#endif\n"
+  "VEGA_PORT /* vega-port: instance ring decl */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/sp/sp_base.cpp"
+  "    uploadSkinningMatrices();\n    glBindBuffer(GL_UNIFORM_BUFFER,"
+  "#ifdef VEGA_PORT /* vega-port: instance ring advance */\n    ::vega_stk_ring_advance();\n#endif\n"
+  "VEGA_PORT /* vega-port: instance ring advance */")
+_sdl3vega_patch("${STK_SRC}/src/graphics/sp/sp_base.cpp"
+  "namespace SP\n{"
+  "#ifdef VEGA_PORT /* vega-port: instance ring decl */\nvoid vega_stk_ring_advance();\n#endif\n"
+  "VEGA_PORT /* vega-port: instance ring decl */")
+
+# Track objects: STK calls update() on every object at every physics tick (120 Hz) and
+# updateGraphics() every frame, but only a few kinds do anything there (library nodes' start/reset
+# scripts, sounds, billboards, particles, animated and physics-driven objects). On scenery-heavy
+# tracks the empty calls cost a fifth of the frame. Only the active objects are visited.
+_sdl3vega_patch("${STK_SRC}/src/tracks/track_object_manager.hpp"
+  "    /** A second list which holds all objects that karts can drive on. */"
+  "#ifdef VEGA_PORT /* vega-port: active object lists */\n    // The objects whose per-tick update() and per-frame updateGraphics() do something (see\n    // src/vega_stk.cpp); static scenery is skipped. Rebuilt after objects are added, removed or\n    // reset.\n    std::vector<TrackObject*> m_vega_tick, m_vega_frame;\n    bool m_vega_dirty = true;\n    void vegaRefreshActive()\n    {\n        if (!m_vega_dirty)\n            return;\n        m_vega_dirty = false;\n        m_vega_tick.clear();\n        m_vega_frame.clear();\n        for (TrackObject* o : m_all_objects)\n        {\n            if (vega_stk_object_ticks(o))\n                m_vega_tick.push_back(o);\n            if (vega_stk_object_draws(o))\n                m_vega_frame.push_back(o);\n        }\n    }\n#endif\n"
+  "VEGA_PORT /* vega-port: active object lists */")
+_sdl3vega_patch("${STK_SRC}/src/tracks/track_object_manager.hpp"
+  "/**\n  * \\ingroup tracks\n  */\nclass TrackObjectManager\n{"
+  "#ifdef VEGA_PORT /* vega-port: active object decl */\nbool vega_stk_object_ticks(TrackObject* object);\nbool vega_stk_object_draws(TrackObject* object);\n#endif\n"
+  "VEGA_PORT /* vega-port: active object decl */")
+_sdl3vega_patch("${STK_SRC}/src/tracks/track_object_manager.cpp"
+  "    TrackObject* curr;\n    for_in (curr, m_all_objects)\n    {\n        curr->update(dt);"
+  "#ifdef VEGA_PORT /* vega-port: active objects, tick */\n    vegaRefreshActive();\n    for (TrackObject* o : m_vega_tick)\n        o->update(dt);\n    return;\n#endif\n"
+  "VEGA_PORT /* vega-port: active objects, tick */")
+_sdl3vega_patch("${STK_SRC}/src/tracks/track_object_manager.cpp"
+  "    TrackObject* curr;\n    for_in(curr, m_all_objects)\n    {\n        curr->updateGraphics(dt);"
+  "#ifdef VEGA_PORT /* vega-port: active objects, frame */\n    vegaRefreshActive();\n    for (TrackObject* o : m_vega_frame)\n        o->updateGraphics(dt);\n    return;\n#endif\n"
+  "VEGA_PORT /* vega-port: active objects, frame */")
+_sdl3vega_patch("${STK_SRC}/src/tracks/track_object_manager.cpp"
+  "        m_all_objects.push_back(obj);"
+  "#ifdef VEGA_PORT /* vega-port: dirty add */\n        m_vega_dirty = true;\n#endif\n"
+  "VEGA_PORT /* vega-port: dirty add */")
+_sdl3vega_patch("${STK_SRC}/src/tracks/track_object_manager.cpp"
+  "    m_all_objects.push_back(object);"
+  "#ifdef VEGA_PORT /* vega-port: dirty insert */\n    m_vega_dirty = true;\n#endif\n"
+  "VEGA_PORT /* vega-port: dirty insert */")
+_sdl3vega_patch("${STK_SRC}/src/tracks/track_object_manager.cpp"
+  "    m_all_objects.remove(obj);"
+  "#ifdef VEGA_PORT /* vega-port: dirty remove */\n    m_vega_dirty = true;\n#endif\n"
+  "VEGA_PORT /* vega-port: dirty remove */")
+_sdl3vega_patch("${STK_SRC}/src/tracks/track_object_manager.cpp"
+  "    for (TrackObject* curr : m_all_objects)\n    {\n        curr->reset();"
+  "#ifdef VEGA_PORT /* vega-port: dirty reset */\n    m_vega_dirty = true;\n#endif\n"
+  "VEGA_PORT /* vega-port: dirty reset */")
+
+# The per-frame scene walk tries three dynamic_casts (particles, billboards, text billboards) on
+# every node that isn't a mesh or LOD node; a type check skips them for plain nodes.
+_sdl3vega_patch("${STK_SRC}/src/graphics/draw_calls.cpp"
+  "        else if (STKParticle *node = dynamic_cast<STKParticle*>(List[i]))"
+  "#ifdef VEGA_PORT /* vega-port: no casts for plain nodes */\n        else if (List[i]->getType() != ESNT_PARTICLE_SYSTEM &&\n                 List[i]->getType() != ESNT_BILLBOARD &&\n                 List[i]->getType() != ESNT_TEXT &&\n                 List[i]->getType() != ESNT_UNKNOWN)\n        {\n            // Meshes, empties, lights, cameras...: none of the three types tested below.\n            parseSceneManager(List[i]->getChildren(), cam);\n            continue;\n        }\n#endif\n"
+  "VEGA_PORT /* vega-port: no casts for plain nodes */")
 
 # Like STK's Android TV build: no "play the tutorial?" prompt (it is in the main menu's Help).
 _sdl3vega_patch("${STK_SRC}/src/states_screens/main_menu_screen.cpp"
@@ -159,6 +249,7 @@ target_compile_definitions(angelscript PRIVATE AS_MAX_PORTABILITY)
 target_include_directories(supertuxkart AFTER PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/compat")
 target_include_directories(stkirrlicht AFTER PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/compat")
 target_sources(supertuxkart PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/vega_stk.cpp")
+target_include_directories(supertuxkart PRIVATE "${VEGAPLAT_DIR}/include")  # vega_stk.cpp: canvas size
 # Libraries STK only finds through pkg-config on Linux (none in this sysroot).
 target_link_libraries(supertuxkart vorbisfile vorbis ogg freetype)
 

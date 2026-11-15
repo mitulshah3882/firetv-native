@@ -51,7 +51,11 @@ void *vp_gl_get_proc(const char *name);     /* core symbol or extension entry po
 bool vp_gl_create_context(void);            /* GPU device, context and window surface */
 bool vp_gl_make_current(bool current);
 unsigned vp_gl_framebuffer(void);           /* FBO backing the window surface (often 0) */
-bool vp_gl_swap(void);                      /* present; blocks while the app is backgrounded */
+bool vp_gl_swap(void);
+float vp_gl_thread_busy(void);              /* smoothed share (0..1) of the time between swaps that
+                                               the rendering thread spent running on the CPU: near 1
+                                               the CPU is the limit; well below, it waited (for the
+                                               GPU, or for the display when frames are on time) */                      /* present; blocks while the app is backgrounded */
 void vp_gl_destroy_context(void);
 void vp_video_quit(void);
 

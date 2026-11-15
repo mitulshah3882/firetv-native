@@ -15,6 +15,7 @@
 
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "vegaplat.h"
 
@@ -74,15 +75,31 @@ int main(int, char**)
   setenv("USER", "Player", 1);
   // vegaplat logs frame rate, swap time and memory every 10 s to the device log ("fps 59.9, ...").
   setenv("VP_FPS_LOG", "10", 0);
-  // Developer tuning through the launch URI's "?tune=..." (see vega_stk.cpp).
+  // Developer options in the launch URI (vlcm launch-app 'pkg://...main?tune=...&args=...'):
+  //   tune=scale:0.5,lights:1      settings for this session (see vega_stk.cpp)
+  //   args=--benchmark             STK command-line options, comma-separated, e.g.
+  //   args=--track=hacienda,--profile-time=40,--numkarts=4
+  static std::vector<std::string> extra;
   if (const char* uri = vp_launch_uri_received()) {
-    if (const char* q = strstr(uri, "tune=")) {
-      std::string tune(q + 5);
-      tune = tune.substr(0, tune.find('&'));
-      setenv("VEGA_STK_TUNE", tune.c_str(), 1);
+    auto param = [uri](const char* key) -> std::string {
+      const char* q = strstr(uri, key);
+      if (!q) return {};
+      std::string v(q + strlen(key));
+      return v.substr(0, v.find('&'));
+    };
+    const std::string tune = param("tune=");
+    if (!tune.empty()) setenv("VEGA_STK_TUNE", tune.c_str(), 1);
+    const std::string args = param("args=");
+    for (size_t start = 0; start < args.size();) {
+      size_t comma = args.find(',', start);
+      if (comma == std::string::npos) comma = args.size();
+      if (comma > start) extra.push_back(args.substr(start, comma - start));
+      start = comma + 1;
     }
   }
-  char arg0[] = "supertuxkart";
-  char* argv[] = { arg0, nullptr };
-  return stk_main(1, argv);
+  static std::string arg0 = "supertuxkart";
+  std::vector<char*> argv{ &arg0[0] };
+  for (std::string& a : extra) argv.push_back(&a[0]);
+  argv.push_back(nullptr);
+  return stk_main((int)argv.size() - 1, argv.data());
 }

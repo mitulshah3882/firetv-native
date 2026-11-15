@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <sys/stat.h>
 
+#include "vegaplat.h"
+
 int supertux_main(int argc, char** argv);
 
 // The build renames main to vega_app_main, which vegaplat calls with C linkage.
@@ -30,11 +32,18 @@ int main(int, char**)
     fclose(marker);
     remove("/data/supertux2/config");
   }
-  // A TV has no windows: run full screen at the display size.
+  // A TV has no windows: run full screen at the size of Vega's canvas (1920x1080 on TVs, which
+  // the system scales to the display, 4K included).
+  vp_display_info info{};
+  if (!vp_video_init(&info) || info.canvas_width <= 0 || info.canvas_height <= 0) {
+    info.canvas_width = 1920;
+    info.canvas_height = 1080;
+  }
   char arg0[] = "supertux2";
   char fullscreen[] = "--fullscreen";
   char geometry[] = "--geometry";
-  char size[] = "1920x1080";
+  char size[32];
+  snprintf(size, sizeof(size), "%dx%d", info.canvas_width, info.canvas_height);
   char* argv[] = { arg0, fullscreen, geometry, size, nullptr };
   return supertux_main(4, argv);
 }

@@ -50,7 +50,8 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 
 ## Device workflow (use `tools/vega.sh`)
 - `tools/vega.sh run <app-dir> <component-id>` builds, installs and launches. `key KEY_RIGHT ...` injects input. `shot out.png 960` takes a screenshot of the TV and pulls it to the Mac (view it with Read). `logs 20 'pattern'` streams logs.
-- Raw commands: `vega device install-app --packagePath`, `launch-app --appName`, `terminate-app`, `run-cmd --command '...'`, `copy-from -s <device> -o <host>`, `start-log-stream`.
+- Raw commands: `vega device install-app --packagePath`, `launch-app --appName`, `run-cmd --command '...'`, `copy-from -s <device> -o <host>`, `start-log-stream`.
+- **Never `vega device terminate-app`:** it matches packages by prefix (asked for `...supertuxkart.main`, it force-stops `...supertux`). Use `tools/vega.sh stop <component>`, which runs `vlcm terminate-app --pkg-id <pkg> --force` on the device. `vlcm list` shows what's running.
 - Logs: `journalctl` is blocked in the dev shell, and `loggingctl` returned nothing through run-cmd. Use `vega device start-log-stream` and grep for `[vegagame]`. vegaplat's log lines arrive there, and the app's own **stdout/stderr** too (vegaplat pipes them in at startup; the device log doesn't capture stdio by itself).
 - Input injection: `inputd-cli button_press KEY_RIGHT` (Linux key names). To hold a key: `button_press KEY_UP --holdDuration 800`. **Not** `KEY_UP 1 --holdDuration ...`, which is invalid: it prints usage, returns 255, and presses nothing. Use `tools/vega.sh hold KEY_UP 800`.
 - **Launch vs resume:** `vega device launch-app` **force-kills** a running instance, then starts a new one. To bring an existing instance back to the foreground (a real resume, like picking it from the launcher), use `vlcm launch-app pkg://<component-id>` on the device (`tools/vega.sh resume`). Verified with Doom: same pid, `relaunch` then `foreground`, and rendering continues.

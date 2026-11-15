@@ -48,7 +48,7 @@ wait_stopped() {
 }
 
 for t in "${tracks[@]}"; do
-  vega device terminate-app --appName "$comp" >/dev/null 2>&1
+  vega device run-cmd --command "vlcm terminate-app --pkg-id ${comp%.main} --force >/dev/null 2>&1; true" >/dev/null 2>&1  # exact match (see tools/vega.sh stop_app)
   wait_stopped
   sleep 1
   log="$tmp/$t.log"
@@ -92,4 +92,4 @@ for t in "${tracks[@]}"; do
     END { if (m == 0) { printf "| %s | no data | | | | | %s | %s | %s | %s |\n", t, load, sh, av, sw; exit }
           printf "| %s | %.1f | %.1f | %.1f | %.0f%% | %s | %s | %s | %s | %s |\n", t, sum/m, lo, w, bs/m, sc, load, sh, av, sw }' "$tmp/$t.fps"
 done
-vega device terminate-app --appName "$comp" >/dev/null 2>&1
+vega device run-cmd --command "vlcm terminate-app --pkg-id ${comp%.main} --force >/dev/null 2>&1; true" >/dev/null 2>&1  # exact match (see tools/vega.sh stop_app)

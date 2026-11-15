@@ -32,7 +32,7 @@ kill_tree() {
 
 for app in $(vega device running-apps 2>/dev/null | grep '^com.firetvnative\.' ); do
   echo "stopping $app"
-  vega device terminate-app --appName "$app" >/dev/null 2>&1
+  vega device run-cmd --command "vlcm terminate-app --pkg-id ${app%.main} --force >/dev/null 2>&1; true" >/dev/null 2>&1  # exact match (see tools/vega.sh stop_app)
 done
 sleep 3
 vega device run-cmd --command 'free -m; uptime' > "$out/free.txt" 2>&1

@@ -25,6 +25,14 @@ pkg_path() {  # <app-dir> <arch> <type>
   ls "$dir"/build/"$arch"-"$type"/local/packages/*.vpkg 2>/dev/null | head -1
 }
 
+# Stops an app by its exact package id. `vega device terminate-app --appName` matches packages by
+# prefix: asked for com.firetvnative.supertuxkart.main it force-stops com.firetvnative.supertux and
+# leaves SuperTuxKart running. vlcm on the device matches the package id exactly.
+stop_app() {  # <component-id or package id>
+  local pkg="${1%.main}"
+  vega device run-cmd --command "vlcm terminate-app --pkg-id $pkg --force >/dev/null 2>&1; true" >/dev/null 2>&1 || true
+}
+
 case "$cmd" in
   build)
     dir="$1"; arch="${2:-armv7}"; type="${3:-Debug}"
@@ -36,7 +44,7 @@ case "$cmd" in
     # In-place updates of a running app can fail ("Internal Error") and silently keep the OLD build,
     # so stop the app first and fall back to uninstall + install.
     comp="$(grep -m1 '^id = ' "$dir/manifest.toml" | sed -E 's/id = "(.*)"/\1/').main"
-    vega device terminate-app --appName "$comp" >/dev/null 2>&1 || true
+    stop_app "$comp"
     if ! vega device install-app --packagePath "$p" | tee /dev/stderr | grep -q success; then
       echo "update failed; reinstalling clean" >&2
       vega device uninstall-app --appName "$comp" >/dev/null 2>&1 || true
@@ -53,7 +61,7 @@ case "$cmd" in
     vega device run-cmd --command "vlcm launch-app pkg://$1"
     ;;
   stop)
-    vega device terminate-app --appName "$1" || true
+    stop_app "$1"
     ;;
   run)
     dir="$1"; comp="$2"; arch="${3:-armv7}"; type="${4:-Debug}"

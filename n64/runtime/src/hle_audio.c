@@ -25,14 +25,21 @@
 
 #include "n64rt.h"
 
-/* Recompiled libdragon code we call into. Programs without wav64 don't have it: this weak fallback
- * links everywhere (an undefined weak reference doesn't on macOS) and the recompiled function,
- * when present, is a strong definition and wins. */
+/* Recompiled libdragon code we call into; programs without wav64 don't have it. Under clang,
+ * N64Recomp's RECOMP_FUNC makes every recompiled function weak, so a weak fallback *definition*
+ * here would tie with it and the linker would keep whichever came first (on the device that was the
+ * fallback: no VADPCM sound at all). On ELF we use a weak *reference* instead (NULL when absent).
+ * Mach-O can't link an undefined weak reference, so the Mac preview keeps a fallback definition;
+ * there the recompiled objects come first in the link. */
 static bool g_no_vadpcm_preload;
+#if defined(__APPLE__)
 __attribute__((weak)) void n64_wav64_vadpcm_preload(uint8_t *rdram, recomp_context *ctx) {
     (void)rdram; (void)ctx;
     g_no_vadpcm_preload = true;
 }
+#else
+extern void n64_wav64_vadpcm_preload(uint8_t *rdram, recomp_context *ctx) __attribute__((weak));
+#endif
 
 /* waveform_t / wav64_t / wav64_state_t field offsets, from the program's DWARF (libdragon 39d0d60). */
 enum {
@@ -160,6 +167,10 @@ static bool decode_vadpcm(uint8_t *rdram, recomp_context *ctx, hwave *w, uint32_
     const int nframes = (w->len + 15) / 16;
     const uint32_t dst = scratch((uint32_t)(nframes * 9 * w->channels));
     /* libdragon unpacks (and un-Huffmans) the frames, planar: [all L frames][all R frames]. */
+#if !defined(__APPLE__)
+    if (!n64_wav64_vadpcm_preload) g_no_vadpcm_preload = true;
+    else
+#endif
     n64rt_call(ctx, n64_wav64_vadpcm_preload, w->addr, dst, 0, 0);
     if (g_no_vadpcm_preload) {
         n64rt_log("audio: VADPCM needs libdragon's wav64_vadpcm_preload, not in this program");

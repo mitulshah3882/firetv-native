@@ -846,6 +846,10 @@ struct vp_audio {
     std::atomic<float> gainTarget{1.0f}; // 1 granted, kDuckGain ducked, 0 silent
     float gain = 1.0f;                   // current gain (audio thread only)
     std::vector<int16_t> scratch;        // gained copy of a buffer (audio thread only)
+    int frameBytes = 4;                  // bytes per frame (s16 x channels)
+    int sampleRate = 48000;
+    uint64_t rateStart = 0;              // first write, for the one-time rate check
+    uint64_t rateBytes = 0;
 };
 
 namespace {
@@ -957,6 +961,8 @@ extern "C" vp_audio* vp_audio_open(int sample_rate, int channels, int* frames_pe
         step = "start";
         a->playback->start();
         if (frames_per_buffer) *frames_per_buffer = a->playback->getFramesPerBuffer();
+        a->frameBytes = 2 * channels;
+        a->sampleRate = sample_rate;
         vp_log("audio: %d Hz x%d, %d frames x %d buffers, latency %d ms", sample_rate, channels,
                a->playback->getFramesPerBuffer(), a->playback->getBufferCount(), a->playback->getLatencyInMs());
         {
@@ -977,6 +983,17 @@ extern "C" vp_audio* vp_audio_open(int sample_rate, int channels, int* frames_pe
 
 extern "C" int vp_audio_write(vp_audio* a, const void* data, int bytes) {
     if (!a || !a->playback) return -1;
+    // One-time check that audio flows at the stream's rate (10 s after the first write).
+    if (a->rateStart != UINT64_MAX) {
+        const uint64_t now = nowNs();
+        if (!a->rateStart) a->rateStart = now;
+        a->rateBytes += uint64_t(bytes);
+        if (now - a->rateStart >= 10000000000ull) {
+            const double fps = double(a->rateBytes) / a->frameBytes / ((now - a->rateStart) / 1e9);
+            vp_log("audio: %.0f frames/s written over 10 s (stream %d Hz)", fps, a->sampleRate);
+            a->rateStart = UINT64_MAX;
+        }
+    }
     try {
         // Focus gain, ramped across the buffer so changes don't click.
         const float target = a->gainTarget.load();

@@ -1,0 +1,32 @@
+Gravity Choir: notice
+=====================
+
+Gravity Choir is an original arena game for the TV remote, running natively on Fire TV's Vega OS
+(C, SDL3 and OpenGL ES). Its music is synthesized live by the game; it ships no recorded audio.
+
+Source code
+-----------
+The complete source code for this build is at https://github.com/mitulshah3882/firetv-native
+(directory apps/gravity-choir). Third-party sources are not stored in that repository:
+tools/fetch-deps.sh downloads them at the exact versions listed below, and the repository's CMake
+files apply any changes to them at build time.
+
+Components and licences (files in this directory unless noted)
+--------------------------------------------------------------
+- Gravity Choir (apps/gravity-choir): MIT, Copyright (c) 2026 Mitul Shah.
+  FIRETV-NATIVE-LICENSE.txt
+- vegaplat platform layer (engine/vegaplat): MIT, Copyright (c) 2026 Mitul Shah.
+  FIRETV-NATIVE-LICENSE.txt
+- SDL3 video and audio drivers for Vega (engine/sdl3-vega/src): zlib, Copyright (C) 2026 Mitul
+  Shah. SDL3-VEGA-LICENSE.txt
+- SDL 3.4.18, https://github.com/libsdl-org/SDL (tag release-3.4.18): zlib, Copyright (C)
+  1997-2026 Sam Lantinga. SDL3-LICENSE.txt. SDL includes yuv2rgb, Copyright (c) 2016 Adrien
+  Descamps, BSD-3-Clause: SDL3-yuv2rgb-LICENSE.txt.
+- stb_truetype.h v1.26 by Sean Barrett, https://github.com/nothings/stb (commit
+  4e9b368bfc071e97206ea5c6adba68dd0cbf8897): public domain (Unlicense) or MIT, at your choice.
+- Chakra Petch SemiBold font, https://github.com/google/fonts (commit
+  86aced91de05cd4f96a06838124cca45be337b2b, ofl/chakrapetch): SIL Open Font License 1.1,
+  Copyright 2018 The Chakra Petch Project Authors. Licence text: assets/fonts/OFL.txt.
+
+The app uses Vega OS system libraries that the device provides at run time. They are not part of
+this package.

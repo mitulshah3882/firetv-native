@@ -1,0 +1,89 @@
+Land Grab: notice
+=================
+
+Land Grab is a four-player minigame by Meeq (Christopher Bonhage) for the N64brew Game
+Jam 2024, inspired by the board game "Blokus" by Bernard Tavitian. The jam's games are Nintendo 64
+homebrew built with libdragon, an open-source SDK. This app builds Land Grab and the jam's harness
+from source with libdragon, translates the program to native ARM code with N64Recomp (static
+recompilation), and runs it on our own runtime on Fire TV's Vega OS. No console is emulated: the
+program runs as native code, and the program image and data it reads (assets/jam_landgrab.bin,
+assets/jam_landgrab.z64) are built from the open-source jam repository. It is not affiliated with
+or endorsed by Nintendo, the N64brew community or the game's authors.
+
+Source code
+-----------
+The complete source code for this build is at https://github.com/mitulshah3882/firetv-native
+(directory apps/n64-landgrab; the jam build and our Fire TV remote patch are in n64/jam24, the
+runtime in n64/runtime, the recompiler configuration in n64/recomp/jam_landgrab.toml).
+Third-party sources are not stored in that repository: tools/fetch-deps.sh downloads them at the
+exact versions listed below.
+
+The game code
+-------------
+- N64brew Game Jam 2024, https://github.com/n64brew/N64brew-GameJam2024 (commit
+  0dea720fc295797ae779302425791c01cb67d244): the jam harness and Land Grab's code (Meeq), MIT,
+  Copyright (c) 2024 N64brew. N64BREW-GAMEJAM2024-LICENSE.txt. Upstream credits:
+  LANDGRAB-README.md. Our notes on every asset: JAM24-CREDITS.md.
+- Our changes (n64/jam24: the static-link build, jam_boot.c, and patches/landgrab.patch, which
+  makes the hints, pause screen and control legend name the Fire TV remote's buttons, with our
+  own remote-button icons from n64/jam24/assets-remote): MIT, Copyright (c) 2026 Mitul Shah.
+  FIRETV-NATIVE-LICENSE.txt
+
+Assets and attributions
+-----------------------
+The jam's build converts these files to libdragon's formats: fonts to bitmap fonts (font64, 16 px,
+outlined), music to xm64, sound effects to mono wav64.
+
+Fonts
+- "Anita Semi-Square" by Gustavo Paz L., https://fontlibrary.org/en/font/anita-semi-square.
+  The jam's credits give CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/); the font
+  file's own metadata states CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
+- "Banana Brick" by artmaker, https://fontlibrary.org/en/font/banana-brick: SIL Open Font
+  License 1.1, Copyright (c) 2011 by artmaker. OFL-BananaBrick.txt
+- "Squarewave" (assets/squarewave.ttf, the jam harness's UI font): the font file names "jeti" as
+  its copyright holder; the jam repository documents no source or licence for it.
+
+Music: CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/), non-commercial use only
+- "15 Years Before" (15yearsb.xm) by Ultrasyd,
+  https://modarchive.org/index.php?request=view_by_moduleid&query=59698
+- "4 Weeks Of Hysteria" (phekkis-4_weeks_of_hysteria.xm) by Phekkis,
+  https://modarchive.org/index.php?request=view_by_moduleid&query=179029
+
+Sound effects (freesound.org)
+- buzz.wav by TannerSound, https://freesound.org/s/478262/: CC BY 3.0
+  (https://creativecommons.org/licenses/by/3.0/)
+- click.wav by kwahmah_02, https://freesound.org/s/256116/: CC0 1.0
+  (https://creativecommons.org/publicdomain/zero/1.0/)
+- pop.wav by deathbyfairydust, https://freesound.org/s/658431/: CC BY 4.0
+  (https://creativecommons.org/licenses/by/4.0/)
+
+Other assets
+- Land Grab's sprites (logo, background, cursors, button icons): part of the MIT-licensed jam
+  repository, with no separate credit.
+- The jam harness's StartButton.png, AButton.png, Start.wav, Countdown.wav, Stop.wav and
+  Winner.wav: part of the MIT-licensed jam repository; their original sources are not documented
+  upstream.
+- The launcher icon and loading splash are made from a render of the game by this project's
+  runtime, and show the fonts above.
+
+Components and licences (files in this directory)
+-------------------------------------------------
+- libdragon, https://github.com/DragonMinded/libdragon (commit
+  39d0d6096130836a65710da6730290701d060272), linked into the game program: Unlicense (public
+  domain). LIBDRAGON-LICENSE.md. libdragon includes libxm, the XM music player, by Romain
+  "Artefact2" Dalmaso: WTFPL version 2.
+- newlib 4.4.0, the C library of libdragon's toolchain; parts of it are linked into the game
+  program. Its files carry several free licences; see upstream (https://sourceware.org/newlib/).
+- N64Recomp, https://github.com/N64Recomp/N64Recomp (commit
+  598ce2080004a5672d604dceadbda436045307b7): MIT, Copyright (c) 2024 Wiseguy. Its runtime header
+  (recomp.h) is compiled into the app. N64RECOMP-LICENSE.txt
+- n64rt runtime (n64/runtime) and vegaplat platform layer (engine/vegaplat): MIT, Copyright (c)
+  2026 Mitul Shah. FIRETV-NATIVE-LICENSE.txt
+- SDL3 video and audio drivers for Vega (engine/sdl3-vega/src): zlib, Copyright (C) 2026 Mitul
+  Shah. SDL3-VEGA-LICENSE.txt
+- SDL 3.4.18, https://github.com/libsdl-org/SDL (tag release-3.4.18): zlib, Copyright (C)
+  1997-2026 Sam Lantinga. SDL3-LICENSE.txt. SDL includes yuv2rgb, Copyright (c) 2016 Adrien
+  Descamps, BSD-3-Clause: SDL3-yuv2rgb-LICENSE.txt.
+
+The app uses Vega OS system libraries that the device provides at run time. They are not part of
+this package.

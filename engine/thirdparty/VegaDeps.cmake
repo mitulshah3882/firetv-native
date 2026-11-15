@@ -11,6 +11,7 @@
 # libcurl_static, jpeg-static) plus the usual namespaced aliases (ZLIB::ZLIB, PNG::PNG, Ogg::ogg,
 # JPEG::JPEG, ...). Cross-library find_package() calls (libpng->ZLIB, vorbis->Ogg,
 # SDL2_image/OpenAL->SDL2) resolve to these in-tree targets, so link order follows build order.
+# Each library's licence files ship in the app's package (assets/licenses/, see vega_app_license).
 #
 # SPDX-FileCopyrightText: 2026 Mitul Shah
 # SPDX-License-Identifier: MIT
@@ -35,6 +36,7 @@ macro(vega_deps)
   foreach(_dep ${ARGN})
     if(_dep STREQUAL "zlib" AND NOT TARGET zlibstatic)
       _vegadep_dir(_d zlib-1.3.2 zlib)
+      vega_app_license(zlib-LICENSE.txt "${_d}/LICENSE")
       _vegadep_opt(ZLIB_BUILD_SHARED OFF)
       _vegadep_opt(ZLIB_BUILD_STATIC ON)
       _vegadep_opt(ZLIB_BUILD_TESTING OFF)
@@ -46,6 +48,7 @@ macro(vega_deps)
       set(ZLIB_LIBRARY zlibstatic CACHE STRING "" FORCE)
     elseif(_dep STREQUAL "png" AND NOT TARGET png_static)
       _vegadep_dir(_d libpng-1.6.58 libpng)
+      vega_app_license(libpng-LICENSE.txt "${_d}/LICENSE")
       _vegadep_opt(PNG_SHARED OFF)
       _vegadep_opt(PNG_STATIC ON)
       _vegadep_opt(PNG_TESTS OFF)
@@ -62,6 +65,7 @@ macro(vega_deps)
       set(PNG_LIBRARY png_static CACHE STRING "" FORCE)
     elseif(_dep STREQUAL "physfs" AND NOT TARGET physfs-static)
       _vegadep_dir(_d physfs-release-3.2.0 physfs)
+      vega_app_license(physfs-LICENSE.txt "${_d}/LICENSE.txt")
       _vegadep_opt(PHYSFS_BUILD_SHARED OFF)
       _vegadep_opt(PHYSFS_BUILD_STATIC ON)
       _vegadep_opt(PHYSFS_BUILD_TEST OFF)
@@ -70,6 +74,8 @@ macro(vega_deps)
       add_subdirectory("${_d}" "${CMAKE_BINARY_DIR}/deps/physfs" EXCLUDE_FROM_ALL)
     elseif(_dep STREQUAL "freetype" AND NOT TARGET freetype)
       _vegadep_dir(_d freetype-VER-2-13-3 freetype)
+      vega_app_license(freetype-LICENSE.txt "${_d}/LICENSE.TXT")
+      vega_app_license(freetype-FTL.txt "${_d}/docs/FTL.TXT")
       foreach(_o FT_DISABLE_ZLIB FT_DISABLE_BZIP2 FT_DISABLE_PNG FT_DISABLE_HARFBUZZ FT_DISABLE_BROTLI)
         _vegadep_opt(${_o} ON)
       endforeach()
@@ -79,12 +85,14 @@ macro(vega_deps)
       endif()
     elseif(_dep STREQUAL "fmt" AND NOT TARGET fmt)
       _vegadep_dir(_d fmt-12.1.0/fmt-12.1.0 fmt)  # the zip nests its top-level folder
+      vega_app_license(fmt-LICENSE.txt "${_d}/LICENSE")
       _vegadep_opt(FMT_INSTALL OFF)
       _vegadep_opt(FMT_TEST OFF)
       _vegadep_opt(FMT_DOC OFF)
       add_subdirectory("${_d}" "${CMAKE_BINARY_DIR}/deps/fmt" EXCLUDE_FROM_ALL)
     elseif(_dep STREQUAL "glm" AND NOT TARGET glm)
       _vegadep_dir(_d glm-1.0.1 glm)
+      vega_app_license(glm-LICENSE.txt "${_d}/copying.txt")
       add_library(glm INTERFACE)  # header-only
       target_include_directories(glm INTERFACE "${_d}")
       # glm 1.0.x puts [[nodiscard]] after GNU __attribute__((deprecated)), which this clang
@@ -93,6 +101,7 @@ macro(vega_deps)
       add_library(glm::glm ALIAS glm)
     elseif(_dep STREQUAL "ogg" AND NOT TARGET ogg)
       _vegadep_dir(_d libogg-1.3.6 ogg)
+      vega_app_license(libogg-LICENSE.txt "${_d}/COPYING")
       _vegadep_opt(INSTALL_DOCS OFF)
       _vegadep_opt(INSTALL_PKG_CONFIG_MODULE OFF)
       _vegadep_opt(INSTALL_CMAKE_PACKAGE_MODULE OFF)
@@ -104,6 +113,7 @@ macro(vega_deps)
       file(WRITE "${Ogg_DIR}/OggConfig.cmake" "set(Ogg_FOUND TRUE)\n")
     elseif(_dep STREQUAL "vorbis" AND NOT TARGET vorbis)
       _vegadep_dir(_d libvorbis-1.3.7 vorbis)
+      vega_app_license(libvorbis-LICENSE.txt "${_d}/COPYING")
       _vegadep_opt(INSTALL_CMAKE_PACKAGE_MODULE OFF)
       add_subdirectory("${_d}" "${CMAKE_BINARY_DIR}/deps/vorbis" EXCLUDE_FROM_ALL)
       if(NOT TARGET Vorbis::vorbis)
@@ -112,6 +122,7 @@ macro(vega_deps)
       endif()
     elseif(_dep STREQUAL "sdl2_image" AND NOT TARGET SDL2_image)
       _vegadep_dir(_d SDL2_image-2.8.10 sdl2image)
+      vega_app_license(SDL2_image-LICENSE.txt "${_d}/LICENSE.txt")
       _vegadep_opt(SDL2IMAGE_VENDORED OFF)
       _vegadep_opt(SDL2IMAGE_INSTALL OFF)
       _vegadep_opt(SDL2IMAGE_DEPS_SHARED OFF)
@@ -124,6 +135,10 @@ macro(vega_deps)
       add_subdirectory("${_d}" "${CMAKE_BINARY_DIR}/deps/SDL2_image" EXCLUDE_FROM_ALL)
     elseif(_dep STREQUAL "openal" AND NOT TARGET OpenAL)
       _vegadep_dir(_d openal-soft-1.24.3 openal)  # 1.25 needs C++20 std::format, which this libc++ lacks
+      vega_app_license(openal-soft-LICENSE.txt "${_d}/COPYING")
+      vega_app_license(openal-soft-BSD-3Clause.txt "${_d}/BSD-3Clause")
+      vega_app_license(openal-soft-pffft-LICENSE.txt "${_d}/LICENSE-pffft")
+      vega_app_license(openal-soft-fmt-LICENSE.txt "${_d}/fmt-11.1.1/LICENSE")
       set(LIBTYPE STATIC)
       foreach(_o ALSOFT_UTILS ALSOFT_EXAMPLES ALSOFT_TESTS ALSOFT_INSTALL ALSOFT_INSTALL_CONFIG
                  ALSOFT_INSTALL_HRTF_DATA ALSOFT_INSTALL_AMBDEC_PRESETS ALSOFT_INSTALL_EXAMPLES
@@ -142,6 +157,8 @@ macro(vega_deps)
       # The single-file amalgamation (src/harfbuzz.cc) with FreeType interop: smaller and simpler
       # than HarfBuzz's own CMake project. Needs `freetype` first.
       _vegadep_dir(_d harfbuzz-14.6.0 harfbuzz)
+      vega_app_license(harfbuzz-LICENSE.txt "${_d}/COPYING")
+      vega_app_license(harfbuzz-ms-use-LICENSE.txt "${_d}/src/ms-use/COPYING")
       add_library(harfbuzz STATIC "${_d}/src/harfbuzz.cc")
       target_compile_definitions(harfbuzz PRIVATE HAVE_FREETYPE=1 HAVE_PTHREAD=1 HAVE_ATEXIT=1
         HAVE_FT_GET_VAR_BLEND_COORDINATES=1 HAVE_FT_SET_VAR_BLEND_COORDINATES=1 HAVE_FT_DONE_MM_VAR=1
@@ -159,6 +176,7 @@ macro(vega_deps)
       add_library(harfbuzz::harfbuzz ALIAS harfbuzz)
     elseif(_dep STREQUAL "mbedtls" AND NOT TARGET mbedcrypto)
       _vegadep_dir(_d mbedtls-3.6.7 mbedtls)  # 3.6 LTS: 4.x drops the legacy crypto API STK uses
+      vega_app_license(mbedtls-LICENSE.txt "${_d}/LICENSE")
       foreach(_o ENABLE_PROGRAMS ENABLE_TESTING USE_SHARED_MBEDTLS_LIBRARY GEN_FILES MBEDTLS_FATAL_WARNINGS
                  INSTALL_MBEDTLS_HEADERS)
         _vegadep_opt(${_o} OFF)
@@ -175,6 +193,7 @@ macro(vega_deps)
       # HTTP(S) only (every other protocol disabled), TLS through mbedTLS (needs `zlib` and `mbedtls` first). Certificates come from
       # the application (CURLOPT_CAINFO): there is no system CA bundle to probe for.
       _vegadep_dir(_d curl-8.23.0 curl)
+      vega_app_license(curl-LICENSE.txt "${_d}/COPYING")
       foreach(_o BUILD_CURL_EXE BUILD_SHARED_LIBS BUILD_LIBCURL_DOCS BUILD_MISC_DOCS ENABLE_CURL_MANUAL
                  BUILD_EXAMPLES CURL_USE_OPENSSL CURL_USE_LIBPSL CURL_USE_LIBSSH2 CURL_USE_LIBSSH
                  CURL_USE_GSSAPI CURL_BROTLI CURL_ZSTD USE_NGHTTP2 USE_LIBIDN2 USE_LIBRTMP ENABLE_ARES
@@ -197,6 +216,8 @@ macro(vega_deps)
       set(CURL_LIBRARY libcurl_static CACHE STRING "" FORCE)
     elseif(_dep STREQUAL "jpeg" AND NOT TARGET jpeg-static)
       _vegadep_dir(_d libjpeg-turbo-3.1.4.1 libjpeg)
+      vega_app_license(libjpeg-turbo-LICENSE.md "${_d}/LICENSE.md")
+      vega_app_license(libjpeg-turbo-README.ijg.txt "${_d}/README.ijg")
       foreach(_o ENABLE_SHARED WITH_TURBOJPEG WITH_TOOLS WITH_TESTS WITH_FUZZ WITH_JAVA REQUIRE_SIMD)
         _vegadep_opt(${_o} OFF)
       endforeach()

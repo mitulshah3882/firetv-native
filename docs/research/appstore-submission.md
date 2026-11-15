@@ -649,3 +649,11 @@ Work list before submitting it:
 - Whether VPKG distribution applies DRM or other technical measures (relevant to GPL and CC BY-SA).
 - Whether the KPI guidelines are pass/fail gates in review.
 - Whether the Feature Rotator image is required for Fire TV listings.
+
+## 7. Follow-up findings (2026-11-15, packaging the licences)
+Found while adding `assets/licenses/` and a `NOTICE.txt` to every package (not legal advice):
+- **SuperTux 0.7.0 has two CC BY-NC 4.0 assets** (`images/objects/conveyor_belt/*` and `kill.wav`, per its `data/AUTHORS`). That's the same non-commercial question as Land Grab's music. A free listing may be fine, but replacing them would remove the question.
+- **Land Grab's Anita Semi-Square font:** the jam credits say CC BY 3.0, but the TTF's own metadata says CC BY-SA 4.0. The NOTICE states both. Its Squarewave font has no documented licence (copyright field "jeti").
+- **Amazon's code inside our GPL apps:** every app statically links the IDL import library generated from the Vega SDK (`<target>_idl`) and the SDK toolchain's libc++. Whether the GPL's system-library exception covers these needs a look before submitting any GPL game. The original MIT games (Gravity Choir) don't have this question.
+- **Source offer:** each NOTICE points at the GitHub repository. Strict GPL compliance for a store build would tag the exact commit of each submitted build, and may mirror the third-party source archives next to it.
+- Licence texts that couldn't be shipped verbatim are named with a link in the NOTICE instead: obstack (LGPL-2.1+, SuperTux) and newlib (parts recompiled into the N64 apps).

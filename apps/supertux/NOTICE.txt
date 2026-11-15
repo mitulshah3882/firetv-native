@@ -1,0 +1,119 @@
+SuperTux for Fire TV: notice
+============================
+
+This app is SuperTux 0.7.0, a free jump'n'run game, compiled natively for Fire TV's Vega OS. It
+is an unofficial port, not made or endorsed by the SuperTux team. Changes from upstream: SuperTux
+is built as a static library, its default key bindings get TV-remote buttons, and networking (add-on
+downloads) and Discord support are turned off. The patches are applied at build time by
+apps/supertux/CMakeLists.txt.
+
+This program is free software under the GNU General Public License, version 3 or (at your option)
+any later version, and comes with NO WARRANTY. The licence text is in LICENSE.txt.
+
+Source code
+-----------
+The complete source code for this build is at https://github.com/mitulshah3882/firetv-native
+(directory apps/supertux). Third-party sources are not stored in that repository:
+tools/fetch-deps.sh downloads them at the exact versions listed below, and the repository's CMake
+files apply our changes to them at build time.
+
+SuperTux
+--------
+- SuperTux 0.7.0, https://github.com/SuperTux/supertux (release v0.7.0): code GPL-3.0-or-later,
+  by the SuperTux Development Team. LICENSE.txt
+- Game data (assets/data): most of it CC BY-SA, the rest under the licences named per file in
+  assets/data/AUTHORS (among them GPL-2.0-or-later, CC BY 3.0 and 4.0, CC0, and CC BY-NC 4.0 for
+  images/objects/conveyor_belt and kill.wav). Credits: assets/data/AUTHORS and
+  assets/data/credits.stxt. Font licences: assets/data/fonts. Library acknowledgements:
+  assets/data/ACKNOWLEDGEMENTS.txt.
+- The launcher icon and loading splash are made from a screenshot of SuperTux running in this
+  app, and keep the game art's licence (CC BY-SA 3.0 / GPL).
+
+Our code
+--------
+- The port (apps/supertux): GPL-3.0-or-later, Copyright (C) 2026 Mitul Shah. LICENSE.txt
+- vegaplat platform layer (engine/vegaplat) and build helpers: MIT, Copyright (c) 2026 Mitul
+  Shah. FIRETV-NATIVE-LICENSE.txt
+- SDL3 video and audio drivers for Vega (engine/sdl3-vega/src): zlib, Copyright (C) 2026 Mitul
+  Shah. SDL3-VEGA-LICENSE.txt
+
+Libraries built from source and linked into the app (licence files in this directory)
+-------------------------------------------------------------------------------------
+- SDL 3.4.18, https://github.com/libsdl-org/SDL (tag release-3.4.18): zlib, Copyright (C)
+  1997-2026 Sam Lantinga. SDL3-LICENSE.txt. SDL includes yuv2rgb, Copyright (c) 2016 Adrien
+  Descamps, BSD-3-Clause: SDL3-yuv2rgb-LICENSE.txt.
+- sdl2-compat 2.32.74, https://github.com/libsdl-org/sdl2-compat (tag release-2.32.74), patched
+  at build time to use the statically linked SDL3: zlib, Copyright (C) 2026 Sam Lantinga.
+  SDL2-COMPAT-LICENSE.txt
+- zlib 1.3.2, https://github.com/madler/zlib: zlib, Copyright (C) 1995-2026 Jean-loup Gailly and
+  Mark Adler. zlib-LICENSE.txt
+- libpng 1.6.58, https://github.com/pnggroup/libpng: PNG Reference Library License version 2.
+  libpng-LICENSE.txt
+- PhysicsFS 3.2.0, https://github.com/icculus/physfs: zlib, Copyright (c) 2001-2022 Ryan C.
+  Gordon and others. physfs-LICENSE.txt
+- FreeType 2.13.3, https://github.com/freetype/freetype (tag VER-2-13-3), used under the FreeType
+  License: portions of this software are copyright (C) 2024 The FreeType Project
+  (www.freetype.org). All rights reserved. freetype-LICENSE.txt, freetype-FTL.txt
+- {fmt} 12.1.0, https://github.com/fmtlib/fmt: MIT, Copyright (c) 2012 - present, Victor
+  Zverovich and {fmt} contributors. fmt-LICENSE.txt
+- GLM 1.0.1, https://github.com/g-truc/glm: MIT or the Happy Bunny License. glm-LICENSE.txt
+- libogg 1.3.6 and libvorbis 1.3.7, https://github.com/xiph: BSD-3-Clause, Copyright (c) 2002
+  (libogg) and 2002-2020 (libvorbis) Xiph.org Foundation. libogg-LICENSE.txt,
+  libvorbis-LICENSE.txt
+- SDL2_image 2.8.10, https://github.com/libsdl-org/SDL_image (built with its stb_image backend):
+  zlib, Copyright (C) 1997-2025 Sam Lantinga. SDL2_image-LICENSE.txt
+- OpenAL Soft 1.24.3, https://github.com/kcat/openal-soft: LGPL-2.0-or-later (GNU Library
+  General Public License), with portions under BSD-3-Clause and a PFFFT licence, and a bundled
+  {fmt} 11.1.1 (MIT). openal-soft-LICENSE.txt, openal-soft-BSD-3Clause.txt,
+  openal-soft-pffft-LICENSE.txt, openal-soft-fmt-LICENSE.txt
+
+Libraries bundled with SuperTux (external/ in its source)
+---------------------------------------------------------
+- SDL_ttf (SuperTux's copy): zlib, Copyright (C) 1997-2018 Sam Lantinga.
+  supertux-SDL_ttf-LICENSE.txt
+- tinygettext: zlib, Copyright (c) 2004-2016 its authors. supertux-tinygettext-LICENSE.txt
+- Squirrel: MIT, Copyright (c) 2003-2022 Alberto Demichelis. supertux-squirrel-LICENSE.txt
+- simplesquirrel: MIT, Copyright (c) 2019 Matus Novak. supertux-simplesquirrel-LICENSE.txt
+- findlocale: MIT, Copyright (C) 2004 Adam D. Moss. supertux-findlocale-LICENSE.txt
+- sexp-cpp: GPL-3.0-or-later, Copyright (C) 2006 Matthias Braun, 2015 Ingo Ruhnke. LICENSE.txt
+- SDL_SavePNG: zlib/libpng licence.
+- obstack (from the GNU C Library): LGPL-2.1-or-later, Copyright (C) 1988-2005 Free Software
+  Foundation, Inc. Licence text: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+- partio ZIP reader (external/partio_zip, from https://github.com/wdas/partio): BSD-style licence,
+  reproduced here:
+
+    PARTIO SOFTWARE
+    Copyright 2010 Disney Enterprises, Inc. All rights reserved
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are
+    met:
+
+    * Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+
+    * Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in
+    the documentation and/or other materials provided with the
+    distribution.
+
+    * The names "Disney", "Walt Disney Pictures", "Walt Disney Animation
+    Studios" or the names of its contributors may NOT be used to
+    endorse or promote products derived from this software without
+    specific prior written permission from Walt Disney Pictures.
+
+    Disclaimer: THIS SOFTWARE IS PROVIDED BY WALT DISNEY PICTURES AND
+    CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+    BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS
+    FOR A PARTICULAR PURPOSE, NONINFRINGEMENT AND TITLE ARE DISCLAIMED.
+    IN NO EVENT SHALL WALT DISNEY PICTURES, THE COPYRIGHT HOLDER OR
+    CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+    EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+    PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+    PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND BASED ON ANY
+    THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+The app uses Vega OS system libraries that the device provides at run time. They are not part of
+this package.

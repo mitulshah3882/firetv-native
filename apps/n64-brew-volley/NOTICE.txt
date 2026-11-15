@@ -1,0 +1,54 @@
+Brew Volley: notice
+===================
+
+Brew Volley is a two-player game, MULLER Marian's (tfmoe__) entry for the N64brew Game
+Jam #4, released with the author's permission as an example of libdragon, an open-source SDK for
+Nintendo 64 homebrew. This app builds it from source with libdragon, translates the program to
+native ARM code with N64Recomp (static recompilation), and runs it on our own runtime on Fire
+TV's Vega OS. No console is emulated: the program runs as native code, and the program image and
+data it reads (assets/brew_volley.bin, assets/brew_volley.z64) are built from the open-source
+example. It is not affiliated with or endorsed by Nintendo or the game's authors.
+
+Source code
+-----------
+The complete source code for this build is at https://github.com/mitulshah3882/firetv-native
+(directory apps/n64-brew-volley; the runtime is in n64/runtime, the recompiler configuration in
+n64/recomp/brew_volley.toml). Third-party sources are not stored in that repository:
+tools/fetch-deps.sh downloads them at the exact versions listed below.
+
+The game
+--------
+From libdragon's examples/brew-volley (credits as shipped upstream: BREW-VOLLEY-README.md):
+- Code: Unlicense (public domain).
+- Music: "Autang" by JAM, public domain,
+  https://modarchive.org/index.php?request=view_by_moduleid&query=167849
+- Background: "Coconut tree near shore within mountain range" by Elizeu Dias,
+  https://unsplash.com/photos/RN6ts8IZ4_0, Unsplash License.
+- Font: Pacifico by Vernon Adams, Copyright 2018 The Pacifico Project Authors
+  (https://github.com/googlefonts/Pacifico), SIL Open Font License 1.1. OFL-Pacifico.txt
+- Everything else (sprites, sound effects): CC0.
+The assets are converted to libdragon's formats (sprites, font64, xm64, wav64) by the example's
+build. The launcher icon and loading splash are made from a screenshot of the game running in
+this app.
+
+Components and licences (files in this directory)
+-------------------------------------------------
+- libdragon, https://github.com/DragonMinded/libdragon (commit
+  39d0d6096130836a65710da6730290701d060272), linked into the game program: Unlicense (public
+  domain). LIBDRAGON-LICENSE.md. libdragon includes libxm, the XM music player, by Romain
+  "Artefact2" Dalmaso: WTFPL version 2.
+- newlib 4.4.0, the C library of libdragon's toolchain; parts of it are linked into the game
+  program. Its files carry several free licences; see upstream (https://sourceware.org/newlib/).
+- N64Recomp, https://github.com/N64Recomp/N64Recomp (commit
+  598ce2080004a5672d604dceadbda436045307b7): MIT, Copyright (c) 2024 Wiseguy. Its runtime header
+  (recomp.h) is compiled into the app. N64RECOMP-LICENSE.txt
+- n64rt runtime (n64/runtime) and vegaplat platform layer (engine/vegaplat): MIT, Copyright (c)
+  2026 Mitul Shah. FIRETV-NATIVE-LICENSE.txt
+- SDL3 video and audio drivers for Vega (engine/sdl3-vega/src): zlib, Copyright (C) 2026 Mitul
+  Shah. SDL3-VEGA-LICENSE.txt
+- SDL 3.4.18, https://github.com/libsdl-org/SDL (tag release-3.4.18): zlib, Copyright (C)
+  1997-2026 Sam Lantinga. SDL3-LICENSE.txt. SDL includes yuv2rgb, Copyright (c) 2016 Adrien
+  Descamps, BSD-3-Clause: SDL3-yuv2rgb-LICENSE.txt.
+
+The app uses Vega OS system libraries that the device provides at run time. They are not part of
+this package.

@@ -97,6 +97,16 @@ target_compile_definitions(SDL3-static PRIVATE SDL_VIDEO_DRIVER_VEGA=1 SDL_AUDIO
 target_include_directories(SDL3-static PRIVATE "${VEGAPLAT_DIR}/include")
 set_target_properties(SDL3-static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# --- helper: licence files a package ships ----------------------------------------------------------
+# vega_app_license(<file name> <source file>): ship <source file> as assets/licenses/<file name> in
+# the packages of apps declared after this call (VegaDeps.cmake registers its libraries' licences).
+function(vega_app_license name src)
+  if(NOT EXISTS "${src}")
+    message(FATAL_ERROR "vega_app_license: ${src} not found")
+  endif()
+  set_property(GLOBAL APPEND PROPERTY VEGA_APP_LICENSES "${name}|${src}")
+endfunction()
+
 # --- helper: declare a pure-native Vega app that uses SDL3 ------------------------------------------
 # vega_add_sdl3_app(<target> PACKAGE_ID <id> SOURCES <...> [ASSETS_DIR <dir>])
 # The app provides `int main(int argc, char** argv)` as usual (renamed to vega_app_main here).
@@ -128,6 +138,26 @@ function(vega_add_sdl3_app target)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/icon/splash.astc")
       configure_file("${CMAKE_CURRENT_SOURCE_DIR}/icon/splash.astc" "${arg_ASSETS_DIR}/assets/image/splash.astc" COPYONLY)
     endif()
+    # Licences and credits (assets/licenses/): the app's own LICENSE and NOTICE.txt if it has them,
+    # this repo's MIT licence (vegaplat), the SDL3 drivers' and SDL3's licences (zlib; BSD-3 for
+    # SDL's bundled yuv2rgb), and every file registered with vega_app_license().
+    set(_lic "${arg_ASSETS_DIR}/assets/licenses")
+    set(_files
+      "LICENSE.txt|${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+      "NOTICE.txt|${CMAKE_CURRENT_SOURCE_DIR}/NOTICE.txt"
+      "FIRETV-NATIVE-LICENSE.txt|${_fv_repo}/LICENSE"
+      "SDL3-VEGA-LICENSE.txt|${SDL3VEGA_DIR}/LICENSE.txt"
+      "SDL3-LICENSE.txt|${SDL3VEGA_SDL_SOURCE}/LICENSE.txt"
+      "SDL3-yuv2rgb-LICENSE.txt|${SDL3VEGA_SDL_SOURCE}/src/video/yuv2rgb/LICENSE")
+    get_property(_registered GLOBAL PROPERTY VEGA_APP_LICENSES)
+    foreach(_entry IN LISTS _files _registered)
+      string(REPLACE "|" ";" _entry "${_entry}")
+      list(GET _entry 0 _name)
+      list(GET _entry 1 _src)
+      if(EXISTS "${_src}")
+        configure_file("${_src}" "${_lic}/${_name}" COPYONLY)
+      endif()
+    endforeach()
     vpt_add_assets(SEARCH_PATHS ${arg_ASSETS_DIR})
   endif()
 endfunction()

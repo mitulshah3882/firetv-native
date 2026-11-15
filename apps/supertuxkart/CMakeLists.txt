@@ -358,6 +358,12 @@ if(NOT EXISTS "${PKGROOT}/assets/data")
   file(CREATE_LINK "${STK_ASSETS}/data" "${PKGROOT}/assets/data" SYMBOLIC)
 endif()
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/icon/icon.png" "${PKGROOT}/assets/image/icon.png" COPYONLY)
+# Licences of the libraries STK bundles in lib/ (assets/licenses/; the rest are named in NOTICE.txt).
+foreach(_l bullet/LICENSE dnsc/LICENSE enet/LICENSE libsquish/LICENSE.txt sheenbidi/LICENSE
+           tinygettext/LICENSE.md)
+  get_filename_component(_n "${_l}" DIRECTORY)
+  vega_app_license("stk-${_n}-LICENSE.txt" "${STK_SRC}/lib/${_l}")
+endforeach()
 
 vega_add_sdl2_app(stk PACKAGE_ID "com.firetvnative.supertuxkart" SOURCES src/vega_main.cpp ASSETS_DIR "${PKGROOT}")
 target_link_libraries(stk PRIVATE supertuxkart)

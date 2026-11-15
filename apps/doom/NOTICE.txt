@@ -1,0 +1,44 @@
+Freedoom (doomgeneric for Fire TV): notice
+==========================================
+
+This app runs Freedoom: Phase 2 on doomgeneric, a portable version of the Doom engine, compiled
+natively for Fire TV's Vega OS, with Chocolate Doom's OPL music player. It is an unofficial build,
+not affiliated with or endorsed by id Software or the Freedoom project.
+
+This program is free software under the GNU General Public License, version 2 or (at your option)
+any later version, and comes with NO WARRANTY. The licence text is in LICENSE.txt.
+
+Source code
+-----------
+The complete source code for this build is at https://github.com/mitulshah3882/firetv-native
+(directory apps/doom). Third-party sources are not stored in that repository:
+tools/fetch-deps.sh downloads them at the exact versions listed below, and the repository's CMake
+files apply any changes to them at build time.
+
+Components and licences (files in this directory unless noted)
+--------------------------------------------------------------
+- The port (apps/doom: platform, sound and music glue): GPL-2.0-or-later, Copyright (C) 2026
+  Mitul Shah. LICENSE.txt
+- doomgeneric, https://github.com/ozkl/doomgeneric (commit
+  e257a09527062bfb986b6e5e0780839b6cbd5b71): GPL-2.0-or-later, Copyright (C) 1993-1996 Id
+  Software, Inc., Copyright (C) 2005-2014 Simon Howard, and contributors. LICENSE.txt
+- Chocolate Doom 2.3.0, https://github.com/chocolate-doom/chocolate-doom (tag
+  chocolate-doom-2.3.0): the OPL music player (src/i_oplmusic.c), MIDI parser (src/midifile.c)
+  and OPL library (opl/), GPL-2.0-or-later, Copyright (C) 1993-1996 Id Software, Inc. and
+  Copyright (C) 2005-2014 Simon Howard. LICENSE.txt
+- Nuked OPL3 (opl/opl3.c in Chocolate Doom 2.3.0): GPL-2.0-or-later, Copyright (C) 2013-2016
+  Alexey Khokholov (Nuke.YKT). LICENSE.txt
+- Freedoom 0.13.0, https://github.com/freedoom/freedoom (release v0.13.0): the game data
+  (assets/freedoom2.wad), BSD-3-Clause, Copyright 2001-2024 Contributors to the Freedoom project.
+  Licence text: assets/FREEDOOM-COPYING.txt. The launcher icon and loading splash are made from a
+  screenshot of Freedoom running in this app.
+- vegaplat platform layer (engine/vegaplat): MIT, Copyright (c) 2026 Mitul Shah.
+  FIRETV-NATIVE-LICENSE.txt
+- SDL3 video and audio drivers for Vega (engine/sdl3-vega/src): zlib, Copyright (C) 2026 Mitul
+  Shah. SDL3-VEGA-LICENSE.txt
+- SDL 3.4.18, https://github.com/libsdl-org/SDL (tag release-3.4.18): zlib, Copyright (C)
+  1997-2026 Sam Lantinga. SDL3-LICENSE.txt. SDL includes yuv2rgb, Copyright (c) 2016 Adrien
+  Descamps, BSD-3-Clause: SDL3-yuv2rgb-LICENSE.txt.
+
+The app uses Vega OS system libraries that the device provides at run time. They are not part of
+this package.

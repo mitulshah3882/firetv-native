@@ -17,6 +17,13 @@ include(vpt)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../engine/sdl3-vega/SDL3Vega.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../n64/runtime/N64App.cmake)
 
+# Credits and licences of the jam code and Land Grab's assets (assets/licenses/, see NOTICE.txt).
+set(JAM24_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/_src/N64brew-GameJam2024-0dea720")
+vega_app_license(N64BREW-GAMEJAM2024-LICENSE.txt "${JAM24_SRC}/LICENSE")
+vega_app_license(LANDGRAB-README.md "${JAM24_SRC}/code/landgrab/README.md")
+vega_app_license(JAM24-CREDITS.md "${CMAKE_CURRENT_SOURCE_DIR}/../../n64/jam24/CREDITS.md")
+vega_app_license(OFL-BananaBrick.txt "${CMAKE_CURRENT_SOURCE_DIR}/OFL-BananaBrick.txt")
+
 n64_add_recomp_app(n64_landgrab PACKAGE_ID "com.firetvnative.n64.landgrab" GAME jam_landgrab)
 # Remote: OK places a piece; Menu pauses (START), held skips the turn (B); Play/Pause flips (R),
 # held mirrors (L); Rewind/Fast-forward change piece (C-left/right), held pick a smaller/bigger

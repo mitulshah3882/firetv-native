@@ -62,8 +62,11 @@ Each game also runs on its own (`tools/vega.sh run apps/doom com.firetvnative.do
 This repository contains **no ROMs, no game dumps, no keys and no extracted game assets**, and never will. Commercial games are only supported as builds you make yourself from a dump of a cartridge you own. Anything distributed from this project uses open-source or freely licensed content only.
 
 ## License
-- **Engine, tools, demos and the arcade launcher:** MIT, © 2026 Mitul Shah ([LICENSE](LICENSE)). The two exceptions below have their own LICENSE files, which take precedence for those directories.
+- **Engine, tools, demos, the arcade launcher and Gravity Choir:** MIT, © 2026 Mitul Shah ([LICENSE](LICENSE)). The exceptions below have their own LICENSE files, which take precedence for those directories.
 - **`engine/sdl3-vega/src`** (the SDL video and audio drivers): zlib, the same license as SDL ([LICENSE.txt](engine/sdl3-vega/LICENSE.txt)).
 - **`apps/doom` and `apps/quake`:** GPL-2.0-or-later, because they link GPL engine code (doomgeneric, Chocolate Doom, id's WinQuake). See the LICENSE file in each directory.
-- **Third-party components keep their own licenses:** SDL (zlib), Nuked OPL3 (LGPL-2.1+), Freedoom (BSD-3), LibreQuake (BSD-3 art, GPL-2 QuakeC).
+- **`apps/supertux` and `apps/supertuxkart`:** GPL-3.0-or-later, like the games they build. See the LICENSE file in each directory.
+- **Third-party components keep their own licenses:** SDL (zlib), Nuked OPL3 (GPL-2.0-or-later, as shipped in Chocolate Doom 2.3.0), Freedoom (BSD-3), LibreQuake (BSD-3 art, GPL-2 QuakeC), SuperTux and SuperTuxKart data (mostly CC-BY-SA and GPL, with a few CC BY-NC items), the N64 homebrew (MIT, with Land Grab's music under CC BY-NC 4.0). Each package's `NOTICE.txt` has the details.
 - **The Amazon Vega SDK is not included.** Install it yourself under Amazon's terms.
+
+Every package ships its licences and credits under `assets/licenses/`: a `NOTICE.txt` (what the app contains, the exact upstream versions, each component's licence and a link to this source), the app's own LICENSE, and the licence texts of the libraries and assets it includes. The build copies them in (`vega_app_license()` in `engine/sdl3-vega/SDL3Vega.cmake`); each app's `NOTICE.txt` lives next to its `CMakeLists.txt`.

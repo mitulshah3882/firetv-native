@@ -1,0 +1,148 @@
+SuperTuxKart for Fire TV: notice
+================================
+
+This app is SuperTuxKart 1.5, a free 3D kart racing game, compiled natively for Fire TV's Vega
+OS. It is an unofficial port, not made or endorsed by the SuperTuxKart team. Its code is patched
+at build time by apps/supertuxkart/CMakeLists.txt (built as a library, TV-remote controls, and
+rendering changes for the stick's GPU), and its game data is trimmed and converted for the stick
+(see "Game data" below).
+
+This program is free software under the GNU General Public License, version 3 or (at your option)
+any later version, and comes with NO WARRANTY. The licence text is in LICENSE.txt.
+
+This software is based in part on the work of the Independent JPEG Group.
+
+Source code
+-----------
+The complete source code for this build is at https://github.com/mitulshah3882/firetv-native
+(directory apps/supertuxkart). Third-party sources are not stored in that repository:
+tools/fetch-deps.sh downloads them at the exact versions listed below, and the repository's CMake
+files and apps/supertuxkart/make-assets.sh apply our changes to them at build time.
+
+SuperTuxKart
+------------
+- SuperTuxKart 1.5, https://github.com/supertuxkart/stk-code (release 1.5,
+  SuperTuxKart-1.5-src.tar.gz): code GPL-3.0-or-later, by the SuperTuxKart team. LICENSE.txt
+- Game data (assets/data): SuperTuxKart 1.5's data, converted by apps/supertuxkart/make-assets.sh:
+  3D textures larger than 512 px scaled down, opaque PNG textures turned into JPEG, model textures
+  precompressed to ASTC, music and sounds re-encoded at a lower Vorbis quality, and desktop icons,
+  the colour-emoji font and helper scripts removed. The converted files keep the licences of the
+  originals (GPL, CC BY, CC BY-SA and public domain), listed per file in assets/data/licenses.txt
+  and the licenses.txt files in its subdirectories. Credits: assets/data/CREDITS. Font licences:
+  assets/data/ttf. assets/data/cacert.pem is Mozilla's CA certificate bundle as extracted by curl;
+  see upstream (https://curl.se/docs/caextract.html).
+- The launcher icon and loading splash are made from a screenshot of SuperTuxKart running in this
+  app (Cornfield Crossing track), and keep the game art's licences.
+
+Our code
+--------
+- The port (apps/supertuxkart): GPL-3.0-or-later, Copyright (C) 2026 Mitul Shah. LICENSE.txt
+- vegaplat platform layer (engine/vegaplat) and build helpers: MIT, Copyright (c) 2026 Mitul
+  Shah. FIRETV-NATIVE-LICENSE.txt
+- SDL3 video and audio drivers for Vega (engine/sdl3-vega/src): zlib, Copyright (C) 2026 Mitul
+  Shah. SDL3-VEGA-LICENSE.txt
+
+Libraries built from source and linked into the app (licence files in this directory)
+-------------------------------------------------------------------------------------
+- SDL 3.4.18, https://github.com/libsdl-org/SDL (tag release-3.4.18): zlib, Copyright (C)
+  1997-2026 Sam Lantinga. SDL3-LICENSE.txt. SDL includes yuv2rgb, Copyright (c) 2016 Adrien
+  Descamps, BSD-3-Clause: SDL3-yuv2rgb-LICENSE.txt.
+- sdl2-compat 2.32.74, https://github.com/libsdl-org/sdl2-compat (tag release-2.32.74), patched
+  at build time to use the statically linked SDL3: zlib, Copyright (C) 2026 Sam Lantinga.
+  SDL2-COMPAT-LICENSE.txt
+- zlib 1.3.2, https://github.com/madler/zlib: zlib, Copyright (C) 1995-2026 Jean-loup Gailly and
+  Mark Adler. zlib-LICENSE.txt
+- libpng 1.6.58, https://github.com/pnggroup/libpng: PNG Reference Library License version 2.
+  libpng-LICENSE.txt
+- libjpeg-turbo 3.1.4.1, https://github.com/libjpeg-turbo/libjpeg-turbo: IJG License,
+  BSD-3-Clause and zlib. libjpeg-turbo-LICENSE.md, libjpeg-turbo-README.ijg.txt
+- FreeType 2.13.3, https://github.com/freetype/freetype (tag VER-2-13-3), used under the FreeType
+  License: portions of this software are copyright (C) 2024 The FreeType Project
+  (www.freetype.org). All rights reserved. freetype-LICENSE.txt, freetype-FTL.txt
+- HarfBuzz 14.6.0, https://github.com/harfbuzz/harfbuzz: "Old MIT" licence; its USE tables are
+  MIT, Copyright (c) Microsoft Corporation. harfbuzz-LICENSE.txt, harfbuzz-ms-use-LICENSE.txt
+- libogg 1.3.6 and libvorbis 1.3.7, https://github.com/xiph: BSD-3-Clause, Copyright (c) 2002
+  (libogg) and 2002-2020 (libvorbis) Xiph.org Foundation. libogg-LICENSE.txt,
+  libvorbis-LICENSE.txt
+- OpenAL Soft 1.24.3, https://github.com/kcat/openal-soft: LGPL-2.0-or-later (GNU Library
+  General Public License), with portions under BSD-3-Clause and a PFFFT licence, and a bundled
+  {fmt} 11.1.1 (MIT). openal-soft-LICENSE.txt, openal-soft-BSD-3Clause.txt,
+  openal-soft-pffft-LICENSE.txt, openal-soft-fmt-LICENSE.txt
+- Mbed TLS 3.6.7, https://github.com/Mbed-TLS/mbedtls: Apache-2.0 or GPL-2.0-or-later, at your
+  choice. mbedtls-LICENSE.txt
+- curl 8.23.0, https://github.com/curl/curl: curl licence (MIT-style), Copyright (c) 1996 - 2026
+  Daniel Stenberg and many contributors. curl-LICENSE.txt
+
+Libraries bundled with SuperTuxKart (lib/ in its source)
+--------------------------------------------------------
+- Irrlicht 1.8 (r4350), modified by the SuperTuxKart team: zlib-style licence, Copyright (C)
+  2002-2012 Nikolaus Gebhardt. Irrlicht is based in part on the work of the Independent JPEG
+  Group, zlib and libpng.
+- AngelScript: zlib-style licence, Copyright (c) 2003-2021 Andreas Jonsson.
+- Bullet Physics: zlib-style licence, Copyright (c) 2003-2006 Erwin Coumans.
+  stk-bullet-LICENSE.txt
+- dns.c: MIT, Copyright (c) 2008-2015 William Ahern. stk-dnsc-LICENSE.txt
+- ENet: MIT, Copyright (c) 2002-2019 Lee Salzman. stk-enet-LICENSE.txt
+- libsquish: MIT, Copyright (c) 2006 Simon Brown. stk-libsquish-LICENSE.txt
+- SheenBidi: Apache-2.0, Copyright (C) 2014-2019 Muhammad Tayyab Akram. stk-sheenbidi-LICENSE.txt
+- tinygettext: zlib, Copyright (c) 2004-2016 its authors. stk-tinygettext-LICENSE.txt
+- graphics_engine (part of SuperTuxKart, GPL-3.0-or-later), which includes the glad 2 OpenGL
+  loader (see upstream, https://github.com/Dav1dde/glad), Khronos headers (khrplatform.h,
+  MIT-style) and Vulkan Memory Allocator (licence below).
+- graphics_utils mipmap code: zlib-style licence, Copyright (c) 2008-2017 Alexis Naveros, with
+  functions by Julien Pommier and Jose Fonseca under the notices in its source.
+- mcpp: BSD-2-Clause (licence below).
+
+Notices reproduced as their licences require:
+
+    mcpp
+    Copyright (c) 1998, 2002-2008 Kiyoshi Matsui <kmatsui@t3.rim.or.jp>
+    All rights reserved.
+
+    Some parts of this code are derived from the public domain software
+    DECUS cpp (1984,1985) written by Martin Minow.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions
+    are met:
+    1. Redistributions of source code must retain the above copyright
+       notice, this list of conditions and the following disclaimer.
+    2. Redistributions in binary form must reproduce the above copyright
+       notice, this list of conditions and the following disclaimer in the
+       documentation and/or other materials provided with the distribution.
+
+    THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND
+    ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+    ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR BE LIABLE
+    FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+    DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+    OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+    HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+    LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+    OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+    SUCH DAMAGE.
+
+    Vulkan Memory Allocator
+    Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+    THE SOFTWARE.
+
+The app uses Vega OS system libraries that the device provides at run time. They are not part of
+this package.

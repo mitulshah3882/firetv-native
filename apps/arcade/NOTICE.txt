@@ -1,0 +1,60 @@
+Native Arcade: notice
+=====================
+
+Native Arcade is a TV launcher for the games in the firetv-native project, itself a native SDL3
+app on Fire TV's Vega OS. It starts the other apps through the system; it contains none of their
+code. Its music is generated live by its own synthesizer (src/synth.c).
+
+Source code
+-----------
+The complete source code for this build is at https://github.com/mitulshah3882/firetv-native
+(directory apps/arcade). Third-party sources are not stored in that repository:
+tools/fetch-deps.sh downloads them at the exact versions listed below, and the repository's CMake
+files apply any changes to them at build time.
+
+Components and licences (files in this directory unless noted)
+--------------------------------------------------------------
+- Native Arcade (apps/arcade): MIT, Copyright (c) 2026 Mitul Shah. FIRETV-NATIVE-LICENSE.txt
+- vegaplat platform layer (engine/vegaplat): MIT, Copyright (c) 2026 Mitul Shah.
+  FIRETV-NATIVE-LICENSE.txt
+- SDL3 video and audio drivers for Vega (engine/sdl3-vega/src): zlib, Copyright (C) 2026 Mitul
+  Shah. SDL3-VEGA-LICENSE.txt
+- SDL 3.4.18, https://github.com/libsdl-org/SDL (tag release-3.4.18): zlib, Copyright (C)
+  1997-2026 Sam Lantinga. SDL3-LICENSE.txt. SDL includes yuv2rgb, Copyright (c) 2016 Adrien
+  Descamps, BSD-3-Clause: SDL3-yuv2rgb-LICENSE.txt.
+- stb_truetype.h v1.26 by Sean Barrett, https://github.com/nothings/stb (commit
+  4e9b368bfc071e97206ea5c6adba68dd0cbf8897): public domain (Unlicense) or MIT, at your choice.
+- Fonts from https://github.com/google/fonts (commit 86aced91de05cd4f96a06838124cca45be337b2b),
+  SIL Open Font License 1.1:
+  - Chakra Petch (Regular, SemiBold, Bold): Copyright 2018 The Chakra Petch Project Authors.
+    Licence text: assets/fonts/OFL-ChakraPetch.txt
+  - Press Start 2P: Copyright 2012 The Press Start 2P Project Authors (cody@zone38.net), with
+    Reserved Font Name "Press Start 2P". Licence text: assets/fonts/OFL-PressStart2P.txt
+
+Game card art (assets/art)
+--------------------------
+Each card is cropped from a screenshot or render of that game running in this project, and keeps
+the licence of the game's artwork:
+- doom.png: Freedoom: Phase 2 (Freedoom 0.13.0), Copyright 2001-2024 Contributors to the
+  Freedoom project, BSD-3-Clause. https://github.com/freedoom/freedoom
+- quake.png: LibreQuake 0.09-beta, Copyright 2019-2023 Contributors to the LibreQuake project,
+  BSD-3-Clause. https://github.com/lavenderdotpet/LibreQuake
+- brewvolley.png: Brew Volley, MULLER Marian's N64brew Game Jam entry shipped as a libdragon
+  example (https://github.com/DragonMinded/libdragon, commit
+  39d0d6096130836a65710da6730290701d060272, examples/brew-volley): art CC0;
+  background photo "Coconut tree near shore within mountain range" by Elizeu Dias
+  (https://unsplash.com/photos/RN6ts8IZ4_0), Unsplash License.
+- supertux.png: SuperTux 0.7.0, game art by the SuperTux team, CC BY-SA 3.0 / GPL
+  (https://creativecommons.org/licenses/by-sa/3.0/). The crop is shared under the same licence.
+  https://github.com/SuperTux/supertux
+- supertuxkart.png: SuperTuxKart 1.5 (Cornfield Crossing track), game art by the SuperTuxKart
+  team, CC BY-SA 3.0/4.0, CC0 and GPL (https://creativecommons.org/licenses/by-sa/4.0/). The crop
+  is shared under the same licences. https://github.com/supertuxkart/stk-code
+- landgrab.png: Land Grab by Meeq (N64brew Game Jam 2024, MIT,
+  https://github.com/n64brew/N64brew-GameJam2024); its text uses the fonts "Anita Semi-Square" by
+  Gustavo Paz L. and "Banana Brick" by artmaker (SIL OFL 1.1).
+- gravitychoir.png: Gravity Choir, this project's original game (MIT).
+The launcher icon is the arcade's own logo.
+
+The app uses Vega OS system libraries that the device provides at run time. They are not part of
+this package.

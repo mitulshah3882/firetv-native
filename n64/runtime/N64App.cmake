@@ -33,6 +33,12 @@ function(n64_add_recomp_app target)
     configure_file("${CMAKE_CURRENT_SOURCE_DIR}/icon/icon.png" "${pkgroot}/assets/image/icon.png" COPYONLY)
   endif()
 
+  # Licences of what every recompiled program contains: libdragon (linked into the N64 program) and
+  # N64Recomp (its recomp.h is compiled in). Apps register their own credits before this call.
+  vega_app_license(LIBDRAGON-LICENSE.md
+    "${N64RT_REPO}/third_party/_src/libdragon-39d0d6096130836a65710da6730290701d060272/LICENSE.md")
+  vega_app_license(N64RECOMP-LICENSE.txt "${N64RT_REPO}/third_party/_src/N64Recomp-598ce20/LICENSE")
+
   vega_add_sdl3_app(${target} PACKAGE_ID "${arg_PACKAGE_ID}"
     SOURCES "${rt}/n64_main.c" "${rt}/hle_libdragon.c" "${rt}/hle_rdpq.c" "${rt}/hle_audio.c" "${rt}/n64rt.cpp"
     ASSETS_DIR "${pkgroot}")

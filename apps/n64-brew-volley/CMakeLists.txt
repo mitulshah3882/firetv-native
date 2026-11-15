@@ -15,6 +15,11 @@ include(vpt)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../engine/sdl3-vega/SDL3Vega.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../n64/runtime/N64App.cmake)
 
+# Upstream credits and the font's licence (assets/licenses/, see NOTICE.txt).
+vega_app_license(BREW-VOLLEY-README.md
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/_src/libdragon-39d0d6096130836a65710da6730290701d060272/examples/brew-volley/README.md")
+vega_app_license(OFL-Pacifico.txt "${CMAKE_CURRENT_SOURCE_DIR}/OFL-Pacifico.txt")
+
 n64_add_recomp_app(n64_brew_volley PACKAGE_ID "com.firetvnative.n64.brewvolley" GAME brew_volley)
 target_link_libraries(n64_brew_volley PRIVATE m)
 vpt_create_package(NAME n64-brew-volley)

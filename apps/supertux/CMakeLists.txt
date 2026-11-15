@@ -59,6 +59,13 @@ if(NOT EXISTS "${PKGROOT}/assets/data")
   file(CREATE_LINK "${ST_SRC}/data" "${PKGROOT}/assets/data" SYMBOLIC)
 endif()
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/icon/icon.png" "${PKGROOT}/assets/image/icon.png" COPYONLY)
+# Licences of the libraries SuperTux bundles in external/ (assets/licenses/; see NOTICE.txt).
+foreach(_l SDL_ttf/COPYING.txt findlocale/LICENSE simplesquirrel/LICENSE
+           simplesquirrel/libs/squirrel/COPYRIGHT tinygettext/LICENSE.md)
+  get_filename_component(_n "${_l}" DIRECTORY)
+  get_filename_component(_n "${_n}" NAME)
+  vega_app_license("supertux-${_n}-LICENSE.txt" "${ST_SRC}/external/${_l}")
+endforeach()
 
 vega_add_sdl2_app(supertux PACKAGE_ID "com.firetvnative.supertux" SOURCES src/vega_main.cpp ASSETS_DIR "${PKGROOT}")
 target_link_libraries(supertux PRIVATE supertux2)

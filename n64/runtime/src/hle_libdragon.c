@@ -6,10 +6,11 @@
  *
  * Each function receives the recompiled calling convention (o64): arguments in a0-a3 and 8-byte
  * stack slots, floats passed as raw bits in integer registers, struct returns through a hidden
- * pointer in a0, results in v0.
+ * pointer in a0, results in v0 (f0 for floats).
  *
  * Graphics: the program draws into an SDL texture at the N64 resolution; rdpq_detach_show() scales
- * it to the TV at 4:3. Sprites and font atlases are decoded once from RDRAM into SDL textures.
+ * it to the TV at 4:3. The RDP command layer (render modes, rectangles, textures, rspq blocks)
+ * is in hle_rdpq.c; this file has the display, text glyphs, input, timers and cartridge access.
  *
  * SPDX-FileCopyrightText: 2026 Mitul Shah
  * SPDX-License-Identifier: MIT
@@ -17,45 +18,19 @@
 #include <SDL3/SDL.h>
 #include <math.h>
 
-#include "n64rt.h"
+#include "hle_internal.h"
 
-/* Recompiled libdragon helpers we call when present (weak: absent in programs that never link them). */
-extern void n64_sprite_get_palette(uint8_t *rdram, recomp_context *ctx) __attribute__((weak));
-
-enum { MODE_STANDARD = 0, MODE_COPY = 1 };
+HleVideo hle_video;
 
 typedef struct {
-    uint32_t key;      /* sprite address (+ layer for 1bpp font layers) */
-    SDL_Texture *tex;
-    int w, h;
-} TexEntry;
-
-typedef struct {
-    int kind;          /* 0 = blit, 1 = mode */
-    int mode;
-    uint32_t sprite;
-    float x, y, sx, sy, theta;
-    int s0, t0, w, h, cx, cy;
-    bool flip_x, flip_y;
-} Op;
-
-typedef struct {
-    Op *ops;
-    int n, cap;
-} Block;
+    uint16_t cur, prev;
+    int8_t sx, sy;          /* analog stick, N64 range (about +-85) */
+    int8_t psx, psy;
+} PadState;
 
 static struct {
-    SDL_Renderer *r;
-    SDL_Texture *fb;
-    int w, h;
     uint32_t surface;
-    int mode;
-    TexEntry tex[256];
-    int ntex;
-    Block blocks[32];
-    int nblocks;
-    int recording;     /* block index + 1 while recording */
-    uint16_t buttons[4];
+    PadState pad[4];
     bool connected[4];
     uint64_t frames;
     const char *shot_path;
@@ -63,14 +38,19 @@ static struct {
     uint64_t stat_t0;
     int stat_frames;
     uint64_t t0_ns;
+    uint64_t last_show_ns;
+    float delta;            /* seconds between the last two frames */
+    float fps;
 } G;
 
 void hle_set_renderer(SDL_Renderer *r) {
-    G.r = r;
+    hle_video.r = r;
     G.shot_path = SDL_getenv("N64_SHOT");
     const char *n = SDL_getenv("N64_SHOT_FRAMES");
     G.shot_frames = n ? SDL_atoi(n) : 60;
     G.t0_ns = SDL_GetTicksNS();
+    G.delta = 1.0f / 60;
+    G.fps = 60;
 }
 
 static float bits_f(uint32_t b) { return n64_bits_to_float(b); }
@@ -82,12 +62,12 @@ uint32_t n64rt_sym_rdpq_inited;
  * Display
  * ============================================================================================== */
 static void ensure_fb(int w, int h) {
-    if (G.fb && G.w == w && G.h == h) return;
-    if (G.fb) SDL_DestroyTexture(G.fb);
-    G.w = w;
-    G.h = h;
-    G.fb = SDL_CreateTexture(G.r, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, w, h);
-    SDL_SetTextureScaleMode(G.fb, SDL_SCALEMODE_LINEAR);
+    if (hle_video.fb && hle_video.w == w && hle_video.h == h) return;
+    if (hle_video.fb) SDL_DestroyTexture(hle_video.fb);
+    hle_video.w = w;
+    hle_video.h = h;
+    hle_video.fb = SDL_CreateTexture(hle_video.r, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, w, h);
+    SDL_SetTextureScaleMode(hle_video.fb, SDL_SCALEMODE_LINEAR);
 }
 
 /* void display_init(resolution_t res, ...): res arrives by value, width/height packed in a0. */
@@ -99,23 +79,28 @@ void n64_display_init(uint8_t *rdram, recomp_context *ctx) {
     if (!G.surface) G.surface = n64rt_alloc(64, 16);
     n64rt_log("display_init %dx%d", w, h);
 }
-void n64_display_get_width(uint8_t *rdram, recomp_context *ctx) { (void)rdram; n64_ret32(ctx, (uint32_t)G.w); }
-void n64_display_get_height(uint8_t *rdram, recomp_context *ctx) { (void)rdram; n64_ret32(ctx, (uint32_t)G.h); }
+void n64_display_close(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
+void n64_display_get_width(uint8_t *rdram, recomp_context *ctx) { (void)rdram; n64_ret32(ctx, (uint32_t)hle_video.w); }
+void n64_display_get_height(uint8_t *rdram, recomp_context *ctx) { (void)rdram; n64_ret32(ctx, (uint32_t)hle_video.h); }
+/* float display_get_delta_time(void), float display_get_fps(void). Headless screenshot runs
+ * (N64_SHOT) advance a fixed 1/60 s per frame, so frame N is always the same moment of the game. */
+void n64_display_get_delta_time(uint8_t *rdram, recomp_context *ctx) { (void)rdram; ctx->f0.fl = G.shot_path ? 1.0f / 60 : G.delta; }
+void n64_display_get_fps(uint8_t *rdram, recomp_context *ctx) { (void)rdram; ctx->f0.fl = G.fps; }
 
 static uint32_t current_surface(uint8_t *rdram) {
     if (!G.surface) G.surface = n64rt_alloc(64, 16);
     /* surface_t { uint16_t flags, width, height, stride; void *buffer; } */
     n64_w16(rdram, G.surface + 0, 2 /* FMT_RGBA16 */);
-    n64_w16(rdram, G.surface + 2, (uint16_t)G.w);
-    n64_w16(rdram, G.surface + 4, (uint16_t)G.h);
-    n64_w16(rdram, G.surface + 6, (uint16_t)(G.w * 2));
+    n64_w16(rdram, G.surface + 2, (uint16_t)hle_video.w);
+    n64_w16(rdram, G.surface + 4, (uint16_t)hle_video.h);
+    n64_w16(rdram, G.surface + 6, (uint16_t)(hle_video.w * 2));
     return G.surface;
 }
 void n64_display_get(uint8_t *rdram, recomp_context *ctx) { n64_ret32(ctx, current_surface(rdram)); }
 void n64_display_try_get(uint8_t *rdram, recomp_context *ctx) { n64_ret32(ctx, current_surface(rdram)); }
 
 /* ================================================================================================
- * RDPQ: attach/clear/show and modes
+ * RDPQ: init, attach, clear (the rest of rdpq is in hle_rdpq.c)
  * ============================================================================================== */
 void n64_rdpq_init(uint8_t *rdram, recomp_context *ctx) {
     (void)ctx;
@@ -126,193 +111,22 @@ void n64_rdpq_init(uint8_t *rdram, recomp_context *ctx) {
 void n64_rdpq_attach(uint8_t *rdram, recomp_context *ctx) {
     (void)rdram;
     (void)ctx;
-    SDL_SetRenderTarget(G.r, G.fb);
+    SDL_SetRenderTarget(hle_video.r, hle_video.fb);
+    hle_rdpq_frame_begin();
 }
 
 void n64_rdpq_attach_clear(uint8_t *rdram, recomp_context *ctx) {
-    (void)rdram;
-    (void)ctx;
-    SDL_SetRenderTarget(G.r, G.fb);
-    SDL_SetRenderDrawColor(G.r, 0, 0, 0, 255);
-    SDL_RenderClear(G.r);
+    n64_rdpq_attach(rdram, ctx);
+    SDL_SetRenderDrawColor(hle_video.r, 0, 0, 0, 255);
+    SDL_RenderClear(hle_video.r);
 }
 
 /* void __rdpq_clear(const color_t *color) */
 void n64___rdpq_clear(uint8_t *rdram, recomp_context *ctx) {
     const uint32_t c = n64_r32(rdram, (uint32_t)ctx->r4);
-    SDL_SetRenderDrawColor(G.r, c >> 24, (c >> 16) & 0xFF, (c >> 8) & 0xFF, 0xFF);
-    SDL_RenderClear(G.r);
+    SDL_SetRenderDrawColor(hle_video.r, c >> 24, (c >> 16) & 0xFF, (c >> 8) & 0xFF, 0xFF);
+    SDL_RenderClear(hle_video.r);
 }
-
-static void record_or_run(const Op *op);
-
-void n64_rdpq_set_mode_copy(uint8_t *rdram, recomp_context *ctx) {
-    (void)rdram;
-    (void)ctx;
-    Op op = {.kind = 1, .mode = MODE_COPY};
-    record_or_run(&op);
-}
-void n64_rdpq_set_mode_standard(uint8_t *rdram, recomp_context *ctx) {
-    (void)rdram;
-    (void)ctx;
-    Op op = {.kind = 1, .mode = MODE_STANDARD};
-    record_or_run(&op);
-}
-
-/* ================================================================================================
- * Sprites and textures
- * ============================================================================================== */
-static void rgba16(uint16_t p, uint8_t *out) {
-    out[0] = (uint8_t)(((p >> 11) & 31) * 255 / 31);
-    out[1] = (uint8_t)(((p >> 6) & 31) * 255 / 31);
-    out[2] = (uint8_t)(((p >> 1) & 31) * 255 / 31);
-    out[3] = (p & 1) ? 255 : 0;
-}
-
-/* Decodes an N64 texture in RDRAM into RGBA8888. `layer` >= 0 extracts one 1-bit layer of a CI4
- * "mono" font atlas; `mask` treats intensity formats as an alpha mask (for font glyphs). */
-static SDL_Texture *texture_for(uint8_t *rdram, recomp_context *ctx, uint32_t sprite, int layer, bool mask) {
-    const uint32_t key = sprite ^ (uint32_t)(layer + 1) << 28 ^ (mask ? 0x40000000u : 0);
-    for (int i = 0; i < G.ntex; ++i)
-        if (G.tex[i].key == key) return G.tex[i].tex;
-    const int w = n64_r16(rdram, sprite), h = n64_r16(rdram, sprite + 2);
-    const int fmt = n64_r8(rdram, sprite + 5) & 0x1F;
-    const uint32_t data = sprite + 8;
-    if (w <= 0 || h <= 0 || w > 2048 || h > 2048) return NULL;
-    uint32_t pal = 0;
-    if ((fmt == 8 || fmt == 9) && n64_sprite_get_palette) pal = (uint32_t)n64rt_call(ctx, n64_sprite_get_palette, sprite, 0, 0, 0);
-    const int bpp = 4 << (fmt & 3); /* TEX_FORMAT_BITDEPTH */
-    const int stride = (w * bpp + 7) / 8;
-    uint8_t *px = (uint8_t *)SDL_malloc((size_t)w * h * 4);
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            uint8_t *o = px + ((size_t)y * w + x) * 4;
-            const uint32_t row = data + (uint32_t)(y * stride);
-            uint32_t v = 0;
-            if (bpp == 4) v = (n64_r8(rdram, row + x / 2) >> ((x & 1) ? 0 : 4)) & 0xF;
-            else if (bpp == 8) v = n64_r8(rdram, row + x);
-            else if (bpp == 16) v = (uint32_t)n64_r8(rdram, row + x * 2) << 8 | n64_r8(rdram, row + x * 2 + 1);
-            else v = n64_r32(rdram, row + x * 4);
-            switch (fmt) {
-                case 2: rgba16((uint16_t)v, o); break;                                   /* RGBA16 */
-                case 3: o[0] = v >> 24; o[1] = v >> 16; o[2] = v >> 8; o[3] = v; break;  /* RGBA32 */
-                case 8: case 9:                                                          /* CI4/CI8 */
-                    if (layer >= 0) {
-                        const uint8_t on = (v >> (3 - layer)) & 1;
-                        o[0] = o[1] = o[2] = 255;
-                        o[3] = on ? 255 : 0;
-                    } else if (pal) {
-                        rgba16(n64_r16(rdram, pal + v * 2), o);
-                    } else {
-                        o[0] = o[1] = o[2] = (uint8_t)(v * (fmt == 8 ? 17 : 1));
-                        o[3] = 255;
-                    }
-                    break;
-                case 12: { const uint8_t i = (uint8_t)((v >> 1) * 255 / 7); o[0] = o[1] = o[2] = mask ? 255 : i; o[3] = (v & 1) ? 255 : 0; } break;  /* IA4 */
-                case 13: { const uint8_t i = (uint8_t)((v >> 4) * 17); o[0] = o[1] = o[2] = mask ? 255 : i; o[3] = (uint8_t)((v & 15) * 17); } break; /* IA8 */
-                case 14: o[0] = o[1] = o[2] = mask ? 255 : (uint8_t)(v >> 8); o[3] = (uint8_t)v; break;                                                /* IA16 */
-                case 16: { const uint8_t i = (uint8_t)(v * 17); o[0] = o[1] = o[2] = mask ? 255 : i; o[3] = i; } break;                              /* I4 */
-                case 17: o[0] = o[1] = o[2] = mask ? 255 : (uint8_t)v; o[3] = (uint8_t)v; break;                                                     /* I8 */
-                default: o[0] = 255; o[1] = 0; o[2] = 255; o[3] = 255; break;
-            }
-        }
-    }
-    SDL_Texture *t = SDL_CreateTexture(G.r, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, w, h);
-    SDL_UpdateTexture(t, NULL, px, w * 4);
-    SDL_free(px);
-    SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
-    SDL_SetTextureScaleMode(t, SDL_SCALEMODE_NEAREST);
-    if (G.ntex < (int)SDL_arraysize(G.tex)) G.tex[G.ntex++] = (TexEntry){key, t, w, h};
-    n64rt_log("texture %08X: %dx%d fmt %d%s", sprite, w, h, fmt, layer >= 0 ? " (font layer)" : "");
-    return t;
-}
-
-static void draw_op(uint8_t *rdram, recomp_context *ctx, const Op *op) {
-    if (op->kind == 1) {
-        G.mode = op->mode;
-        return;
-    }
-    SDL_Texture *t = texture_for(rdram, ctx, op->sprite, -1, false);
-    if (!t) return;
-    float tw, th;
-    SDL_GetTextureSize(t, &tw, &th);
-    const SDL_FRect src = {(float)op->s0, (float)op->t0, op->w ? (float)op->w : tw - op->s0, op->h ? (float)op->h : th - op->t0};
-    const SDL_FRect dst = {op->x - op->cx * op->sx, op->y - op->cy * op->sy, src.w * op->sx, src.h * op->sy};
-    SDL_SetTextureBlendMode(t, G.mode == MODE_COPY ? SDL_BLENDMODE_NONE : SDL_BLENDMODE_BLEND);
-    SDL_SetTextureScaleMode(t, (op->sx == 1 && op->sy == 1) ? SDL_SCALEMODE_NEAREST : SDL_SCALEMODE_LINEAR);
-    SDL_SetTextureColorMod(t, 255, 255, 255);
-    SDL_SetTextureAlphaMod(t, 255);
-    const SDL_FlipMode flip = (SDL_FlipMode)((op->flip_x ? SDL_FLIP_HORIZONTAL : 0) | (op->flip_y ? SDL_FLIP_VERTICAL : 0));
-    if (op->theta != 0 || flip) {
-        const SDL_FPoint c = {op->cx * op->sx, op->cy * op->sy};
-        SDL_RenderTextureRotated(G.r, t, &src, &dst, -op->theta * 180.0 / SDL_PI_D, &c, flip);
-    } else {
-        SDL_RenderTexture(G.r, t, &src, &dst);
-    }
-}
-
-static uint8_t *g_rdram_for_blocks;
-static recomp_context *g_ctx_for_blocks;
-
-static void record_or_run(const Op *op) {
-    if (G.recording) {
-        Block *b = &G.blocks[G.recording - 1];
-        if (b->n == b->cap) {
-            b->cap = b->cap ? b->cap * 2 : 16;
-            b->ops = (Op *)SDL_realloc(b->ops, sizeof(Op) * b->cap);
-        }
-        b->ops[b->n++] = *op;
-    } else {
-        draw_op(g_rdram_for_blocks, g_ctx_for_blocks, op);
-    }
-}
-
-/* void rdpq_sprite_blit(sprite_t *sprite, float x0, float y0, const rdpq_blitparms_t *parms) */
-void n64_rdpq_sprite_blit(uint8_t *rdram, recomp_context *ctx) {
-    g_rdram_for_blocks = rdram;
-    g_ctx_for_blocks = ctx;
-    const uint32_t parms = (uint32_t)ctx->r7;
-    Op op = {.kind = 0, .sprite = (uint32_t)ctx->r4, .x = bits_f((uint32_t)ctx->r5), .y = bits_f((uint32_t)ctx->r6), .sx = 1, .sy = 1};
-    if (parms) {
-        op.s0 = (int32_t)n64_r32(rdram, parms + 4);
-        op.t0 = (int32_t)n64_r32(rdram, parms + 8);
-        op.w = (int32_t)n64_r32(rdram, parms + 12);
-        op.h = (int32_t)n64_r32(rdram, parms + 16);
-        op.flip_x = n64_r8(rdram, parms + 20) != 0;
-        op.flip_y = n64_r8(rdram, parms + 21) != 0;
-        op.cx = (int32_t)n64_r32(rdram, parms + 24);
-        op.cy = (int32_t)n64_r32(rdram, parms + 28);
-        const float sx = bits_f(n64_r32(rdram, parms + 32)), sy = bits_f(n64_r32(rdram, parms + 36));
-        op.sx = sx ? sx : 1;
-        op.sy = sy ? sy : 1;
-        op.theta = bits_f(n64_r32(rdram, parms + 40));
-    }
-    record_or_run(&op);
-}
-
-/* rspq blocks: record the HLE draw ops issued between begin and end, replay them on run. */
-void n64_rspq_block_begin_reuse(uint8_t *rdram, recomp_context *ctx) {
-    (void)rdram;
-    (void)ctx;
-    if (G.nblocks < (int)SDL_arraysize(G.blocks)) {
-        G.blocks[G.nblocks].n = 0;
-        G.recording = ++G.nblocks;
-    }
-}
-void n64_rspq_block_begin(uint8_t *rdram, recomp_context *ctx) { n64_rspq_block_begin_reuse(rdram, ctx); }
-void n64_rspq_block_end(uint8_t *rdram, recomp_context *ctx) {
-    (void)rdram;
-    n64_ret32(ctx, G.recording ? 0x80000000u | (uint32_t)G.recording : 0); /* opaque handle */
-    G.recording = 0;
-}
-void n64_rspq_block_run(uint8_t *rdram, recomp_context *ctx) {
-    const uint32_t h = (uint32_t)ctx->r4;
-    if ((h & 0xFFFFFF00u) != 0x80000000u) return;
-    const int idx = (int)(h & 0xFF) - 1;
-    if (idx < 0 || idx >= G.nblocks) return;
-    for (int i = 0; i < G.blocks[idx].n; ++i) draw_op(rdram, ctx, &G.blocks[idx].ops[i]);
-}
-
 /* ================================================================================================
  * Text: libdragon lays out the paragraph (recompiled); we draw the glyphs.
  * int rdpq_font_render_paragraph(const rdpq_font_t *fnt, const rdpq_paragraph_char_t *chars,
@@ -347,17 +161,29 @@ void n64_rdpq_font_render_paragraph(uint8_t *rdram, recomp_context *ctx) {
         const SDL_FRect src = {(float)s, (float)t, (float)(xoff2 - xoff), (float)(yoff2 - yoff)};
         const SDL_FRect dst = {x0 + cx + xoff, y0 + cy + yoff, src.w, src.h};
         const uint32_t style_at = styles + (uint32_t)style * 16;
+        if (type == 3) {
+            /* ALIASED_OUTLINE: an IA8 atlas whose intensity mixes the fill (PRIM) and outline (ENV)
+             * colours, as libdragon's combiner does: (PRIM-ENV)*TEX0+ENV, alpha TEX0*PRIM. */
+            HleTex *ht = hle_sprite_texture(rdram, ctx, sprite, -1, false);
+            if (ht) {
+                static uint64_t cc;
+                if (!cc) cc = hle_cc1(3, 5, 1, 5, 1, 7, 3, 7);
+                hle_draw_combined(ht, &src, &dst, cc, HLE_BLENDER_MULTIPLY, n64_r32(rdram, style_at), n64_r32(rdram, style_at + 4));
+            }
+            continue;
+        }
         for (int pass = (type == 2 ? 0 : 1); pass < 2; ++pass) {
             const int layer = (type == 1) ? ntile : (type == 2 ? ntile * 2 + pass : -1);
             const uint32_t col = n64_r32(rdram, style_at + (pass == 0 ? 4 : 0));  /* outline_color : color */
             if (pass == 0 && (col & 0xFF) == 0) continue;
-            SDL_Texture *tex = texture_for(rdram, ctx, sprite, layer, type != 4);
-            if (!tex) continue;
+            HleTex *ht = hle_sprite_texture(rdram, ctx, sprite, layer, type != 4);
+            if (!ht) continue;
+            SDL_Texture *tex = ht->tex;
             SDL_SetTextureColorMod(tex, col >> 24, (col >> 16) & 0xFF, (col >> 8) & 0xFF);
             SDL_SetTextureAlphaMod(tex, col & 0xFF);
             SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
             SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_NEAREST);
-            SDL_RenderTexture(G.r, tex, &src, &dst);
+            SDL_RenderTexture(hle_video.r, tex, &src, &dst);
         }
     }
     n64_ret32(ctx, (uint32_t)n);
@@ -390,33 +216,59 @@ static void handle_events(void) {
 }
 
 static void present(void) {
-    SDL_SetRenderTarget(G.r, NULL);
-    SDL_SetRenderDrawColor(G.r, 0, 0, 0, 255);
-    SDL_RenderClear(G.r);
+    SDL_Renderer *r = hle_video.r;
+    SDL_SetRenderTarget(r, NULL);
+    SDL_SetRenderClipRect(r, NULL);
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
+    SDL_RenderClear(r);
     int ow = 0, oh = 0;
-    SDL_GetCurrentRenderOutputSize(G.r, &ow, &oh);
+    SDL_GetCurrentRenderOutputSize(r, &ow, &oh);
     float dh = (float)oh, dw = dh * 4.0f / 3.0f;
     if (dw > ow) { dw = (float)ow; dh = dw * 3.0f / 4.0f; }
     const SDL_FRect dst = {(ow - dw) / 2, (oh - dh) / 2, dw, dh};
-    SDL_RenderTexture(G.r, G.fb, NULL, &dst);
+    SDL_SetTextureBlendMode(hle_video.fb, SDL_BLENDMODE_NONE);
+    SDL_RenderTexture(r, hle_video.fb, NULL, &dst);
     if (G.shot_path && (int)G.frames + 1 >= G.shot_frames) {
-        SDL_Surface *s = SDL_RenderReadPixels(G.r, NULL);
+        SDL_Surface *s = SDL_RenderReadPixels(r, NULL);
         if (s && SDL_SavePNG(s, G.shot_path)) n64rt_log("wrote %s", G.shot_path);
         SDL_DestroySurface(s);
         n64rt_exit(0);
     }
-    SDL_RenderPresent(G.r);
+    /* N64_SHOTS=<dir>,<every>: also save a frame every <every> frames (for watching a headless run). */
+    static const char *shots = (const char *)1;
+    if (shots == (const char *)1) shots = SDL_getenv("N64_SHOTS");
+    if (shots) {
+        char dir[400];
+        int every = 60;
+        const char *comma = SDL_strchr(shots, ',');
+        SDL_strlcpy(dir, shots, comma ? (size_t)(comma - shots + 1) : sizeof dir);
+        if (comma) every = SDL_max(1, SDL_atoi(comma + 1));
+        if (G.frames % (uint64_t)every == 0) {
+            char path[512];
+            SDL_snprintf(path, sizeof path, "%s/frame%05d.png", dir, (int)G.frames);
+            SDL_Surface *s = SDL_RenderReadPixels(r, NULL);
+            if (s) SDL_SavePNG(s, path);
+            SDL_DestroySurface(s);
+        }
+    }
+    SDL_RenderPresent(r);
     ++G.frames;
     ++G.stat_frames;
     const uint64_t now = SDL_GetTicksNS();
+    if (G.last_show_ns) {
+        const float d = (float)((now - G.last_show_ns) / 1e9);
+        G.delta = d > 0.25f ? 0.25f : d;
+    }
+    G.last_show_ns = now;
     if (!G.stat_t0) G.stat_t0 = now;
     if (now - G.stat_t0 > 10000000000ull) {
-        n64rt_log("%.1f fps", G.stat_frames / ((now - G.stat_t0) / 1e9));
+        G.fps = (float)(G.stat_frames / ((now - G.stat_t0) / 1e9));
+        n64rt_log("%.1f fps", G.fps);
         G.stat_t0 = now;
         G.stat_frames = 0;
     }
     handle_events();
-    SDL_SetRenderTarget(G.r, G.fb);
+    SDL_SetRenderTarget(r, hle_video.fb);
     /* Debug aid: N64_WATCH=<addr> logs 5 floats at that N64 address every 10 frames. */
     static uint32_t watch = 1;
     if (watch == 1) { const char *w = SDL_getenv("N64_WATCH"); watch = w ? (uint32_t)SDL_strtoul(w, NULL, 16) : 0; }
@@ -429,27 +281,124 @@ static void present(void) {
 
 void n64_rdpq_detach_show(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; present(); }
 void n64_rdpq_detach_wait(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
+void n64_rdpq_detach(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
 void n64_display_show(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; present(); }
 
 /* ================================================================================================
  * Controllers: port 0 = Fire TV remote (+ first gamepad when there are two); then gamepads.
  * joypad_buttons_t is a big-endian bitfield: A=0x8000 B=0x4000 Z=0x2000 START=0x1000
  * D-up/down/left/right=0x0800/0x0400/0x0200/0x0100, L=0x20 R=0x10, C-up/down/left/right=8/4/2/1.
+ *
+ * The remote has OK, the D-pad, Menu and three media keys. Their N64 buttons default to
+ * OK=A, Menu=START, Play/Pause=B, Rewind=C-left, Fast-forward=C-right, and a program can change
+ * them with N64_REMOTE_MAP="playpause=R,playpause_hold=L,menu_hold=B" (env, or the compile-time
+ * default N64_REMOTE_MAP_DEFAULT). A "<key>_hold" entry makes that key tap-or-hold. On a computer
+ * the keyboard adds X=B, Z=Z, Q=L, W=R, S=START and I/J/K/L for the C buttons; Return/Space is OK,
+ * Menu, and the media keys follow the remote's mapping.
+ *
+ * Headless test aids: N64_FAKE_PAD0=<hex> holds port 0's buttons; N64_PAD_SCRIPT=
+ * "<from>-<to>:<hex>,..." presses buttons on port 0 during frame ranges; N64_PADS=<n> sets how
+ * many controllers report as connected (0 lets the AI play every seat).
  * ============================================================================================== */
+enum { BTN_A = 0x8000, BTN_B = 0x4000, BTN_Z = 0x2000, BTN_START = 0x1000, BTN_DU = 0x0800, BTN_DD = 0x0400,
+       BTN_DL = 0x0200, BTN_DR = 0x0100, BTN_L = 0x20, BTN_R = 0x10, BTN_CU = 8, BTN_CD = 4, BTN_CL = 2, BTN_CR = 1 };
+
+static uint16_t button_named(const char *n, size_t len) {
+    static const struct { const char *name; uint16_t bit; } names[] = {
+        {"A", BTN_A}, {"B", BTN_B}, {"Z", BTN_Z}, {"START", BTN_START}, {"L", BTN_L}, {"R", BTN_R},
+        {"CU", BTN_CU}, {"CD", BTN_CD}, {"CL", BTN_CL}, {"CR", BTN_CR}, {"DU", BTN_DU}, {"DD", BTN_DD},
+        {"DL", BTN_DL}, {"DR", BTN_DR}, {"NONE", 0},
+    };
+    for (size_t i = 0; i < SDL_arraysize(names); i++)
+        if (SDL_strlen(names[i].name) == len && SDL_strncasecmp(n, names[i].name, len) == 0) return names[i].bit;
+    return 0;
+}
+
+/* Remote keys. A key with a "_hold" mapping is tap-or-hold: a tap sends its button for a few polls
+ * on release, holding it past REMOTE_HOLD_MS sends the hold button for as long as it stays down. */
+enum { RK_OK, RK_MENU, RK_PLAYPAUSE, RK_REWIND, RK_FF, RK_COUNT, REMOTE_HOLD_MS = 450, REMOTE_TAP_POLLS = 3 };
+static const char *const rk_names[RK_COUNT] = {"ok", "menu", "playpause", "rewind", "ff"};
+typedef struct {
+    uint16_t tap, hold;
+    bool down, held;
+    uint64_t t0;
+    int pulse;
+} RemoteKey;
+static struct { RemoteKey key[RK_COUNT]; bool loaded; } g_remote;
+
+static void load_remote_map(void) {
+    static const uint16_t defaults[RK_COUNT] = {BTN_A, BTN_START, BTN_B, BTN_CL, BTN_CR};
+    for (int i = 0; i < RK_COUNT; i++) g_remote.key[i] = (RemoteKey){.tap = defaults[i]};
+    g_remote.loaded = true;
+#ifdef N64_REMOTE_MAP_DEFAULT
+    const char *map = N64_REMOTE_MAP_DEFAULT;
+#else
+    const char *map = "";
+#endif
+    if (SDL_getenv("N64_REMOTE_MAP")) map = SDL_getenv("N64_REMOTE_MAP");
+    for (const char *p = map; *p;) {
+        const char *eq = SDL_strchr(p, '='), *end = SDL_strchr(p, ',');
+        if (!end) end = p + SDL_strlen(p);
+        if (eq && eq < end) {
+            size_t kl = (size_t)(eq - p);
+            const uint16_t bit = button_named(eq + 1, (size_t)(end - eq - 1));
+            const bool hold = kl > 5 && !SDL_strncasecmp(eq - 5, "_hold", 5);
+            if (hold) kl -= 5;
+            for (int i = 0; i < RK_COUNT; i++) {
+                if (SDL_strlen(rk_names[i]) == kl && !SDL_strncasecmp(p, rk_names[i], kl)) {
+                    if (hold) g_remote.key[i].hold = bit;
+                    else g_remote.key[i].tap = bit;
+                }
+            }
+        }
+        p = *end ? end + 1 : end;
+    }
+}
+
+static uint16_t remote_key(int i, bool down) {
+    RemoteKey *k = &g_remote.key[i];
+    if (!k->hold) return down ? k->tap : 0;
+    const uint64_t now = SDL_GetTicks();
+    uint16_t out = 0;
+    if (down && !k->down) { k->down = true; k->held = false; k->t0 = now; }
+    if (down && !k->held && now - k->t0 >= REMOTE_HOLD_MS) k->held = true;
+    if (!down && k->down) {
+        k->down = false;
+        if (!k->held) k->pulse = REMOTE_TAP_POLLS;
+    }
+    if (k->down && k->held) out |= k->hold;
+    if (k->pulse > 0) { k->pulse--; out |= k->tap; }
+    return out;
+}
+
+static int8_t stick_value(int axis) { return (int8_t)(axis * 85 / 32767); }
+
 static uint16_t pad_buttons(SDL_Gamepad *p) {
     uint16_t b = 0;
-    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_SOUTH)) b |= 0x8000;
-    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_EAST) || SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_WEST)) b |= 0x4000;
-    if (SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 16000) b |= 0x2000;
-    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_START)) b |= 0x1000;
+    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_SOUTH)) b |= BTN_A;
+    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_EAST) || SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_WEST)) b |= BTN_B;
+    if (SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 16000) b |= BTN_Z;
+    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_START)) b |= BTN_START;
     const int lx = SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_LEFTX), ly = SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_LEFTY);
-    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_DPAD_UP) || ly < -16000) b |= 0x0800;
-    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_DPAD_DOWN) || ly > 16000) b |= 0x0400;
-    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_DPAD_LEFT) || lx < -16000) b |= 0x0200;
-    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || lx > 16000) b |= 0x0100;
-    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER)) b |= 0x0020;
-    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)) b |= 0x0010;
+    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_DPAD_UP) || ly < -16000) b |= BTN_DU;
+    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_DPAD_DOWN) || ly > 16000) b |= BTN_DD;
+    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_DPAD_LEFT) || lx < -16000) b |= BTN_DL;
+    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || lx > 16000) b |= BTN_DR;
+    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER)) b |= BTN_L;
+    if (SDL_GetGamepadButton(p, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER)) b |= BTN_R;
+    const int rx = SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_RIGHTX), ry = SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_RIGHTY);
+    if (ry < -16000) b |= BTN_CU;
+    if (ry > 16000) b |= BTN_CD;
+    if (rx < -16000) b |= BTN_CL;
+    if (rx > 16000) b |= BTN_CR;
     return b;
+}
+
+static void set_pad(int port, uint16_t buttons, int8_t sx, int8_t sy) {
+    G.pad[port].cur = buttons;
+    G.pad[port].sx = sx;
+    G.pad[port].sy = sy;
+    G.connected[port] = true;
 }
 
 static void log_buttons(void);
@@ -458,32 +407,68 @@ void n64_joypad_init(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)c
 void n64_joypad_poll(uint8_t *rdram, recomp_context *ctx) {
     (void)rdram;
     (void)ctx;
+    if (!g_remote.loaded) load_remote_map();
     SDL_PumpEvents();
+    for (int i = 0; i < 4; ++i) {
+        G.pad[i].prev = G.pad[i].cur;
+        G.pad[i].psx = G.pad[i].sx;
+        G.pad[i].psy = G.pad[i].sy;
+        G.pad[i].cur = 0;
+        G.pad[i].sx = G.pad[i].sy = 0;
+    }
     const bool *k = SDL_GetKeyboardState(NULL);
     uint16_t remote = 0;
-    if (k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_SPACE]) remote |= 0x8000;
-    if (k[SDL_SCANCODE_UP]) remote |= 0x0800;
-    if (k[SDL_SCANCODE_DOWN]) remote |= 0x0400;
-    if (k[SDL_SCANCODE_LEFT]) remote |= 0x0200;
-    if (k[SDL_SCANCODE_RIGHT]) remote |= 0x0100;
-    if (k[SDL_SCANCODE_MENU]) remote |= 0x1000;
+    remote |= remote_key(RK_OK, k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_SPACE]);
+    if (k[SDL_SCANCODE_UP]) remote |= BTN_DU;
+    if (k[SDL_SCANCODE_DOWN]) remote |= BTN_DD;
+    if (k[SDL_SCANCODE_LEFT]) remote |= BTN_DL;
+    if (k[SDL_SCANCODE_RIGHT]) remote |= BTN_DR;
+    remote |= remote_key(RK_MENU, k[SDL_SCANCODE_MENU]);
+    remote |= remote_key(RK_PLAYPAUSE, k[SDL_SCANCODE_MEDIA_PLAY_PAUSE] || k[SDL_SCANCODE_MEDIA_PLAY] || k[SDL_SCANCODE_MEDIA_PAUSE]);
+    remote |= remote_key(RK_REWIND, k[SDL_SCANCODE_MEDIA_REWIND]);
+    remote |= remote_key(RK_FF, k[SDL_SCANCODE_MEDIA_FAST_FORWARD]);
+    if (k[SDL_SCANCODE_X] || k[SDL_SCANCODE_BACKSPACE]) remote |= BTN_B;
+    if (k[SDL_SCANCODE_Z]) remote |= BTN_Z;
+    if (k[SDL_SCANCODE_Q]) remote |= BTN_L;
+    if (k[SDL_SCANCODE_W]) remote |= BTN_R;
+    if (k[SDL_SCANCODE_I]) remote |= BTN_CU;
+    if (k[SDL_SCANCODE_K]) remote |= BTN_CD;
+    if (k[SDL_SCANCODE_J]) remote |= BTN_CL;
+    if (k[SDL_SCANCODE_L]) remote |= BTN_CR;
+    if (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_TAB]) remote |= BTN_START;
     SDL_Gamepad *pads[4];
     int np = 0;
     for (int i = 0; i < 4; ++i)
         if (g_pads[i]) pads[np++] = g_pads[i];
-    SDL_memset(G.buttons, 0, sizeof G.buttons);
     SDL_memset(G.connected, 0, sizeof G.connected);
     if (np >= 2) {
-        for (int i = 0; i < np && i < 4; ++i) { G.buttons[i] = pad_buttons(pads[i]); G.connected[i] = true; }
-        G.buttons[0] |= remote;
+        for (int i = 0; i < np && i < 4; ++i)
+            set_pad(i, pad_buttons(pads[i]), stick_value(SDL_GetGamepadAxis(pads[i], SDL_GAMEPAD_AXIS_LEFTX)),
+                    (int8_t)-stick_value(SDL_GetGamepadAxis(pads[i], SDL_GAMEPAD_AXIS_LEFTY)));
+        G.pad[0].cur |= remote;
     } else {
-        G.buttons[0] = remote;
-        G.connected[0] = true;
-        if (np == 1) { G.buttons[1] = pad_buttons(pads[0]); G.connected[1] = true; }
+        set_pad(0, remote, 0, 0);
+        if (np == 1)
+            set_pad(1, pad_buttons(pads[0]), stick_value(SDL_GetGamepadAxis(pads[0], SDL_GAMEPAD_AXIS_LEFTX)),
+                    (int8_t)-stick_value(SDL_GetGamepadAxis(pads[0], SDL_GAMEPAD_AXIS_LEFTY)));
     }
-    /* Debug aid for headless runs: N64_FAKE_PAD0=<hex> forces port 0's buttons. */
     const char *fake = SDL_getenv("N64_FAKE_PAD0");
-    if (fake) G.buttons[0] = (uint16_t)SDL_strtoul(fake, NULL, 16);
+    if (fake) G.pad[0].cur = (uint16_t)SDL_strtoul(fake, NULL, 16);
+    const char *script = SDL_getenv("N64_PAD_SCRIPT");
+    for (const char *p = script; p && *p;) {
+        char *end;
+        const long f0 = SDL_strtol(p, &end, 10);
+        long f1 = f0;
+        if (*end == '-') f1 = SDL_strtol(end + 1, &end, 10);
+        if (*end != ':') break;
+        const uint16_t bits = (uint16_t)SDL_strtoul(end + 1, &end, 16);
+        if ((long)G.frames >= f0 && (long)G.frames <= f1) G.pad[0].cur |= bits;
+        p = (*end == ',') ? end + 1 : end;
+        if (*p && *p != ',' && (*p < '0' || *p > '9')) break;
+    }
+    const char *npads = SDL_getenv("N64_PADS");
+    if (npads)
+        for (int i = 0; i < 4; ++i) G.connected[i] = i < SDL_atoi(npads);
     log_buttons();
 }
 
@@ -493,24 +478,117 @@ static void log_buttons(void) {
     if (!on) return;
     static uint16_t last[4];
     for (int i = 0; i < 4; ++i)
-        if (G.buttons[i] != last[i]) { n64rt_log("joypad %d: %04X", i, G.buttons[i]); last[i] = G.buttons[i]; }
+        if (G.pad[i].cur != last[i]) { n64rt_log("joypad %d: %04X", i, G.pad[i].cur); last[i] = G.pad[i].cur; }
+}
+
+static const PadState *pad_at(recomp_context *ctx, int reg) {
+    static const PadState none;
+    const uint32_t port = (uint32_t)(reg == 4 ? ctx->r4 : ctx->r5);
+    return port < 4 ? &G.pad[port] : &none;
 }
 
 void n64_joypad_is_connected(uint8_t *rdram, recomp_context *ctx) {
     (void)rdram;
     const uint32_t port = (uint32_t)ctx->r4;
-    static int calls;
-    if (SDL_getenv("N64_TRACE_PAD") && calls++ < 6) n64rt_log("joypad_is_connected(%u) -> %d", port, port < 4 && G.connected[port]);
     n64_ret32(ctx, port < 4 && G.connected[port]);
 }
+/* joypad_style_t joypad_get_style(port): JOYPAD_STYLE_N64 for every connected port */
+void n64_joypad_get_style(uint8_t *rdram, recomp_context *ctx) {
+    (void)rdram;
+    const uint32_t port = (uint32_t)ctx->r4;
+    n64_ret32(ctx, (port < 4 && G.connected[port]) ? 1 : 0);
+}
+void n64_joypad_get_accessory_type(uint8_t *rdram, recomp_context *ctx) { (void)rdram; n64_ret32(ctx, 0); }
+void n64_joypad_get_rumble_supported(uint8_t *rdram, recomp_context *ctx) { (void)rdram; n64_ret32(ctx, 0); }
+void n64_joypad_get_rumble_active(uint8_t *rdram, recomp_context *ctx) { (void)rdram; n64_ret32(ctx, 0); }
+void n64_joypad_set_rumble_active(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
 
-/* joypad_buttons_t joypad_get_buttons(joypad_port_t port): hidden return pointer in a0. */
-void n64_joypad_get_buttons(uint8_t *rdram, recomp_context *ctx) {
-    const uint32_t ret = (uint32_t)ctx->r4, port = (uint32_t)ctx->r5;
-    static int calls;
-    if (SDL_getenv("N64_TRACE_PAD") && calls++ < 6) n64rt_log("joypad_get_buttons(ret=%08X, port=%u) -> %04X", ret, port, port < 4 ? G.buttons[port] : 0);
-    n64_w16(rdram, ret, port < 4 ? G.buttons[port] : 0);
+/* joypad_buttons_t joypad_get_buttons*(joypad_port_t port): hidden return pointer in a0. */
+static void ret_buttons(uint8_t *rdram, recomp_context *ctx, uint16_t b) {
+    n64_w16(rdram, (uint32_t)ctx->r4, b);
+    n64_ret32(ctx, (uint32_t)ctx->r4);
+}
+void n64_joypad_get_buttons(uint8_t *rdram, recomp_context *ctx) { ret_buttons(rdram, ctx, pad_at(ctx, 5)->cur); }
+void n64_joypad_get_buttons_pressed(uint8_t *rdram, recomp_context *ctx) { const PadState *p = pad_at(ctx, 5); ret_buttons(rdram, ctx, p->cur & ~p->prev); }
+void n64_joypad_get_buttons_released(uint8_t *rdram, recomp_context *ctx) { const PadState *p = pad_at(ctx, 5); ret_buttons(rdram, ctx, ~p->cur & p->prev); }
+void n64_joypad_get_buttons_held(uint8_t *rdram, recomp_context *ctx) { const PadState *p = pad_at(ctx, 5); ret_buttons(rdram, ctx, p->cur & p->prev); }
+
+/* C buttons act as the "C stick" (as libdragon reports for N64 controllers). */
+static int8_t cstick(uint16_t b, uint16_t neg, uint16_t pos) { return (int8_t)((b & pos) ? 85 : (b & neg) ? -85 : 0); }
+
+/* joypad_inputs_t joypad_get_inputs(port): { buttons, stick_x, stick_y, cstick_x, cstick_y, analog_l, analog_r } */
+void n64_joypad_get_inputs(uint8_t *rdram, recomp_context *ctx) {
+    const PadState *p = pad_at(ctx, 5);
+    const uint32_t ret = (uint32_t)ctx->r4;
+    n64_w16(rdram, ret, p->cur);
+    n64_w8(rdram, ret + 2, (uint8_t)p->sx);
+    n64_w8(rdram, ret + 3, (uint8_t)p->sy);
+    n64_w8(rdram, ret + 4, (uint8_t)cstick(p->cur, BTN_CL, BTN_CR));
+    n64_w8(rdram, ret + 5, (uint8_t)cstick(p->cur, BTN_CD, BTN_CU));
+    n64_w8(rdram, ret + 6, (p->cur & BTN_L) ? 255 : 0);
+    n64_w8(rdram, ret + 7, (p->cur & BTN_R) ? 255 : 0);
     n64_ret32(ctx, ret);
+}
+
+/* Axis value by joypad_axis_t (the field's offset in joypad_inputs_t), now or on the previous poll. */
+static int axis_value(const PadState *p, int axis, bool previous) {
+    const uint16_t b = previous ? p->prev : p->cur;
+    switch (axis) {
+        case 2: return previous ? p->psx : p->sx;
+        case 3: return previous ? p->psy : p->sy;
+        case 4: return cstick(b, BTN_CL, BTN_CR);
+        case 5: return cstick(b, BTN_CD, BTN_CU);
+        case 6: return (b & BTN_L) ? 255 : 0;
+        case 7: return (b & BTN_R) ? 255 : 0;
+        default: return 0;
+    }
+}
+enum { AXIS_THRESHOLD = 32 };
+static int axis_dir(int v) { return v > AXIS_THRESHOLD ? 1 : v < -AXIS_THRESHOLD ? -1 : 0; }
+/* int joypad_get_axis_pressed/released/held(joypad_port_t port, joypad_axis_t axis) */
+void n64_joypad_get_axis_pressed(uint8_t *rdram, recomp_context *ctx) {
+    (void)rdram;
+    const PadState *p = pad_at(ctx, 4);
+    const int c = axis_dir(axis_value(p, (int)ctx->r5, false)), pr = axis_dir(axis_value(p, (int)ctx->r5, true));
+    n64_ret32(ctx, (uint32_t)(c != pr ? c : 0));
+}
+void n64_joypad_get_axis_released(uint8_t *rdram, recomp_context *ctx) {
+    (void)rdram;
+    const PadState *p = pad_at(ctx, 4);
+    const int c = axis_dir(axis_value(p, (int)ctx->r5, false)), pr = axis_dir(axis_value(p, (int)ctx->r5, true));
+    n64_ret32(ctx, (uint32_t)(c != pr ? pr : 0));
+}
+void n64_joypad_get_axis_held(uint8_t *rdram, recomp_context *ctx) {
+    (void)rdram;
+    const PadState *p = pad_at(ctx, 4);
+    const int c = axis_dir(axis_value(p, (int)ctx->r5, false)), pr = axis_dir(axis_value(p, (int)ctx->r5, true));
+    n64_ret32(ctx, (uint32_t)(c == pr ? c : 0));
+}
+
+/* joypad_8way_t joypad_get_direction(joypad_port_t port, joypad_2d_t axes): libdragon's order:
+ * stick first, then D-pad, then C buttons. */
+static int dir8(int x, int y) {
+    if (y > 0 && x < 0) return 3;
+    if (y > 0 && x > 0) return 1;
+    if (y < 0 && x < 0) return 5;
+    if (y < 0 && x > 0) return 7;
+    if (x > 0) return 0;
+    if (y > 0) return 2;
+    if (x < 0) return 4;
+    if (y < 0) return 6;
+    return -1;
+}
+void n64_joypad_get_direction(uint8_t *rdram, recomp_context *ctx) {
+    (void)rdram;
+    const PadState *p = pad_at(ctx, 4);
+    const uint32_t axes = (uint32_t)ctx->r5;
+    int d = -1;
+    if (axes & 1) d = dir8(axis_dir(p->sx), axis_dir(p->sy));
+    if (d < 0 && (axes & 2))
+        d = dir8((p->cur & BTN_DR) ? 1 : (p->cur & BTN_DL) ? -1 : 0, (p->cur & BTN_DU) ? 1 : (p->cur & BTN_DD) ? -1 : 0);
+    if (d < 0 && (axes & 4))
+        d = dir8((p->cur & BTN_CR) ? 1 : (p->cur & BTN_CL) ? -1 : 0, (p->cur & BTN_CU) ? 1 : (p->cur & BTN_CD) ? -1 : 0);
+    n64_ret32(ctx, (uint32_t)d);
 }
 
 /* ================================================================================================

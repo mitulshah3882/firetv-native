@@ -1,0 +1,11 @@
+# N64Recomp config: "Land Grab" by Meeq (N64brew Game Jam 2024, MIT code; see n64/jam24/CREDITS.md),
+# linked statically with the jam harness by tools/n64-jam24.sh landgrab.
+# Paths are relative to this file's directory.
+[input]
+# entrypoint omitted: _start is an assembly label (NOTYPE, size 0)
+elf_path = "../../third_party/_src/N64brew-GameJam2024-0dea720/build-jam_landgrab/jam_landgrab.elf"
+output_func_path = "../../build/n64/jam_landgrab"
+
+[patches]
+# Hardware-facing libdragon functions are handled by the rules in libdragon.hle.
+ignored = []

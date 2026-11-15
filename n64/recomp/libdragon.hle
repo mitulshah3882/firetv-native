@@ -45,6 +45,18 @@ keep n64___rdpq_font_*
 keep n64___rdpq_paragraph_*
 stub n64_rdpq_font_render_paragraph
 
+# rdpq: code that only computes command words stays recompiled, so the host sees the leaves
+# (__rdpq_reset_render_mode, __rdpq_fixup_mode*, __rdpq_fill_rectangle, ...: see hle_rdpq.c).
+keep n64_rdpq_set_mode_standard
+keep n64_rdpq_set_mode_copy
+keep n64_rdpq_set_mode_yuv
+keep n64___rdpq_set_mode_fill
+keep n64_rdpq_mode_begin
+keep n64_rdpq_mode_end
+keep n64___rdpq_fill_rectangle_offline
+keep n64___rdpq_texture_rectangle_offline
+keep n64___rdpq_texture_rectangle_scaled_offline
+
 # GCC nested functions (run-time stack trampolines) can't be recompiled: replace their callers.
 stub n64_rompak_search_ext
 

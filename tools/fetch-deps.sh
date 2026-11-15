@@ -47,6 +47,12 @@ DEPS=(
   "freedoom|0.13.0|https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip|freedoom-0.13.0"
   # Git checkouts (for host tools with submodules): <url>.git#<full commit>; the commit is the pin.
   "n64recomp|598ce20|https://github.com/N64Recomp/N64Recomp.git#598ce2080004a5672d604dceadbda436045307b7|N64Recomp-598ce20"
+  # Sparse git checkouts: a 5th field lists the only paths fetched (blobless, depth 1, no submodules).
+  # N64brew Game Jam 2024 (MIT): the harness, the few harness assets our minigames load, and the 2D
+  # minigames we recompile. Other minigames are never fetched (Hydra Harmonics bundles a commercial
+  # font). Never run git commands that need every blob (ls-tree -l, grep, log -p) in this checkout:
+  # a blobless clone fetches missing blobs on demand.
+  "n64jam2024|0dea720|https://github.com/n64brew/N64brew-GameJam2024.git#0dea720fc295797ae779302425791c01cb67d244|N64brew-GameJam2024-0dea720|/*.c /*.h /Makefile /LICENSE /README.md /.gitmodules /assets/squarewave.ttf /assets/core/StartButton.png /assets/core/AButton.png /assets/core/Start.wav /assets/core/Countdown.wav /assets/core/Stop.wav /assets/core/Winner.wav /assets/minigames/landgrab.txt /assets/minigames/mallard.txt /code/landgrab/ /assets/landgrab/ /code/mallard/ /assets/mallard/"
   # Single files (fonts and header-only libraries) land in <extracted-dir>/<file name>.
   "stb_truetype|4e9b368|https://raw.githubusercontent.com/nothings/stb/4e9b368bfc071e97206ea5c6adba68dd0cbf8897/stb_truetype.h|stb"
   "stb_vorbis|4e9b368|https://raw.githubusercontent.com/nothings/stb/4e9b368bfc071e97206ea5c6adba68dd0cbf8897/stb_vorbis.c|stb"
@@ -59,7 +65,23 @@ DEPS=(
 )
 
 fetch() {
-  local name="$1" version="$2" url="$3" dir="$4"
+  local name="$1" version="$2" url="$3" dir="$4" sparse="${5:-}"
+  if [[ "$url" == *.git#* && -n "$sparse" ]]; then
+    local repo="${url%%#*}" commit="${url##*#}"
+    if [[ ! -d "$SRC/$dir/.git" ]]; then
+      echo "[$name] sparse checkout of $repo @ $commit"
+      git init -q "$SRC/$dir"
+      git -C "$SRC/$dir" remote add origin "$repo"
+    fi
+    # Re-applied on every run, so adding a path to the list fetches just that path.
+    # shellcheck disable=SC2086
+    git -C "$SRC/$dir" sparse-checkout set --no-cone $sparse
+    git -C "$SRC/$dir" fetch -q --depth 1 --filter=blob:none origin "$commit"
+    git -C "$SRC/$dir" -c advice.detachedHead=false checkout -q "$commit"
+    grep -q "^$name $version " "$LOCK" || echo "$name $version $commit" >> "$LOCK"
+    echo "[$name] checked out ($(git -C "$SRC/$dir" ls-files -t | grep -c "^H") files) to $SRC/$dir"
+    return
+  fi
   if [[ "$url" == *.git#* ]]; then
     if [[ -d "$SRC/$dir" ]]; then echo "[$name] already present: $SRC/$dir"; return; fi
     local repo="${url%%#*}" commit="${url##*#}"
@@ -99,6 +121,6 @@ fetch() {
 
 want="${1:-}"
 for d in "${DEPS[@]}"; do
-  IFS='|' read -r name version url dir <<<"$d"
-  if [[ -z "$want" || "$want" == "$name" ]]; then fetch "$name" "$version" "$url" "$dir"; fi
+  IFS='|' read -r name version url dir sparse <<<"$d"
+  if [[ -z "$want" || "$want" == "$name" ]]; then fetch "$name" "$version" "$url" "$dir" "$sparse"; fi
 done

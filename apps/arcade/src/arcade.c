@@ -89,6 +89,11 @@ static Game g_games[] = {
      "recompiled to native ARM ahead of time. No emulator, at 60 fps.",
      {"N64RECOMP", "LIBDRAGON", "NO EMULATOR", "2 PLAYERS"},
      "pkg://com.firetvnative.n64.brewvolley.main", "art/brewvolley.png", {0.49f, 1.0f, 0.31f, 1}, CARD_ART, NULL, NULL, true, {{0}}},
+    {"Land Grab", "Nintendo 64 homebrew \xC2\xB7 statically recompiled",
+     "A four-player territory battle from the N64brew Game Jam 2024,",
+     "recompiled from MIPS to native ARM. Take on three AI rivals.",
+     {"N64RECOMP", "LIBDRAGON", "NO EMULATOR", "4 PLAYERS"},
+     "pkg://com.firetvnative.n64.landgrab.main", "art/landgrab.png", {1.0f, 0.38f, 0.38f, 1}, CARD_ART, NULL, NULL, true, {{0}}},
 };
 #define NUM_GAMES ((int)(sizeof(g_games) / sizeof(g_games[0])))
 
@@ -590,6 +595,7 @@ static void draw_about(void) {
         {"SuperTux", "SuperTux 0.7 (GPL-3.0) on sdl2-compat (zlib); data CC-BY-SA / GPL"},
         {"SuperTuxKart", "SuperTuxKart 1.5 (GPL-3.0) on sdl2-compat; data CC-BY-SA / GPL / CC0"},
         {"Brew Volley", "MULLER Marian (N64brew Jam), libdragon; recompiled with N64Recomp (MIT)"},
+        {"Land Grab", "Meeq (N64brew Game Jam 2024, MIT); music by Ultrasyd and Phekkis (CC BY-NC 4.0)"},
         {"Fonts", "Chakra Petch and Press Start 2P (SIL Open Font License 1.1)"},
         {"Music", "generated live by a tiny synthesizer, no samples"},
     };

@@ -34,7 +34,7 @@ function(n64_add_recomp_app target)
   endif()
 
   vega_add_sdl3_app(${target} PACKAGE_ID "${arg_PACKAGE_ID}"
-    SOURCES "${rt}/n64_main.c" "${rt}/hle_libdragon.c" "${rt}/hle_audio.c" "${rt}/n64rt.cpp"
+    SOURCES "${rt}/n64_main.c" "${rt}/hle_libdragon.c" "${rt}/hle_rdpq.c" "${rt}/hle_audio.c" "${rt}/n64rt.cpp"
     ASSETS_DIR "${pkgroot}")
   target_sources(${target} PRIVATE ${gen_sources})
   target_include_directories(${target} PRIVATE "${N64RT_REPO}/build/n64/include" "${gen}" "${N64RT_REPO}/n64/runtime/include")

@@ -72,7 +72,7 @@ static void on_pad_button(SDL_JoystickID id, Uint8 button, bool down)
     case SDL_GAMEPAD_BUTTON_SOUTH: case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: b = GB_OK; break;
     case SDL_GAMEPAD_BUTTON_WEST: case SDL_GAMEPAD_BUTTON_NORTH: b = GB_PLAY; break;
     case SDL_GAMEPAD_BUTTON_EAST: case SDL_GAMEPAD_BUTTON_BACK: b = GB_BACK; break;
-    case SDL_GAMEPAD_BUTTON_START: b = GB_MENU; break;
+    case SDL_GAMEPAD_BUTTON_START: b = GB_START; break;
     default: return;
     }
     if (!game_button(player, b, down)) A.running = false;

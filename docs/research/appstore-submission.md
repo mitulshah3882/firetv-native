@@ -424,6 +424,11 @@ Source for this section: https://developer.amazon.com/docs/app-testing/test-crit
   controller").
 - Remote or gamepad play counts as local input, so this hits only attract modes and idle
   screens. The screensaver backgrounds the app, and it must then be silent (4.1).
+- **Measured 2026-11-16: playing audio holds the screensaver off.** Gravity Choir, idling on its
+  title with music, stayed in front for over 9 minutes; a silent app got the screensaver at 5. So
+  vegaplat now releases audio focus and pauses the stream after 3 minutes without input (decision
+  61). The screensaver then starts 5 minutes later, there is no app audio over it, and Back from
+  it returns to the game, which plays again within about 30 ms. Verified on the HD stick.
 
 ## 5. Can an app launch other apps? (the arcade)
 
@@ -579,7 +584,7 @@ Also common to all eight: the audio-focus listener gap (4.5) and the missing Fir
 
 | App | Code / data licence | Already fine | Missing before submission | Verdict |
 |---|---|---|---|---|
-| **gravity-choir** | MIT; OFL font (licence in VPKG); synthesized audio | 1.3 MB, v1.0.0 build 1; 60 fps over a 2 h TV run; designed for the remote (inertia, so move then tap OK); Back goes play → pause → title → exit; background pauses; best score in `/data`; no network | audio focus listener; Fire TV assets; run the Vega test cases (4.1) on a stick; listen to the audio on the TV; try a gamepad; Play/Pause triggers the Crescendo (media-key guideline 4.6: also map it to a non-media input, or accept the risk) | **First candidate** |
+| **gravity-choir** | MIT; OFL font (licence in VPKG); synthesized audio | 1.3 MB, v1.0.0 build 2; 60 fps over a 2 h TV run; designed for the remote (inertia, so move then tap OK); Back goes play → pause → title → exit; background pauses; best score in `/data`; no network | audio focus listener; Fire TV assets; run the Vega test cases (4.1) on a stick; listen to the audio on the TV; try a gamepad; the Crescendo is on Menu, with Play/Pause as a second key (done 2026-11-16, for the media-key guideline 4.6) | **First candidate** |
 | **arcade** | MIT; OFL fonts (licences in VPKG) | 2.9 MB; handles a missing game without crashing; Play/Pause toggles music (a media-like use) | cross-package launch under enforced messaging security (section 5); Appstore fallback for missing games; useless until games are live; avoid "launcher" wording; synthesized music in attract mode must stop for the screensaver | Last |
 | **doom** (Freedoom) | GPL-2.0+ engine; Freedoom BSD-3 data | 10.3 MB; OPL music; "Press Y" prompts answered by OK | GPL text and source link in the app; fire and move need D-pad and OK together (4.2), so a gamepad is effectively required, and how to declare that on Vega is not in the docs; media keys mapped to use/strafe; violence rating; "Doom" trademark | Later |
 | **quake** (LibreQuake) | GPL-2.0+ engine; LibreQuake BSD-3 data | 55 MB (over the 50 MB warning); map loads 9–13 s (under 15 s) | as Doom, plus media keys mapped to jump/weapons; "Quake" in the title | Later |
@@ -600,13 +605,16 @@ Why Gravity Choir:
 - **It has the best performance record of our apps:** a measured steady 60 fps.
 - **It is tiny,** so installs are quick and there is no size warning.
 
-Work list before submitting it:
-1. **Audio focus in vegaplat.**
+Work list before submitting it (status as of 2026-11-16):
+1. **Audio focus in vegaplat.** Done 2026-11-15 (decision 53).
    - Register an `IFocusChangedListener` before `requestAudioFocus()`.
    - Pause or duck on PAUSED, DUCKED or STOPPED, and resume on GRANTED.
    - Release focus on background and request it again on foreground.
    - Then rerun the Alexa and app-switching cases. Every app benefits.
-2. **Run the Vega test cases on a stick, Release build:**
+2. **Run the Vega test cases on a stick, Release build.** Done on 2026-11-16 for Back exit and
+   relaunch, Home and relaunch (exit 71 ms, focus released in 20 ms), switching apps, the
+   screensaver (silent over it, Back returns) and memory (53 MB in front and behind). Not run:
+   restart, Alexa, HDMI or input switch, Bluetooth audio. The full list:
    - Back exit and relaunch;
    - Home and relaunch;
    - switching apps;
@@ -617,13 +625,15 @@ Work list before submitting it:
    - Bluetooth audio, if a speaker is available.
    Time the exit after Home (under 2 s).
 3. **Run the KPI Visualizer** (`--certification`) for cold and warm start and foreground and
-   background memory. Optionally add the native fully-drawn marker (KB:
+   background memory. Measured 2026-11-16 (3 iterations, HD stick): cool start first frame 775 ms
+   (guideline < 1.5 s), fully drawn 1.45 s (< 8 s); warm start first frame 35 ms (< 0.5 s), fully
+   drawn 0.61 s. The memory KPIs need Appium, which isn't installed; `/proc` shows 53 MB RSS. Optionally add the native fully-drawn marker (KB:
    `vega_native_report_fully_drawn.md`).
-4. **Decide the Play/Pause question.** Either also map the Crescendo to a non-media input, or
-   keep Play/Pause and say so in Testing Instructions.
-5. **Add an About or Credits screen** with the MIT notice, the OFL credit for Chakra Petch and a
+4. **Decide the Play/Pause question.** Done 2026-11-16: the Crescendo is on Menu, with Play/Pause
+   as a second key; the hints name Menu.
+5. **Done 2026-11-15:** an About or Credits screen with the MIT notice, the OFL credit for Chakra Petch and a
    source link.
-6. **Make the assets:**
+6. **Done 2026-11-15 (`apps/gravity-choir/store/`):** make the assets:
    - 1280×720 Fire TV icon (no alpha);
    - 3–10 screenshots at 1920×1080 from the stick (or `host-preview.sh`);
    - 114×114 and 512×512 icons with alpha;

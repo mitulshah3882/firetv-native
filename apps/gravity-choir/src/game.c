@@ -7,7 +7,7 @@
  * collision faster than the smash speed destroys both enemies; a wall destroys an enemy thrown into
  * it hard enough. Kills in quick succession form a chain, and every chain note is played on the
  * beat. Chains raise the multiplier, and the multiplier brings in the band. Kills charge the
- * Crescendo: on Play/Pause the arena collapses into a singularity, the music holds its breath for
+ * Crescendo: on Menu (or Play/Pause) the arena collapses into a singularity, the music holds its breath for
  * one bar, and on the downbeat a shockwave clears the field.
  *
  * SPDX-FileCopyrightText: 2026 Mitul Shah
@@ -427,7 +427,7 @@ bool game_button(int player, GameButton b, bool down)
     switch (G.state) {
     case ST_TITLE:
         if (G.credits) {
-            if (b == GB_BACK || b == GB_MENU || b == GB_OK) {
+            if (b == GB_BACK || b == GB_MENU || b == GB_OK || b == GB_START) {
                 G.credits = false;
                 audio_sfx(SFX_UI_BACK, 0.0f);
             }
@@ -436,7 +436,7 @@ bool game_button(int player, GameButton b, bool down)
         if (b == GB_MENU) {
             G.credits = true;
             audio_sfx(SFX_UI_OK, 0.0f);
-        } else if (b == GB_OK || b == GB_PLAY) {
+        } else if (b == GB_OK || b == GB_PLAY || b == GB_START) {
             audio_sfx(SFX_UI_OK, 0.0f);
             start_run();
             p->ok_down = false;
@@ -449,9 +449,12 @@ bool game_button(int player, GameButton b, bool down)
             p->ok_down = true;
             p->ok_held = 0.0f;
             flip(p);
-        } else if (b == GB_PLAY) {
+        } else if (b == GB_MENU || b == GB_PLAY) {
+            /* The remote's Menu is the Crescendo button; Play/Pause too. Amazon's test criteria
+             * say non-media apps shouldn't depend on media keys, so Menu is the one the hints name.
+             * A gamepad's Start pauses instead, as players expect. */
             start_crescendo();
-        } else if (b == GB_BACK || b == GB_MENU) {
+        } else if (b == GB_BACK || b == GB_START) {
             G.state = ST_PAUSE;
             G.t = 0.0f;
             G.menu_sel = 0;
@@ -460,7 +463,7 @@ bool game_button(int player, GameButton b, bool down)
         }
         break;
     case ST_PAUSE:
-        if (b == GB_OK || b == GB_PLAY || b == GB_MENU) {
+        if (b == GB_OK || b == GB_PLAY || b == GB_MENU || b == GB_START) {
             if (b == GB_OK && G.menu_sel == 1) {
                 go_title();
             } else {
@@ -474,7 +477,7 @@ bool game_button(int player, GameButton b, bool down)
         }
         break;
     case ST_OVER:
-        if ((b == GB_OK || b == GB_PLAY) && G.t > 1.2f) {
+        if ((b == GB_OK || b == GB_PLAY || b == GB_START) && G.t > 1.2f) {
             audio_sfx(SFX_UI_OK, 0.0f);
             start_run();
         } else if (b == GB_BACK) {
@@ -1144,7 +1147,7 @@ static void draw_hud(void)
     if (G.crescendo > 0.0f)
         gfx_line(x0, y, x0 + w * G.crescendo, y, 5.0f, col_scale(col_hue(0.58f + 0.3f * G.crescendo, 1.0f), pulse),
                  ready ? 1.2f : 0.5f);
-    gfx_text(ready ? "PRESS PLAY  -  CRESCENDO" : "CRESCENDO", GC_W * 0.5f, y + 14.0f, ready ? 26.0f : 20.0f,
+    gfx_text(ready ? "PRESS MENU  -  CRESCENDO" : "CRESCENDO", GC_W * 0.5f, y + 14.0f, ready ? 26.0f : 20.0f,
              ready ? col_scale(col(1.0f, 0.95f, 0.8f, 1.0f), pulse) : dim, 0, ready ? 0.6f : 0.0f);
     if (G.play_t < 14.0f && G.state == ST_PLAY) {
         const float a = clampf((14.0f - G.play_t) / 2.0f, 0.0f, 1.0f) * clampf(G.play_t - 3.0f, 0.0f, 1.0f);
@@ -1183,7 +1186,7 @@ static void draw_center_text(void)
         gfx_text("You are a star that sings.", GC_W * 0.5f, 510.0f, 38.0f, col_scale(dim, a), 0, 0.0f);
         const float blink = 0.6f + 0.4f * sinf(G.t * 3.0f);
         gfx_text("PRESS  OK  TO  BEGIN", GC_W * 0.5f, 640.0f, 40.0f, col_scale(col(1.0f, 0.86f, 0.5f, 1.0f), a * blink), 0, 0.5f);
-        gfx_text("D-PAD  move        OK  flip pull / push   (hold: stronger)        PLAY  Crescendo",
+        gfx_text("D-PAD  move        OK  flip pull / push   (hold: stronger)        MENU  Crescendo",
                  GC_W * 0.5f, 860.0f, 24.0f, col_scale(dim, a * 0.9f), 0, 0.0f);
         gfx_text("Smash the swarm into itself. Nothing shoots. Every crash is a note.",
                  GC_W * 0.5f, 900.0f, 24.0f, col_scale(dim, a * 0.75f), 0, 0.0f);

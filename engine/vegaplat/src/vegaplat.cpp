@@ -57,6 +57,9 @@
 #include <apmf/iface/com/amazon/kepler/messaging/IMessagingModule.h>
 #include <apmf/iface/com/amazon/kepler/runtime/IComponentInstance.h>
 #include <apmf/iface/com/amazon/kepler/runtime/IComponentInstance2.h>
+#include <apmf/iface/com/amazon/kepler/vtrace/ITraceCategory.h>
+#include <apmf/iface/com/amazon/kepler/vtrace/IVtrace.h>
+#include <apmf/iface/com/amazon/kepler/vtrace/IVtraceService.h>
 
 #include <dlfcn.h>
 #include <sys/stat.h>
@@ -67,6 +70,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdarg>
 #include <cstdio>
@@ -89,6 +93,7 @@ namespace kg = apmf::iface::com::amazon::kepler::graphics;
 namespace ke = apmf::iface::com::amazon::kepler::input::events;
 namespace km = apmf::iface::com::amazon::kepler::messaging;
 namespace kau = apmf::iface::com::amazon::kepler::audio;
+namespace kvt = apmf::iface::com::amazon::kepler::vtrace;
 using ISubscription = apmf::iface::com::amazon::apmf::ISubscription;
 
 // Several IDL "sealed struct" constants are declared in the generated headers but not defined in any
@@ -230,6 +235,10 @@ vp_event makeEvent(vp_event_type t, const char* name = "") {
 // ------------------------------------------------------------------------------------------------
 // Input listeners
 // ------------------------------------------------------------------------------------------------
+// The time of the last user input (see "Idle" under Audio).
+static std::atomic<uint64_t> gLastInputNs{0};
+static void noteInput() { gLastInputNs = nowNs(); }
+
 struct VpKeyListener : ApmfBase<VpKeyListener, kg::IKeyEventListener> {
     void onFocusEnter(ArrayView<const ke::KeyCode>) {}
     void onFocusLeave() {}
@@ -239,6 +248,7 @@ struct VpKeyListener : ApmfBase<VpKeyListener, kg::IKeyEventListener> {
         e.down = state == ke::KeyState::DOWN || state == ke::KeyState::REPEAT;
         e.repeat = state == ke::KeyState::REPEAT;
         push(e);
+        noteInput();
         ev->acknowledge(true);  // games consume every key, including Back (mapped to Escape)
     }
 };
@@ -258,6 +268,7 @@ struct VpPadListener : ApmfBase<VpPadListener, kg::IGameControllerEventListener>
         e.down = state == ke::KeyState::DOWN || state == ke::KeyState::REPEAT;
         e.repeat = state == ke::KeyState::REPEAT;
         push(e);
+        noteInput();
         ev->acknowledge(true);
     }
     void onMotionEvent(View<kg::IGameControllerMotionEvent> ev) {
@@ -267,6 +278,7 @@ struct VpPadListener : ApmfBase<VpPadListener, kg::IGameControllerEventListener>
         for (int i = 0; i < 6; ++i) {
             const float v = ev->getAxisValue(*codes[i]);
             if (v != last[i]) {
+                if (std::fabs(v - last[i]) > 0.25f) noteInput();  // a deliberate move, not stick drift
                 last[i] = v;
                 vp_event e = makeEvent(VP_EVENT_PAD_AXIS, names[i]);
                 e.value = v;
@@ -337,6 +349,62 @@ static void notifyLifecycle(bool foreground) {
     if (vp_lifecycle_fn fn = gLifecycleFn.load()) fn(foreground, gLifecycleUser.load());
 }
 
+// ------------------------------------------------------------------------------------------------
+// KPI marker: "fully drawn"
+// Amazon's KPI Visualizer (and the store's certification runs) measure time to fully drawn (TTFD)
+// from the system's LAUNCH trace slice to a "fully_drawn" begin marker in the "app" category, which
+// the app must emit itself. Without it TTFD reads null. By default we emit it when the app presents
+// its first frame after the splash, and again at the first frame after each return to the foreground
+// (warm start). Apps with a long load switch to manual mode and report when they're usable.
+static std::atomic<bool> gFullyDrawnManual{false};
+static std::atomic<bool> gColdPending{true};   // cold start: not reported yet
+static std::atomic<bool> gWarmPending{false};  // back in the foreground: report the next frame
+static bool gSplashFrame = false;              // vp_gl_swap is presenting vegaplat's splash
+
+static void emitFullyDrawn(const char* why) {
+    static std::mutex mu;
+    static Ptr<kvt::ITraceCategory> category;
+    static bool looked = false;
+    std::lock_guard<std::mutex> lock(mu);
+    try {
+        if (!looked) {
+            looked = true;
+            auto service = GetProcessObject()
+                               ->getComponent("/com.amazon.kepler.vtrace_service")
+                               .TryQueryInterface<kvt::IVtraceService>();
+            if (service) {
+                if (auto vtrace = service->makeVtrace()) category = vtrace->internCategory("app", "vtrace");
+            }
+            if (!category) vp_log("kpi: trace service unavailable; no fully_drawn marker");
+        }
+        if (!category) return;
+        // The args must not be empty (an empty list makes the call a silent no-op).
+        category->begin("fully_drawn", Array<String>{String("trace_type"), String("vtrace_begin")});
+        vp_log("kpi: fully drawn (%s)", why);
+    } catch (const std::exception& e) {
+        vp_log("kpi: fully_drawn marker failed: %s", e.what());
+    }
+}
+
+static void noteWarmStart() { gWarmPending = true; }
+
+// Called after each present.
+static void noteFramePresented() {
+    if (gSplashFrame) return;
+    if (gWarmPending.exchange(false)) {
+        gColdPending = false;
+        emitFullyDrawn("foreground");
+    } else if (!gFullyDrawnManual.load() && gColdPending.exchange(false)) {
+        emitFullyDrawn("first frame");
+    }
+}
+
+extern "C" void vp_fully_drawn_manual(void) { gFullyDrawnManual = true; }
+
+extern "C" void vp_report_fully_drawn(void) {
+    if (gColdPending.exchange(false)) emitFullyDrawn("app ready");
+}
+
 struct VpComponent : ApmfBase<VpComponent, ka::IInteractiveComponent> {
     void onStart(View<kr::IComponentInstance> instance, View<km::IMessage> msg) {
         S().instance = Ptr<kr::IComponentInstance>(instance);
@@ -345,6 +413,7 @@ struct VpComponent : ApmfBase<VpComponent, ka::IInteractiveComponent> {
     }
     void onForeground(View<kr::IComponentInstance> instance) {
         vp_log("lifecycle: foreground");
+        noteInput();  // the user just brought us back
         if (!S().instance) S().instance = Ptr<kr::IComponentInstance>(instance);
         S().foreground = true;
         if (!S().appRunning.exchange(true)) {
@@ -354,6 +423,7 @@ struct VpComponent : ApmfBase<VpComponent, ka::IInteractiveComponent> {
             audioLifecycle(true);
             notifyLifecycle(true);
             push(makeEvent(VP_EVENT_FOREGROUND));
+            noteWarmStart();
         }
     }
     void onBackground(View<kr::IComponentInstance>) {
@@ -652,7 +722,9 @@ extern "C" bool vp_gl_create_context(void) {
             clearColor(0, 0, 0, 1);
             clear(0x4000 | 0x0100 | 0x0400 /* COLOR | DEPTH | STENCIL */);
             drawSplash(s.surface->getWidth(), s.surface->getHeight());
+            gSplashFrame = true;
             vp_gl_swap();
+            gSplashFrame = false;
         }
         return true;
     } catch (const std::exception& e) {
@@ -761,6 +833,7 @@ extern "C" bool vp_gl_swap(void) {
             noteThreadBusy();
             const uint64_t t1 = swapStart ? nowNs() : 0;
             s.surface->presentBuffer(Array<kg::RectI>{}, 0, false);
+            noteFramePresented();
             if (swapStart) {
                 const uint64_t t2 = nowNs();
                 gEndDrawNs += t1 - swapStart;
@@ -850,6 +923,7 @@ struct vp_audio {
     int sampleRate = 48000;
     uint64_t rateStart = 0;              // first write, for the one-time rate check
     uint64_t rateBytes = 0;
+    bool idle = false;                   // silent for lack of input (audio thread only)
 };
 
 namespace {
@@ -981,8 +1055,47 @@ extern "C" vp_audio* vp_audio_open(int sample_rate, int channels, int* frames_pe
     return nullptr;
 }
 
+// Idle: Vega treats an app that plays audio as media playback and holds off the screensaver, so a
+// game left on a title screen with music would keep the TV on for good (and the store's tests
+// expect the screensaver to start). After kIdleNs without input we give up audio focus and pause
+// the stream; the next key, button or stick move (or a return to the foreground) brings it back.
+// Measured on the HD stick: the screensaver's 5-minute timer starts again when the audio stops, so
+// it shows about kIdleNs + 5 minutes after the last input (4 + 5 measured). Back from the screensaver
+// returns to the app, which plays again within about 30 ms.
+static const uint64_t kIdleNs = 3ull * 60 * 1000000000ull;
+
+static bool audioIdle(vp_audio* a, int bytes) {
+    const uint64_t now = nowNs();
+    uint64_t last = gLastInputNs.load();
+    if (!last) {  // no input yet: count from the first write
+        gLastInputNs.compare_exchange_strong(last, now);
+        last = gLastInputNs.load();
+    }
+    const bool idle = now - last > kIdleNs;
+    if (idle && !a->idle) {
+        a->idle = true;
+        releaseFocus(a, "idle");
+        try { a->playback->pause(); } catch (...) {}
+        vp_log("audio: no input for %d s; silent (and the screensaver free to start) until there is",
+               int(kIdleNs / 1000000000ull));
+    } else if (!idle && a->idle) {
+        a->idle = false;
+        a->gain = 0.0f;  // ramp back in
+        try { if (!a->paused) a->playback->start(); } catch (...) {}
+        if (S().foreground) requestFocus(a, "input");
+        vp_log("audio: input again; playing");
+    }
+    if (a->idle) {
+        // Keep the caller's pace without playing anything.
+        const int frames = bytes / (a->frameBytes ? a->frameBytes : 4);
+        std::this_thread::sleep_for(std::chrono::microseconds(int64_t(frames) * 1000000 / (a->sampleRate ? a->sampleRate : 48000)));
+    }
+    return a->idle;
+}
+
 extern "C" int vp_audio_write(vp_audio* a, const void* data, int bytes) {
     if (!a || !a->playback) return -1;
+    if (audioIdle(a, bytes)) return bytes;
     // One-time check that audio flows at the stream's rate (10 s after the first write).
     if (a->rateStart != UINT64_MAX) {
         const uint64_t now = nowNs();

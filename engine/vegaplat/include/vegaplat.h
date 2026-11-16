@@ -51,12 +51,19 @@ void *vp_gl_get_proc(const char *name);     /* core symbol or extension entry po
 bool vp_gl_create_context(void);            /* GPU device, context and window surface */
 bool vp_gl_make_current(bool current);
 unsigned vp_gl_framebuffer(void);           /* FBO backing the window surface (often 0) */
-bool vp_gl_swap(void);
+bool vp_gl_swap(void);                      /* present; blocks while the app is backgrounded */
 float vp_gl_thread_busy(void);              /* smoothed share (0..1) of the time between swaps that
                                                the rendering thread spent running on the CPU: near 1
                                                the CPU is the limit; well below, it waited (for the
-                                               GPU, or for the display when frames are on time) */                      /* present; blocks while the app is backgrounded */
+                                               GPU, or for the display when frames are on time) */
 void vp_gl_destroy_context(void);
+
+/* KPI marker for Amazon's launch-time measurement (time to fully drawn). vegaplat reports "fully
+ * drawn" when the app presents its first frame after the splash, and at the first frame after each
+ * return to the foreground. An app whose first frames are a loading screen calls
+ * vp_fully_drawn_manual() before presenting anything, then vp_report_fully_drawn() once it is usable. */
+void vp_fully_drawn_manual(void);
+void vp_report_fully_drawn(void);
 void vp_video_quit(void);
 
 /* ---- events ---------------------------------------------------------------------------------- */

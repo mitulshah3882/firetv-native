@@ -1,8 +1,22 @@
 # Status
 
-_Last updated: 2026-11-15 evening (Gravity Choir on the TV; SuperTuxKart round two; audio focus and loading splashes for every app; Appstore research). Update this file at every milestone._
+_Last updated: 2026-11-16 (Gravity Choir store prep; Hydra Harmonics; the test suite; idle audio and the screensaver; the user's to-do list). Update this file at every milestone._
+
+**The user's own to-do list is [`docs/USER-TODO.md`](USER-TODO.md).** Keep it current.
 
 **In flight:**
+- **2026-11-16:**
+  - **Gravity Choir is ready for a Live App Test** (the user's step):
+    - the Crescendo is on Menu (decision 57);
+    - Release build 2 is ready;
+    - the steps are in `apps/gravity-choir/store/README.md`;
+    - Home, resume and exit pass on the TV;
+    - vegaplat emits the `fully_drawn` KPI marker (decision 58);
+    - Amazon's KPI Visualizer: cold start first frame 775 ms, fully drawn 1.45 s, warm start 35 ms; 53 MB RSS.
+  - **Every app now goes quiet after 3 minutes without input** (decision 61). Playing audio was holding Vega's screensaver off indefinitely. Verified on the TV: the screensaver starts, nothing plays over it, and Back returns to the game with its sound.
+  - **Hydra Harmonics runs on the TV** (`apps/n64-hydraharmonics`, last card in the arcade): the third recompiled N64 game, 60 fps. Its commercial font is replaced by Coustard (decision 59), and the rdpq HLE gained sub-rectangle uploads, palettes, texture reuse and triangles (decision 60).
+  - **`tools/test.sh`**: the first regression suite (about 10 s on the Mac); all 6 checks pass.
+  - **SuperTux's jump with Up** was seen working on the TV.
 - **SuperTux 0.7.0 is playable on the TV** (`apps/sdl2-smoke` proves the SDL2 path). Launch it from the arcade; OK jumps and Back opens the menu.
 - **Gravity Choir, our first original game, runs on the TV** (`apps/gravity-choir`, first card in the arcade).
   - A steady 60 fps: the lowest 2 s window over a 2-hour run was 58.4 fps, with up to 75 enemies and 5.7k particles.
@@ -105,31 +119,26 @@ _Last updated: 2026-11-15 evening (Gravity Choir on the TV; SuperTuxKart round t
 
 ## Next
 1. **Gravity Choir to the Appstore:** the listing kit is ready (`apps/gravity-choir/store/`). Needs the user: a Live App Test on their developer account, and the open questions in `docs/research/appstore-submission.md` (native-only packages, Play/Pause as a game control).
-2. **N64:** Hydra Harmonics (swap its commercial font for an OFL one), clear or replace Mallard's assets, then a GLES RDP backend and tiny3d for the 3D jam games. More libdragon examples or jam games will exercise more of the rdpq HLE.
+2. **N64:** clear or replace Mallard's assets, then a GLES RDP backend and tiny3d for the 3D jam games. More jam games (DamN64, the other 2024 minigames) will exercise more of the rdpq HLE.
 3. **SuperTuxKart follow-ups:** the heavy tracks' CPU cost (scene traversal, Mesa draw overhead), a gamepad test, and checks on the 4K sticks.
-4. **Remote ergonomics:** Doom and Quake need the D-pad and OK at once to move while firing, which is awkward on a remote and discouraged by the store's test criteria. SuperTux now jumps with Up as well as OK by default (SuperTux's own "Jump with Up" option; patched default, not yet watched in play because the first level is a cutscene).
+4. **Remote ergonomics:** Doom and Quake need the D-pad and OK at once to move while firing, which is awkward on a remote and discouraged by the store's test criteria. SuperTux now jumps with Up as well as OK by default (SuperTux's own "Jump with Up" option; seen working on the TV 2026-11-16).
 5. **Polish:** arcade attract video or screenshots; the case-study writeup.
-6. **Tests:** none yet. The silent-VADPCM bug argues for a device check that every optional recompiled function links to the recompiled version; also a host test for the VADPCM decoder against the source WAVs, the font bit order and the address masking.
+6. **Tests:** `tools/test.sh` covers the N64 runtime and the recompiled games. Not covered yet: XM instruments against their sources, Gravity Choir's synthesizer (`tools/audio-test.sh` is separate), and anything on the device.
 
 ## Needs a user decision
-- Testing on the other two sticks (the user plans to test at home). On a 4K stick, also run `apps/gpu-bench/tools/run-bench.sh -q 'only=scene'` to see whether the 4K upscale costs GPU time.
-- **Gravity Choir's Appstore submission:** run a Live App Test from the developer console with `apps/gravity-choir/store/`. Also decide whether to keep Play/Pause as the Crescendo button: the store's test criteria say non-media apps "should not" use media keys.
-- **Before any GPL game goes to the store** (see `docs/research/appstore-submission.md`, section 7):
-  - whether linking the SDK-generated IDL library and libc++ into GPL apps is acceptable;
-  - SuperTux's two CC BY-NC assets;
-  - the trademarks "Doom" and "Quake";
-  - upstream consent for SuperTux and SuperTuxKart.
-- **Doom and Quake on a remote:** moving while firing needs two thumbs. Options: leave it, add an auto-fire toggle, or put fire on another key as well.
-- **Hearing check:** nobody has listened to the audio on the TV this round. The logs show audio focus, the stream rate and every N64 sample decoding, but Gravity Choir's music, Brew Volley's effects and Land Grab's music deserve a listen.
+Kept in **[`docs/USER-TODO.md`](USER-TODO.md)**, the user's running to-do list: the listening check,
+the 4K sticks and gamepads, the Gravity Choir Live App Test, the next original game, the GPL ports and
+the store, Doom/Quake fire-while-moving, the case study and the Mac cleanup. Update it whenever an item
+is added or done.
 
 ## Watch items
 - The home screen's "Your apps and channels" row didn't list our apps even with 512×512 icons. They do show in Settings → Applications. A TV-UI launch path for sideloaded apps is still open.
 - A physical remote isn't paired to the stick; after reconnects the "Unable to Detect Your Remote" notice can swallow injected keys. Dismiss it with OK.
-- Weekly usage: 42% at 22:15 UTC on 2026-11-15 (resets 01:00 UTC on 2026-11-16).
-- Disk: about 18 GB free on the Mac. SuperTuxKart's build tree is 2.5 GB, and each Vega build adds a debug copy under `build/debug/.build-id`.
+- Weekly usage: 2% on 2026-11-16 (resets 01:00 UTC on 2026-11-23).
+- Disk: about 12 GB free on the Mac (2026-11-16). SuperTuxKart's build tree is 2.5 GB, and each Vega build adds a debug copy under `build/debug/.build-id`.
 - Stick storage: SuperTuxKart takes about 0.4 GB of `/data`. `tools/vega.sh install` now removes the package copy `install-app` leaves in the stick's RAM-backed `/tmp`.
 - `vega device start-log-stream` shows only new lines; start it **before** acting. Run only one at a time.
 - Each `tools/vega.sh key` call takes about 1–1.5 s. Pass several keys in one call for fast sequences.
-- The screensaver takes the foreground after about 5 minutes without input and parks the render thread in `vp_gl_swap()`. Long unattended runs need a periodic ignored key press (see `apps/gpu-bench/tools/run-bench.sh`); an attract mode will need a keep-awake answer.
+- The screensaver takes the foreground about 5 minutes after the last input, or after the audio stops (vegaplat silences apps after 3 idle minutes, decision 61), and parks the render thread in `vp_gl_swap()`. Long unattended runs need a periodic ignored key press (see `apps/gpu-bench/tools/run-bench.sh`).
 - Brew Volley's countdown ignores input. Each point resets the players, so screenshots often miss the short play phase.
 - Memory: several of our apps resident at once push the stick into memory pressure; the system trims them.

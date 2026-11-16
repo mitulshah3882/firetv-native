@@ -122,7 +122,8 @@ function(vega_add_sdl3_app target)
     com.amazon.kepler.audio
     com.amazon.kepler.graphics
     com.amazon.kepler.buffer
-    com.amazon.kepler.input.events)
+    com.amazon.kepler.input.events
+    com.amazon.kepler.vtrace)
   kepler_add_library(${target} SHARED ${arg_SOURCES} "${VEGAPLAT_DIR}/src/vegaplat.cpp")
   target_include_directories(${target} PRIVATE "${VEGAPLAT_DIR}/include")
   target_compile_definitions(${target} PRIVATE VEGA_PACKAGE_ID="${arg_PACKAGE_ID}")

@@ -10,7 +10,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-typedef enum { GB_NONE, GB_LEFT, GB_RIGHT, GB_UP, GB_DOWN, GB_OK, GB_PLAY, GB_BACK, GB_MENU } GameButton;
+typedef enum { GB_NONE, GB_LEFT, GB_RIGHT, GB_UP, GB_DOWN, GB_OK, GB_PLAY, GB_BACK, GB_MENU, GB_START } GameButton;
 
 /* script: a host-preview scenario ("title", "play", "crescendo") or NULL; deterministic: fixed
  * random seed (screenshots). */

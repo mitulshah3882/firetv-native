@@ -578,3 +578,49 @@ The "flat white lamps" on Abyss turned out not to be a bug: their glow comes fro
 **Two remote-ergonomics fixes.** A remote's OK sits inside the D-pad ring, so one thumb can't hold Right and press OK.
 - **SuperTux** already has a "Jump with Up" option; it's now on by default. It's stored under a new config key, so old saved configs, which hold the old default, don't turn it off.
 - **The N64 games** have no Back button of their own, so Back used to end them instantly. Now the first press shows "Press BACK again to exit" for 2.5 seconds, and only a second press leaves.
+
+## 2026-11-16: Store prep, a third N64 game, and a screensaver that never came
+
+The user asked for a running list of what only they can do. It lives in `docs/USER-TODO.md`: the listening check, plugging in a 4K stick, the Live App Test, and the decisions, each with a recommendation. Then the work went on in parallel: a subagent wrote the first test suite while Gravity Choir got ready for the store and Hydra Harmonics joined the arcade.
+
+**Gravity Choir's last store items.**
+- **The Crescendo moved to Menu.** Amazon's criteria say non-media apps shouldn't depend on media keys, and the Crescendo was on Play/Pause. Menu now fires it in play (Play/Pause still does), and Back alone pauses. A gamepad's Start used to share Menu's meaning; it got its own button so it still pauses.
+- **The Live App Test steps** are in the store kit, taken from Amazon's own LAT guide, with the package at build 2.
+- **The certification checks we can run ourselves** passed on the TV: Home sends the game to the background and gives up audio focus within 20 ms; picking it again resumes the same process, paused, with focus back; Back three times exits in 71 ms.
+- **A KPI marker.** Amazon's KPI Visualizer measures time to fully drawn from a trace marker that a native app must emit itself, or the number comes back null. vegaplat now emits it through the Vega Tracing Interface at the first frame after the splash, and again after each return to the foreground.
+
+**Hydra Harmonics**, the N64brew Jam 2024 game the research ranked best for a remote (Up, Down and OK are all it uses), is the third recompiled game.
+- **Its font is commercial**, so it never enters the checkout: the sparse checkout excludes it with a `!` pattern, and a new per-game override makefile builds the text with Coustard, an OFL slab serif in the same style.
+- **The first boot on the Mac already ran the whole game.** Two things were missing:
+  - Our HLE rules stub libdragon's `audio_*` functions by name, and they caught the game's own `audio_music_play` and `audio_sfx_play` too, so it would have been silent. Two `keep` rules fixed that.
+  - Three drawing calls were stubs: sub-rectangle texture uploads (the curtain, the necks, the frame of the instructions panel), texture reuse, and triangles (the stage floor). The runtime now has all three.
+- **On the TV the necks were all the same reddish colour.** The game blits each hydra's collar sprite, then draws the neck from the same pixels as a plain surface. That relies on the hardware still holding the sprite's palette in texture memory, and our runtime decoded sprites with their own palette without ever making it the current one. It now does, as the hardware does.
+- **A verbose test run then showed one texture decoded twice every frame**: four palettes for one surface, sharing a cache slot. The palette's colours are now part of the key.
+- It runs at 60 fps on the stick, with our own Up, Down and OK icons in its controls panel.
+
+**Tests, at last.** `tools/test.sh` (written by a subagent, about 10 s on the Mac) pins this week's bugs:
+- the VADPCM decoder, bit for bit against libdragon's own;
+- the font's bit order and the address masking;
+- an armv7 build of the runtime that may not define weak `n64_*` symbols (decision 51);
+- every recompiled game booted headless, with its sound effects decoded against the source WAVs.
+
+The subagent put each bug back on purpose to check that its test fails.
+
+**The screensaver that never came.** One of Amazon's tests leaves an app until the screensaver starts and listens for leaks. So Gravity Choir was left alone on its title screen, with its music playing. Seven minutes later it was still in front, rendering at 60 fps. Our notes said the screensaver starts after five minutes without input, so a silent app was given the same test: the screensaver came at 5 minutes. Vega treats an app that plays audio as media playback and holds the screensaver off, so every one of our games idling on a title screen would have kept the TV on for good.
+- **The fix is in vegaplat, for every app.** After 3 minutes without a key, button or stick move, it gives up audio focus and pauses the stream, and the audio thread just keeps time. The next input, or a return to the foreground, brings the sound back with a short fade-in.
+- **The screensaver's own timer starts again when the audio stops**: measured, 5 minutes after the silence. So it now shows about 8 minutes after the last input.
+- **Back from the screensaver** returns to the same process: the music plays again 27 ms after the foreground event.
+
+**The store's launch numbers**, measured with Amazon's KPI Visualizer on the HD stick:
+
+| | Gravity Choir | Guideline |
+|---|---|---|
+| Cold start, first frame | 775 ms | < 1.5 s |
+| Cold start, fully drawn | 1.45 s | < 8 s |
+| Warm start, first frame | 35 ms | < 0.5 s |
+| Warm start, fully drawn | 0.61 s | |
+| Memory, foreground and background | 53 MB | 420 / 150 MB caps |
+
+The memory KPI wants Appium, which isn't installed, so that number comes from `/proc` inside the app's namespace.
+
+**SuperTux's jump with Up, seen at last.** Yesterday's check was blocked by the opening cutscene. This time a single device command held Up and took a screenshot 0.4 s into the hold, and Tux is in the air.

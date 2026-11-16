@@ -11,3 +11,6 @@ Extra moments (`<game>-2.png`, `-3.png`), which the selected card cross-fades th
 - `gravitychoir-2.png`, `gravitychoir-3.png`: Gravity Choir's demo AI playing and the Crescendo, rendered by its Mac host preview
 - `hydraharmonics-2.png`, `hydraharmonics-3.png`: Hydra Harmonics by Catch-64 (N64brew Game Jam 2024, MIT; text in Coustard, OFL), its instructions panel and a match, renders of the recompiled build by our host runner
 - `supertux-2.png`: SuperTux 0.7 on the TV, Tux jumping in "Welcome to Antarctica" (game art CC-BY-SA 3.0 / GPL, © the SuperTux team)
+- `doom-2.png`: Freedoom: Phase 2's attract demo on the TV (artwork © the Freedoom project, BSD-3-Clause)
+- `quake-2.png`: LibreQuake's attract demo on the TV (artwork © the LibreQuake project, BSD-3-Clause)
+- `supertuxkart-2.png`: SuperTuxKart 1.5 racing on Volcano Island on the TV (game art CC-BY-SA 3.0/4.0, CC0 and GPL, © the SuperTuxKart team)

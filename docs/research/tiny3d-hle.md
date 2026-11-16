@@ -19,8 +19,8 @@ Fire TV's Mali-G310?
 - **All of tiny3d's C code stays recompiled**: `t3d.c`, `t3dmodel.c` (model loading and the draw
   loop), `t3dskeleton.c` and `t3danim.c` (CPU-side skinning and animation, including animation
   streaming from ROM), `t3dmath.c`, `tpx.c` and `t3ddebug.c`. Only libdragon functions change.
-- **HLE surface:** about 20 microcode commands (13 for `rsp_tiny3d`, 5 to 7 for the particle
-  overlay `rsp_tinypx`) behind one tap function, plus about **20 libdragon functions**
+- **HLE surface:** 18 microcode commands (13 for `rsp_tiny3d`, 5 for the particle overlay
+  `rsp_tinypx`) behind one tap function, plus about **20 libdragon functions**
   (`rspq_overlay_register`, `__rdpq_clear_z`, `display_get_zbuf`, colour/z image binding,
   `SET_PRIM_DEPTH`, depth-aware `rdpq_triangle`, and so on). For comparison, replacing tiny3d at its
   API would mean about **44 host functions** (30 `t3d_*` and 14 `tpx_*`), plus the same tap for
@@ -373,8 +373,9 @@ all MIT. They make a ready-made test suite.
   - `SYNC_T3D` copies the host tiny3d projection and screen state; it ignores the DMEM
     addresses it carries.
   - `MATRIX_STACK` and `SET_DMEM` (scale, base size, texture parameters) update state.
-  - `DRAW_COLOR`/`DRAW_TEXTURE` (plus the S16 variants at `6f5ac0b`) read N particles at exec
-    time and emit one quad each with a per-particle colour and constant depth (section 4.6).
+  - `DRAW_COLOR`/`DRAW_TEXTURE` read N particles at exec time and emit one quad each, with a
+    per-particle colour and constant depth (section 4.6). At `6f5ac0b`, bit 31 of the address
+    word selects the S16 format.
 
 **Vertex processing on the CPU** is a direct C port of `T3DCmd_VertLoad` (`rsp_tiny3d.rspl:289–543`):
 1. Unpack the position and the 5.6.5 normal.
@@ -534,8 +535,8 @@ Doing T&L on the CPU, as the RSP does, keeps the cache semantics exact:
   - Optimisations:
     - precompile the combiners of every loaded model's materials (`T3DMaterial.colorCombiner`)
       when the first frame runs;
-    - point `MESA_SHADER_CACHE_DIR` at `/data` (`HOME` is unset on Vega, which disables Mesa's
-      disk cache).
+    - point `MESA_SHADER_CACHE_DIR` at `/data`. `HOME` is unset on Vega, so Mesa's on-disk
+      cache probably has nowhere to go by default; check this.
 - **Why not an ubershader that switches on uniform selectors:**
   - At 30 GFLOPS (about 120 FMAs per 1080p pixel per 60 fps frame *in total*), a generic
     two-cycle combiner at 40–60 operations per fragment costs about 10 ms at 1440×1080 with 2.5×
@@ -766,7 +767,8 @@ at `0dea720`). The repo is MIT; asset licence notes are summarised from each gam
     - `rspq_call_deferred`, `rdpq_detach_cb`
     - `rspq_highpri_*` (HDR post only)
   - **rdpq:**
-    - `rdpq_mode_zoverride`, `rdpq_mode_zmode`, `rdpq_mode_fog`, `rdpq_mode_mipmap`-style state
+    - `rdpq_mode_zoverride`, `rdpq_mode_zmode`, `rdpq_mode_fog`, `rdpq_set_prim_lod_frac`,
+      `rdpq_set_tile_size`
     - `rdpq_set_color_image`/`z_image` mid-frame
     - `rdpq_triangle` (screen fades)
     - `rdpq_set_lookup_address` (BigTex)
@@ -908,7 +910,8 @@ first. These are homebrew built from source, never commercial ROMs.
    per-game sensitivity). The Third Arm is gamepad-only.
 7. **Memory:**
    - 8 MB of RDRAM is already reserved (`N64RT_RDRAM_SIZE`).
-   - GL textures are small, but upscaled FBOs add about 6 MB each at 1440×1080 with depth.
+   - GL textures are small, but upscaled FBOs add about 12 MB each at 1440×1080 (RGBA8 colour
+     plus D24S8 depth), against the app's 420 MB foreground cap.
    - Pyrite64 keeps 3 swap-chain surfaces plus layers.
 
 ## Sources

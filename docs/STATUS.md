@@ -8,6 +8,7 @@ _Last updated: 2026-11-16 (Gravity Choir store prep; Hydra Harmonics; the test s
 - **Prism Spire (`apps/prism-spire`), the second original game, is playable on the TV at about 60 fps.** It is in the arcade, second card. Pass-the-remote stacking of glass prisms at sunset, for 2–8 players, plus the Daily Spire solo mode. Built with Box2D 3.1.1 and our own refracting-glass renderer and synthesizer. Design: `apps/prism-spire/DESIGN.md`; GPU rules: decision 63.
   - Mac preview: `apps/prism-spire/host-preview.sh run|shots <title|play|collapse|solo|keyart|howto|credits>`. Audio check: `apps/prism-spire/tools/audio-test.sh` (writes a WAV).
   - Next: playtest and tuning (piece mix, plinth width, event odds), a collapse replay, a store kit like Gravity Choir's. Then **Chroma Orbit** (the user's order: Prism Spire, then Chroma Orbit).
+- **Chroma Orbit (`apps/chroma-orbit`): design written (`apps/chroma-orbit/DESIGN.md`), no code yet.** A pair-dropper on a polar grid (8 rings × 16 sectors) around a star; you turn the planet. First step: prototype the rules on the Mac with a plain renderer and the AI, then the star/arc renderer, synth, TV build.
 - **2026-11-16:**
   - **Gravity Choir is ready for a Live App Test** (the user's step):
     - the Crescendo is on Menu (decision 57);

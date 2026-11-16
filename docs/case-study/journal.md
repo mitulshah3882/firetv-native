@@ -624,3 +624,13 @@ The subagent put each bug back on purpose to check that its test fails.
 The memory KPI wants Appium, which isn't installed, so that number comes from `/proc` inside the app's namespace.
 
 **SuperTux's jump with Up, seen at last.** Yesterday's check was blocked by the opening cutscene. This time a single device command held Up and took a screenshot 0.4 s into the hold, and Tux is in the air.
+
+**SuperTuxKart's slowest track, a quarter faster.** Black Forest, the slowest track at 22–24 fps, is dense with trees, and STK's level-of-detail distances scale with its "geometry level" setting. The TV preset uses level 1 (far scenery drawn to 1.42× its base distance); level 0 draws it to 1.0×. Interleaved A/B runs on the three slowest tracks:
+
+| Track | Level 1 (preset) | Level 0 |
+|---|---|---|
+| Black Forest | 22.7, 24.4 | 29.9, 29.4 |
+| Cornfield Crossing | 47.6, 45.0 | 48.4, 49.5 |
+| Cocoa Temple | 40.4, 41.6 | 39.7, 39.7 |
+
+Screenshots of Black Forest at level 0 showed nothing missing: the forest still reaches the horizon. Cornfield's small gain didn't survive a third run (44.3), so only Black Forest now computes its LOD distances at level 0, through a small patch where STK computes them; a check run measured 30.0 fps. The saved setting never changes, and a player who picks a lower level keeps it.

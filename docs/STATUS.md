@@ -27,7 +27,7 @@ _Last updated: 2026-11-16 (Gravity Choir store prep; Hydra Harmonics; the test s
   - Each track runs its 3D view at the sharpest scale that holds about 60 fps (decision 43). Measured on the HD stick after hours of load (`apps/supertuxkart/tools/bench-tracks.sh`, AI karts, 30 s per track):
     - 0.667: Snow Tux Peak 59.8, XR591 59.5
     - 0.583: Fort Magma 57.6, Hacienda 59.0, Mini Golf 58.3, Olivermath 59.8, Scotland 59.8, Snow Mountain 58.7, STK Enterprise 59.9, Volcano Island 59.6
-    - 0.5: Mines 59.5, Sandtrack 59.0, Zen Garden 57.6, Lighthouse 51, Cornfield Crossing 45–48, Gran Paradiso Island 45, Ravenbridge Mansion 44–46, Abyss 44, Candela City 40–44, Cocoa Temple 38–44, Black Forest 25–31
+    - 0.5: Mines 59.5, Sandtrack 59.0, Zen Garden 57.6, Lighthouse 51, Cornfield Crossing 45–48, Gran Paradiso Island 45, Ravenbridge Mansion 44–46, Abyss 44, Candela City 40–44, Cocoa Temple 38–44, Black Forest 29–31 (LOD level 0 since 2026-11-16, decision 62; 22–24 before)
     - Ranges are a hot stick (after a 2-hour run) against a cooler one.
   - What limits it: the busy tracks are CPU-bound (Cocoa Temple and Gran Paradiso keep the game thread over 90% busy); most others were GPU-bound at 0.667.
   - Optimisations kept (A/B-measured):

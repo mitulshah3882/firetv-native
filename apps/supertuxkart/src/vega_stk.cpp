@@ -309,6 +309,31 @@ int max_step()
 }  // namespace
 
 /** Scale for the 3D view when a track loads. */
+/** LOD level per track. Black Forest, the slowest track, computes its level-of-detail distances at
+ *  level 0 (draw distance x1.0 instead of the TV preset's x1.42; a model's switch distance barely
+ *  changes). Interleaved A/B runs at a fixed 0.5 scale on the HD stick, 2026-11-16 (fps): 22.7 /
+ *  24.4 -> 29.9 / 29.4, and 30.0 in a check run with this code. Cornfield Crossing (47.6 / 45.0 ->
+ *  48.4 / 49.5, then 44.3) and Cocoa Temple (no change) showed nothing beyond the noise, so they keep
+ *  the preset. Screenshots showed no missing scenery. A lower user setting wins; the saved setting
+ *  is never changed. */
+static std::string g_loading_track;
+
+void vega_stk_track_loading(const std::string& track)
+{
+    g_loading_track = track;
+}
+
+int vega_stk_lod_level(int user_level)
+{
+    static const char* const kLowLod[] = { "black_forest" };
+    for (const char* t : kLowLod)
+    {
+        if (g_loading_track == t)
+            return std::min(user_level, 0);
+    }
+    return user_level;
+}
+
 float vega_stk_dynres_initial(const std::string& track)
 {
     if (g_dynres.step >= 0 && !g_dynres.known && !g_dynres_track.empty())

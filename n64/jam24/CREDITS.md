@@ -5,8 +5,9 @@ at `0dea720`, fetched as a sparse checkout by `tools/fetch-deps.sh n64jam2024` (
 the harness assets listed below, and the minigames we build). Nothing from it is committed here.
 
 The jam repository is MIT licensed (Copyright (c) 2024 N64brew). Our files in `n64/jam24/`
-(the static-link Makefile, `jam_boot.c`, the Fire TV remote patch `patches/landgrab.patch` and
-its button icons in `assets-remote/`, drawn by `assets-remote/make-icons.py`) are our own, MIT.
+(the static-link Makefile, `jam_boot.c`, the Fire TV remote patches in `patches/`, the asset
+overrides in `overrides/`, and the button icons in `assets-remote/`, drawn by
+`assets-remote/make-icons.py`) are our own, MIT.
 
 ## Land Grab (`code/landgrab`, `assets/landgrab`)
 - Code: Meeq (Christopher Bonhage), MIT. Game concept: "Blokus" by Bernard Tavitian.
@@ -29,7 +30,21 @@ its button icons in `assets-remote/`, drawn by `assets-remote/make-icons.py`) ar
     (only loaded: the intro paragraphs that use it are disabled in the game's code);
   - the duck, snowman and park art (presumably the author's own).
 
-## Harness assets the two minigames load
+## Hydra Harmonics (`code/hydraharmonics`, `assets/hydraharmonics`)
+- By Catch-64: N64 Squid (lead programmer), Gary Jones III (art director, composer), Brozilla
+  (audio conversion), StatycTyr (additional art). Code, sprites and the XM music
+  (`hydraharmonics.xm`) are the team's own, in the MIT repo (credits: `code/hydraharmonics/readme.md`).
+- Sound effects (`aah`, `eww`, `gulp`, `ow`, `hit-0..3`, `slide-whistle-up/down`, `drumroll`):
+  in the MIT repo; their original sources are not documented upstream (like the harness's).
+- **Font replaced.** The game ships "Superclarendon", a commercial font we can't
+  redistribute: `tools/fetch-deps.sh` keeps it out of the checkout, and our build uses
+  "Coustard" by Vernon Adams (SIL OFL 1.1, pinned in `tools/fetch-deps.sh`), at the same size and
+  outline (`overrides/hydraharmonics.mk`).
+- Our remote patch (`patches/hydraharmonics.patch`) loads Coustard, says OK instead of A, and
+  draws the controls panel with our own remote icons (`assets-remote/hydraharmonics`): Up, Down
+  and OK, in place of the joypad's D-pad, C, L, R, A and Z icons.
+
+## Harness assets the minigames load
 `assets/squarewave.ttf` (the jam's UI font, also used by our results screen),
 `assets/core/StartButton.png`, `AButton.png`, `Start.wav`, `Countdown.wav`, `Stop.wav`,
 `Winner.wav`. Part of the MIT jam template; their original sources are not documented, so confirm

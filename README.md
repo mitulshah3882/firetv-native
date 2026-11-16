@@ -2,7 +2,7 @@
 
 An experiment in getting games running **natively** on Amazon Fire TV devices running **Vega OS**, Amazon's Linux-based TV operating system. Native here means compiled C/C++ talking straight to the device's graphics, audio and input APIs, not an emulator or a web wrapper. The porting work is done with Claude Code.
 
-> Status: **seven games run natively on a Fire TV Stick (Vega OS)** behind a native **arcade launcher**, on our SDL3 port: **Gravity Choir**, an original game made for this project (60 fps, music synthesized live); Freedoom with OPL3 music (56–60 fps); LibreQuake with its soundtrack (59.9 fps); SuperTux; SuperTuxKart, the 3D kart racer (60 fps on the lighter tracks, 25–59 on the busiest); and two **N64 homebrew games statically recompiled from MIPS to ARM**, Brew Volley and Land Grab. See the [case study draft](docs/case-study/README.md).
+> Status: **eight games run natively on a Fire TV Stick (Vega OS)** behind a native **arcade launcher**, on our SDL3 port: **Gravity Choir**, an original game made for this project (60 fps, music synthesized live); Freedoom with OPL3 music (56–60 fps); LibreQuake with its soundtrack (59.9 fps); SuperTux; SuperTuxKart, the 3D kart racer (60 fps on the lighter tracks, 25–59 on the busiest); and three **N64 homebrew games statically recompiled from MIPS to ARM**: Brew Volley, Land Grab and Hydra Harmonics. See the [case study draft](docs/case-study/README.md).
 
 ![Native Arcade running on Fire TV](docs/case-study/media/07-native-arcade-on-tv.jpg)
 
@@ -45,7 +45,7 @@ Each game also runs on its own (`tools/vega.sh run apps/doom com.firetvnative.do
 | `engine/sdl2-compat-vega`, `engine/thirdparty` | SDL2 API on our static SDL3 (renamed symbols), and pinned third-party libraries built per app |
 | `n64/jam24/` | Static-link harness for N64brew Game Jam 2024 minigames (`tools/n64-jam24.sh`) |
 | `n64/` | N64 static recompilation: N64Recomp configs and HLE rules (`recomp/`), the n64rt runtime and libdragon HLE (`runtime/`), host runner ([n64/README.md](n64/README.md)) |
-| `apps/n64-*` | Recompiled N64 programs packaged for Vega (helloworld, Brew Volley, Land Grab from the N64brew Game Jam 2024) |
+| `apps/n64-*` | Recompiled N64 programs packaged for Vega (helloworld, Brew Volley, and Land Grab and Hydra Harmonics from the N64brew Game Jam 2024) |
 | `apps/vega-probe` | pure-C++ Vega capability probe |
 | `apps/gpu-bench` | GPU/CPU benchmark (fill, shader math, particles, bloom, draw calls, CPU threads); results and a 60 fps budget in [docs/research/gpu-bench.md](docs/research/gpu-bench.md) |
 | `tools/` | `vega.sh` (build, install, launch, key injection, screenshot, logs), `fetch-deps.sh` |
@@ -66,7 +66,7 @@ This repository contains **no ROMs, no game dumps, no keys and no extracted game
 - **`engine/sdl3-vega/src`** (the SDL video and audio drivers): zlib, the same license as SDL ([LICENSE.txt](engine/sdl3-vega/LICENSE.txt)).
 - **`apps/doom` and `apps/quake`:** GPL-2.0-or-later, because they link GPL engine code (doomgeneric, Chocolate Doom, id's WinQuake). See the LICENSE file in each directory.
 - **`apps/supertux` and `apps/supertuxkart`:** GPL-3.0-or-later, like the games they build. See the LICENSE file in each directory.
-- **Third-party components keep their own licenses:** SDL (zlib), Nuked OPL3 (GPL-2.0-or-later, as shipped in Chocolate Doom 2.3.0), Freedoom (BSD-3), LibreQuake (BSD-3 art, GPL-2 QuakeC), SuperTux and SuperTuxKart data (mostly CC-BY-SA and GPL, with a few CC BY-NC items), the N64 homebrew (MIT, with Land Grab's music under CC BY-NC 4.0). Each package's `NOTICE.txt` has the details.
+- **Third-party components keep their own licenses:** SDL (zlib), Nuked OPL3 (GPL-2.0-or-later, as shipped in Chocolate Doom 2.3.0), Freedoom (BSD-3), LibreQuake (BSD-3 art, GPL-2 QuakeC), SuperTux and SuperTuxKart data (mostly CC-BY-SA and GPL, with a few CC BY-NC items), the N64 homebrew (MIT, with Land Grab's music under CC BY-NC 4.0; Hydra Harmonics' text uses Coustard, OFL, in place of its commercial font). Each package's `NOTICE.txt` has the details.
 - **The Amazon Vega SDK is not included.** Install it yourself under Amazon's terms.
 
 Every package ships its licences and credits under `assets/licenses/`: a `NOTICE.txt` (what the app contains, the exact upstream versions, each component's licence and a link to this source), the app's own LICENSE, and the licence texts of the libraries and assets it includes. The build copies them in (`vega_app_license()` in `engine/sdl3-vega/SDL3Vega.cmake`); each app's `NOTICE.txt` lives next to its `CMakeLists.txt`.

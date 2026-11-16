@@ -1,0 +1,127 @@
+Hydra Harmonics (N64brew Game Jam 2024, code/hydraharmonics at 0dea720) for the Fire TV remote,
+without its commercial font.
+
+  - Text uses Coustard (OFL) instead of Superclarendon, which we can't redistribute
+    (overrides/hydraharmonics.mk builds the font; tools/fetch-deps.sh keeps Superclarendon out).
+  - The controls panel shows the remote: Up and Down on the direction ring move, OK chomps. Our own
+    icons from n64/jam24/assets-remote/hydraharmonics (make-icons.py) replace the joypad's D-pad,
+    C, L, R, A and Z icons. The game's input code is unchanged: OK is A, and a gamepad still has
+    every button.
+  - The minigame description says OK instead of A.
+
+SPDX-FileCopyrightText: 2026 Mitul Shah
+SPDX-License-Identifier: MIT
+
+diff --color -ru a/code/hydraharmonics/hydraharmonics.c b/code/hydraharmonics/hydraharmonics.c
+--- a/code/hydraharmonics/hydraharmonics.c	2026-11-16 14:38:31
++++ b/code/hydraharmonics/hydraharmonics.c	2026-11-16 14:38:49
+@@ -15,7 +15,7 @@
+ 	.gamename = "Hydra Harmonics",
+ 	.developername = "Catch-64",
+ 	.description = "Taste the music! Eat the most notes to win!",
+-	.instructions = "Use A to eat and up or down to move."
++	.instructions = "Press OK to eat and up or down to move."
+ };
+ 
+ #define TIMER_GAME (NOTES_PER_PLAYER * PLAYER_MAX) + (NOTES_PER_PLAYER_SPECIAL * NOTES_SPECIAL_TYPES) + (13 / NOTES_SPEED)
+@@ -43,7 +43,7 @@
+ 
+ 	// Define some variables
+ 	font_default = rdpq_font_load_builtin(FONT_BUILTIN_DEBUG_VAR);
+-	font_clarendon = rdpq_font_load("rom:/hydraharmonics/Superclarendon-Regular-01.font64");
++	font_clarendon = rdpq_font_load("rom:/hydraharmonics/Coustard-Regular.font64");
+ 	rdpq_text_register_font(FONT_DEFAULT, font_default);
+ 	rdpq_text_register_font(FONT_CLARENDON, font_clarendon);
+ 
+diff --color -ru a/code/hydraharmonics/intro.c b/code/hydraharmonics/intro.c
+--- a/code/hydraharmonics/intro.c	2026-11-16 14:38:31
++++ b/code/hydraharmonics/intro.c	2026-11-16 14:38:57
+@@ -62,11 +62,11 @@
+ void intro_init (void) {
+ 	curtain_sprite = sprite_load("rom:/hydraharmonics/curtain.ci4.sprite");
+ 	curtain_surf = sprite_get_pixels(curtain_sprite);
+-	controls_dup_sprite = sprite_load("rom:/hydraharmonics/button-dup.ci4.sprite");
+-	controls_ddown_sprite = sprite_load("rom:/hydraharmonics/button-ddown.ci4.sprite");
++	controls_dup_sprite = sprite_load("rom:/hydraharmonics/remote_up.rgba16.sprite");
++	controls_ddown_sprite = sprite_load("rom:/hydraharmonics/remote_down.rgba16.sprite");
+ 	controls_cup_sprite = sprite_load("rom:/hydraharmonics/button-cup.ci4.sprite");
+ 	controls_cdown_sprite = sprite_load("rom:/hydraharmonics/button-cdown.ci4.sprite");
+-	controls_a_sprite = sprite_load("rom:/hydraharmonics/button-a.ci4.sprite");
++	controls_a_sprite = sprite_load("rom:/hydraharmonics/remote_ok.rgba16.sprite");
+ 	controls_z_sprite = sprite_load("rom:/hydraharmonics/button-z.ci4.sprite");
+ 	controls_l_sprite = sprite_load("rom:/hydraharmonics/button-l.ci4.sprite");
+ 	controls_r_sprite = sprite_load("rom:/hydraharmonics/button-r.ci4.sprite");
+@@ -175,16 +175,10 @@
+ 			INSTRUCTIONS_PADDING_Y + INSTRUCTIONS_TEXT_PADDING_Y + title_y_offset + text_y_offset,
+ 			NULL
+ 		);
+-		rdpq_sprite_blit (
+-			controls_cup_sprite,
+-			INSTRUCTIONS_TEXT_LEFT_ABS_X + controls_dup_sprite->width + INSTRUCTIONS_ICON_PADDING_SMALL,
+-			INSTRUCTIONS_PADDING_Y + INSTRUCTIONS_TEXT_PADDING_Y + title_y_offset + text_y_offset,
+-			NULL
+-		);
+ 		textmetrics = rdpq_text_printf(
+ 			NULL,
+ 			FONT_DEFAULT,
+-			INSTRUCTIONS_TEXT_LEFT_ABS_X + controls_dup_sprite->width + controls_cup_sprite->width + INSTRUCTIONS_ICON_PADDING,
++			INSTRUCTIONS_TEXT_LEFT_ABS_X + controls_dup_sprite->width + INSTRUCTIONS_ICON_PADDING,
+ 			INSTRUCTIONS_PADDING_Y + INSTRUCTIONS_TEXT_PADDING_Y + title_y_offset + text_y_offset + INSTRUCTIONS_TEXT_NEWLINE_HEIGHT,
+ 			"Move up!"
+ 		);
+@@ -197,16 +191,10 @@
+ 			INSTRUCTIONS_PADDING_Y + INSTRUCTIONS_TEXT_PADDING_Y + title_y_offset + text_y_offset,
+ 			NULL
+ 		);
+-		rdpq_sprite_blit (
+-			controls_cdown_sprite,
+-			INSTRUCTIONS_TEXT_LEFT_ABS_X + controls_dup_sprite->width + INSTRUCTIONS_ICON_PADDING_SMALL,
+-			INSTRUCTIONS_PADDING_Y + INSTRUCTIONS_TEXT_PADDING_Y + title_y_offset + text_y_offset,
+-			NULL
+-		);
+ 		textmetrics = rdpq_text_printf(
+ 			NULL,
+ 			FONT_DEFAULT,
+-			INSTRUCTIONS_TEXT_LEFT_ABS_X + controls_dup_sprite->width + controls_cup_sprite->width + INSTRUCTIONS_ICON_PADDING,
++			INSTRUCTIONS_TEXT_LEFT_ABS_X + controls_dup_sprite->width + INSTRUCTIONS_ICON_PADDING,
+ 			INSTRUCTIONS_PADDING_Y + INSTRUCTIONS_TEXT_PADDING_Y + title_y_offset + text_y_offset + INSTRUCTIONS_TEXT_NEWLINE_HEIGHT,
+ 			"Move down!"
+ 		);
+@@ -214,35 +202,16 @@
+ 		// "Chomp" row
+ 		rdpq_set_mode_copy(true);
+ 		rdpq_sprite_blit (
+-			controls_l_sprite,
+-			INSTRUCTIONS_TEXT_LEFT_ABS_X,
+-			INSTRUCTIONS_PADDING_Y + INSTRUCTIONS_TEXT_PADDING_Y + title_y_offset + text_y_offset,
+-			NULL
+-		);
+-		rdpq_sprite_blit (
+-			controls_r_sprite,
+-			INSTRUCTIONS_TEXT_LEFT_ABS_X + controls_dup_sprite->width + INSTRUCTIONS_ICON_PADDING_SMALL,
+-			INSTRUCTIONS_PADDING_Y + INSTRUCTIONS_TEXT_PADDING_Y + title_y_offset + text_y_offset,
+-			NULL
+-		);
+-		text_y_offset += controls_l_sprite->height + INSTRUCTIONS_ICON_PADDING;
+-		rdpq_sprite_blit (
+ 			controls_a_sprite,
+ 			INSTRUCTIONS_TEXT_LEFT_ABS_X,
+ 			INSTRUCTIONS_PADDING_Y + INSTRUCTIONS_TEXT_PADDING_Y + title_y_offset + text_y_offset,
+ 			NULL
+ 		);
+-		rdpq_sprite_blit (
+-			controls_z_sprite,
+-			INSTRUCTIONS_TEXT_LEFT_ABS_X + controls_dup_sprite->width + INSTRUCTIONS_ICON_PADDING_SMALL,
+-			INSTRUCTIONS_PADDING_Y + INSTRUCTIONS_TEXT_PADDING_Y + title_y_offset + text_y_offset,
+-			NULL
+-		);
+ 		textmetrics = rdpq_text_printf(
+ 			NULL,
+ 			FONT_DEFAULT,
+-			INSTRUCTIONS_TEXT_LEFT_ABS_X + controls_dup_sprite->width + controls_cup_sprite->width + INSTRUCTIONS_ICON_PADDING,
+-			INSTRUCTIONS_PADDING_Y + INSTRUCTIONS_TEXT_PADDING_Y + title_y_offset + text_y_offset,
++			INSTRUCTIONS_TEXT_LEFT_ABS_X + controls_dup_sprite->width + INSTRUCTIONS_ICON_PADDING,
++			INSTRUCTIONS_PADDING_Y + INSTRUCTIONS_TEXT_PADDING_Y + title_y_offset + text_y_offset + INSTRUCTIONS_TEXT_NEWLINE_HEIGHT,
+ 			"Chomp!"
+ 		);
+ 		text_y_offset += controls_a_sprite->height + INSTRUCTIONS_ICON_PADDING;

@@ -80,6 +80,9 @@ $$(BUILD_DIR)/mg_$(1).o: $$(SRC_$(1):%.c=$$(BUILD_DIR)/%.o) $$(JAM24_DIR)/miniga
 		--rename-section .data.jam_minigame=.data.jam_$(1) --rename-section .bss.jam_minigame=.bss.jam_$(1) $$@.l $$@
 	@rm -f $$@.r $$@.l
 -include code/$(1)/$(1).mk
+# Our changes to a minigame's asset list (overrides/<game>.mk), e.g. a free font in place of a
+# commercial one.
+-include $$(JAM24_DIR)/overrides/$(1).mk
 endef
 $(foreach m,$(MINIGAMES),$(eval $(call MINIGAME_template,$(m))))
 

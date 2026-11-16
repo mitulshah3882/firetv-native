@@ -44,8 +44,14 @@ splash() {  # app art title r g b
   rm -rf "$z" && mkdir -p "$z/_loop"
   cp "$png" "$z/_loop/loop00000.png"
   printf '1920 1080 30\nc 0 0 _loop\n' > "$z/desc.txt"
-  rm -f "$ROOT/apps/$1/icon/SplashScreenImages.zip"
-  (cd "$z" && zip -q -X -0 -r "$ROOT/apps/$1/icon/SplashScreenImages.zip" desc.txt _loop)
+  local zip="$ROOT/apps/$1/icon/SplashScreenImages.zip"
+  # Keep the existing zip when its picture is unchanged (a new zip differs in its timestamps).
+  if [[ -f "$zip" ]] && unzip -p "$zip" _loop/loop00000.png | cmp -s - "$png"; then
+    echo "apps/$1/icon/splash.astc (zip unchanged)"
+    return
+  fi
+  rm -f "$zip"
+  (cd "$z" && zip -q -X -0 -r "$zip" desc.txt _loop)
   echo "apps/$1/icon/splash.astc, SplashScreenImages.zip"
 }
 # Accent colours match the arcade's cards.
@@ -56,3 +62,4 @@ splash supertux supertux.png "SuperTux" 115 209 255
 splash supertuxkart supertuxkart.png "SuperTuxKart" 255 158 31
 splash n64-brew-volley brewvolley.png "Brew Volley" 125 255 79
 splash n64-landgrab landgrab.png "Land Grab" 255 97 97
+splash n64-hydraharmonics hydraharmonics.png "Hydra Harmonics" 255 112 176

@@ -99,6 +99,11 @@ static Game g_games[] = {
      "recompiled from MIPS to native ARM. Take on three AI rivals.",
      {"N64RECOMP", "LIBDRAGON", "NO EMULATOR", "4 PLAYERS"},
      "pkg://com.firetvnative.n64.landgrab.main", "art/landgrab.png", {1.0f, 0.38f, 0.38f, 1}, CARD_ART, NULL, NULL, true, {{0}}},
+    {"Hydra Harmonics", "Nintendo 64 homebrew \xC2\xB7 statically recompiled",
+     "Hydras race to eat the notes of a song in this N64brew Game Jam 2024",
+     "party game, recompiled to native ARM. Up, Down and OK are all it takes.",
+     {"N64RECOMP", "LIBDRAGON", "NO EMULATOR", "4 PLAYERS"},
+     "pkg://com.firetvnative.n64.hydraharmonics.main", "art/hydraharmonics.png", {1.0f, 0.44f, 0.69f, 1}, CARD_ART, NULL, NULL, true, {{0}}},
 };
 #define NUM_GAMES ((int)(sizeof(g_games) / sizeof(g_games[0])))
 
@@ -602,6 +607,7 @@ static void draw_about(void) {
         {"SuperTuxKart", "SuperTuxKart 1.5 (GPL-3.0) on sdl2-compat; data CC-BY-SA / GPL / CC0"},
         {"Brew Volley", "MULLER Marian (N64brew Jam), libdragon; recompiled with N64Recomp (MIT)"},
         {"Land Grab", "Meeq (N64brew Game Jam 2024, MIT); music by Ultrasyd and Phekkis (CC BY-NC 4.0)"},
+        {"Hydra Harmonics", "Catch-64 (N64brew Game Jam 2024, MIT); Coustard font (SIL OFL 1.1)"},
         {"Fonts", "Chakra Petch and Press Start 2P (SIL Open Font License 1.1)"},
         {"Music", "generated live by a tiny synthesizer, no samples"},
     };

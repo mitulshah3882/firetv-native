@@ -52,7 +52,9 @@ DEPS=(
   # minigames we recompile. Other minigames are never fetched (Hydra Harmonics bundles a commercial
   # font). Never run git commands that need every blob (ls-tree -l, grep, log -p) in this checkout:
   # a blobless clone fetches missing blobs on demand.
-  "n64jam2024|0dea720|https://github.com/n64brew/N64brew-GameJam2024.git#0dea720fc295797ae779302425791c01cb67d244|N64brew-GameJam2024-0dea720|/*.c /*.h /Makefile /LICENSE /README.md /.gitmodules /assets/squarewave.ttf /assets/core/StartButton.png /assets/core/AButton.png /assets/core/Start.wav /assets/core/Countdown.wav /assets/core/Stop.wav /assets/core/Winner.wav /assets/minigames/landgrab.txt /assets/minigames/mallard.txt /code/landgrab/ /assets/landgrab/ /code/mallard/ /assets/mallard/"
+  "n64jam2024|0dea720|https://github.com/n64brew/N64brew-GameJam2024.git#0dea720fc295797ae779302425791c01cb67d244|N64brew-GameJam2024-0dea720|/*.c /*.h /Makefile /LICENSE /README.md /.gitmodules /assets/squarewave.ttf /assets/core/StartButton.png /assets/core/AButton.png /assets/core/Start.wav /assets/core/Countdown.wav /assets/core/Stop.wav /assets/core/Winner.wav /assets/minigames/landgrab.txt /assets/minigames/mallard.txt /code/landgrab/ /assets/landgrab/ /code/mallard/ /assets/mallard/ /assets/minigames/hydraharmonics.txt /code/hydraharmonics/ /assets/hydraharmonics/ !/assets/hydraharmonics/*.ttf"
+  # Hydra Harmonics bundles a commercial font (Superclarendon); the "!" pattern keeps it out, and
+  # apps/n64-hydraharmonics builds with an OFL font instead.
   # Single files (fonts and header-only libraries) land in <extracted-dir>/<file name>.
   "stb_truetype|4e9b368|https://raw.githubusercontent.com/nothings/stb/4e9b368bfc071e97206ea5c6adba68dd0cbf8897/stb_truetype.h|stb"
   "stb_vorbis|4e9b368|https://raw.githubusercontent.com/nothings/stb/4e9b368bfc071e97206ea5c6adba68dd0cbf8897/stb_vorbis.c|stb"
@@ -62,6 +64,9 @@ DEPS=(
   "font-chakrapetch-ofl|86aced9|https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/chakrapetch/OFL.txt|fonts/ChakraPetch"
   "font-pressstart2p|86aced9|https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/pressstart2p/PressStart2P-Regular.ttf|fonts"
   "font-pressstart2p-ofl|86aced9|https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/pressstart2p/OFL.txt|fonts/PressStart2P"
+  # Coustard (OFL), a Clarendon-style slab serif: Hydra Harmonics' text font in place of Superclarendon.
+  "font-coustard|86aced9|https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/coustard/Coustard-Regular.ttf|fonts"
+  "font-coustard-ofl|86aced9|https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/coustard/OFL.txt|fonts/Coustard"
 )
 
 fetch() {

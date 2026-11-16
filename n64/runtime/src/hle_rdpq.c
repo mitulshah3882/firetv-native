@@ -53,6 +53,11 @@ typedef struct {
     float s_shift, t_shift;   /* texparms translate */
     int s_scale, t_scale;     /* texparms scale_log */
     bool s_wrap, t_wrap, s_mirror, t_mirror;
+    int palette;              /* texparms palette: which 16 TLUT entries a CI4 surface uses */
+    /* rdpq_tex_upload_sub: the tile holds only [s_org, s_org + sub_w) x [t_org, t_org + sub_h) of
+     * the surface, and texture coordinates stay the surface's (the tile's origin moves), so they
+     * wrap within that rectangle. sub_w = 0: the whole surface. */
+    int s_org, t_org, sub_w, sub_h;
 } Tile;
 
 static struct {
@@ -98,9 +103,14 @@ static uint32_t texture_sig(uint8_t *rdram, int fmt, int w, int h, int stride, u
 }
 
 static HleTex *decode_texture(uint8_t *rdram, uint64_t key, int fmt, int w, int h, int stride, uint32_t data,
-                              uint32_t pal, bool host_pal, int layer, bool mask) {
+                              uint32_t pal, bool host_pal, int pal_base, int layer, bool mask) {
     if (w <= 0 || h <= 0 || w > 2048 || h > 2048) return NULL;
-    const uint32_t sig = texture_sig(rdram, fmt, w, h, stride, data) ^ pal ^ (host_pal ? 0x5A5A : 0);
+    uint32_t sig = texture_sig(rdram, fmt, w, h, stride, data) ^ pal;
+    if (host_pal) {  /* the same pixels under another palette (or a reloaded TLUT) decode differently */
+        const int n = fmt == 8 ? 16 : 256;
+        sig ^= 0x5A5A;
+        for (int i = 0; i < n; i++) sig = (sig ^ R.tlut[(pal_base + i) & 255]) * 16777619u;
+    }
     HleTex *slot = NULL, *lru = &g_tex[0];
     for (int i = 0; i < TEX_CACHE; i++) {
         HleTex *t = &g_tex[i];
@@ -142,7 +152,7 @@ static HleTex *decode_texture(uint8_t *rdram, uint64_t key, int fmt, int w, int 
                     } else if (pal) {
                         rgba16(n64_r16(rdram, pal + v * 2), o);
                     } else if (host_pal) {
-                        rgba16(R.tlut[v & 255], o);
+                        rgba16(R.tlut[(pal_base + v) & 255], o);
                     } else {
                         o[0] = o[1] = o[2] = (uint8_t)(v * (fmt == 8 ? 17 : 1));
                         o[3] = 255;
@@ -175,20 +185,32 @@ HleTex *hle_sprite_texture(uint8_t *rdram, recomp_context *ctx, uint32_t sprite,
     const int fmt = n64_r8(rdram, sprite + 5) & 0x1F;
     uint32_t pal = 0;
     if ((fmt == 8 || fmt == 9) && layer < 0 && n64_sprite_get_palette) pal = (uint32_t)n64rt_call(ctx, n64_sprite_get_palette, sprite, 0, 0, 0);
-    return decode_texture(rdram, key, fmt, w, h, stride_of(fmt, w), sprite + 8, pal, false, layer, mask);
+    return decode_texture(rdram, key, fmt, w, h, stride_of(fmt, w), sprite + 8, pal, false, 0, layer, mask);
 }
 
 /* surface_t { uint16_t flags, width, height, stride; void *buffer; } */
-static HleTex *surface_texture(uint8_t *rdram, uint32_t flags_w, uint32_t h_stride, uint32_t buffer) {
+static HleTex *surface_texture(uint8_t *rdram, uint32_t flags_w, uint32_t h_stride, uint32_t buffer, int palette) {
     const int fmt = (int)(flags_w >> 16) & 0x1F, w = (int)(flags_w & 0xFFFF);
     const int h = (int)(h_stride >> 16), stride = (int)(h_stride & 0xFFFF);
     const bool ci = fmt == 8 || fmt == 9;
-    return decode_texture(rdram, (uint64_t)16 << 32 | (buffer & 0x1FFFFFFFu), fmt, w, h, stride, buffer, 0, ci && R.tlut_loaded, -1, false);
+    const int base = fmt == 8 ? (palette & 15) * 16 : 0; /* CI4 picks one of 16 palettes; CI8 uses all 256 */
+    const bool host_pal = ci && R.tlut_loaded;
+    /* The palette's colours are part of the key, so one surface drawn with several palettes (Hydra
+     * Harmonics' necks, one per player) keeps a cached texture for each instead of decoding again
+     * every time the palette changes. */
+    uint32_t kind = 16;
+    if (host_pal) {
+        uint32_t h = 2166136261u;
+        for (int i = 0; i < (fmt == 8 ? 16 : 256); i++) h = (h ^ R.tlut[(base + i) & 255]) * 16777619u;
+        kind = 0x80000000u | (h & 0x7FFFFFFFu);
+    }
+    const uint64_t key = (uint64_t)kind << 32 | (buffer & 0x1FFFFFFFu);
+    return decode_texture(rdram, key, fmt, w, h, stride, buffer, 0, host_pal, base, -1, false);
 }
 
 static HleTex *tile_texture(uint8_t *rdram, recomp_context *ctx, const Tile *t) {
     if (t->kind == 1) return hle_sprite_texture(rdram, ctx, t->addr, -1, false);
-    if (t->kind == 2) return surface_texture(rdram, (uint32_t)t->fmt << 16 | (uint32_t)t->w, (uint32_t)t->h << 16 | (uint32_t)t->stride, t->addr);
+    if (t->kind == 2) return surface_texture(rdram, (uint32_t)t->fmt << 16 | (uint32_t)t->w, (uint32_t)t->h << 16 | (uint32_t)t->stride, t->addr, t->palette);
     return NULL;
 }
 
@@ -460,21 +482,29 @@ static SDL_Texture *bake(const HleTex *t, const DrawState *s, const Output *o) {
  * ============================================================================================== */
 static bool linear_filter(void) { return ((R.m.som >> 44) & 3) >= 2 && ((R.m.som >> 52) & 3) != CYC_COPY; }
 
-/* Draws (part of) a texture with the current render mode. */
-static void draw_tex(const HleTex *t, const SDL_FRect *src, const SDL_FRect *dst, SDL_FlipMode flip, double angle, const SDL_FPoint *center) {
+/* The SDL texture that draws `t` with the current render mode (combiner baked in), set up with its
+ * blend mode, filtering and alpha; NULL when the mode draws nothing. */
+static SDL_Texture *mode_texture(const HleTex *t, bool scaled) {
     const DrawState s = draw_state();
-    if (s.cycle == CYC_FILL) return;
+    if (s.cycle == CYC_FILL) return NULL;
     const Output o = output_for(&s);
-    if (o.skip) return;
+    if (o.skip) return NULL;
     const bool plain = is_plain(&s);
     SDL_Texture *tex = plain ? t->tex : bake(t, &s, &o);
     SDL_BlendMode mode = o.mode;
     if (plain) mode = (s.cycle != CYC_COPY && s.blend_on) ? SDL_BLENDMODE_BLEND : SDL_BLENDMODE_NONE;
     SDL_SetTextureBlendMode(tex, mode);
-    const bool scaled = SDL_fabsf(src->w - dst->w) > 0.01f || SDL_fabsf(src->h - dst->h) > 0.01f || angle != 0;
     SDL_SetTextureScaleMode(tex, (linear_filter() && scaled) ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
     SDL_SetTextureColorMod(tex, 255, 255, 255);
     SDL_SetTextureAlphaMod(tex, o.alpha_mod);
+    return tex;
+}
+
+/* Draws (part of) a texture with the current render mode. */
+static void draw_tex(const HleTex *t, const SDL_FRect *src, const SDL_FRect *dst, SDL_FlipMode flip, double angle, const SDL_FPoint *center) {
+    const bool scaled = SDL_fabsf(src->w - dst->w) > 0.01f || SDL_fabsf(src->h - dst->h) > 0.01f || angle != 0;
+    SDL_Texture *tex = mode_texture(t, scaled);
+    if (!tex) return;
     if (angle != 0 || flip != SDL_FLIP_NONE) SDL_RenderTextureRotated(hle_video.r, tex, src, dst, angle, center, flip);
     else SDL_RenderTexture(hle_video.r, tex, src, dst);
 }
@@ -542,13 +572,13 @@ static void texture_rect(uint8_t *rdram, recomp_context *ctx, const uint32_t *w)
     if (!t || x1 <= x0 || y1 <= y0 || dsdx == 0 || dtdy == 0) return;
     /* Texture-space span covered by the rectangle (texparms translate shifts it, scale_log scales). */
     const float ssc = SDL_powf(2.0f, (float)-tl->s_scale), tsc = SDL_powf(2.0f, (float)-tl->t_scale);
-    s0 = s0 * ssc - tl->s_shift;
-    t0 = t0 * tsc - tl->t_shift;
+    s0 = s0 * ssc - tl->s_shift - (float)tl->s_org;
+    t0 = t0 * tsc - tl->t_shift - (float)tl->t_org;
     const float ds = dsdx * ssc, dt = dtdy * tsc;
     const float u0 = s0, u1 = s0 + (x1 - x0) * ds;
     const float v0 = t0, v1 = t0 + (y1 - y0) * dt;
     const float umin = SDL_min(u0, u1), umax = SDL_max(u0, u1), vmin = SDL_min(v0, v1), vmax = SDL_max(v0, v1);
-    const float tw = (float)t->w, th = (float)t->h;
+    const float tw = (float)(tl->sub_w ? tl->sub_w : t->w), th = (float)(tl->sub_h ? tl->sub_h : t->h);
     /* Walk the texture periods the span crosses (one when there's no wrapping). */
     const int ku0 = tl->s_wrap ? (int)SDL_floorf(umin / tw) : 0, ku1 = tl->s_wrap ? (int)SDL_ceilf(umax / tw) - 1 : 0;
     const int kv0 = tl->t_wrap ? (int)SDL_floorf(vmin / th) : 0, kv1 = tl->t_wrap ? (int)SDL_ceilf(vmax / th) - 1 : 0;
@@ -569,7 +599,7 @@ static void texture_rect(uint8_t *rdram, recomp_context *ctx, const uint32_t *w)
             if (!tl->s_wrap) { lu0 = SDL_max(lu0, 0); lu1 = SDL_min(lu1, tw); }
             if (!tl->t_wrap) { lv0 = SDL_max(lv0, 0); lv1 = SDL_min(lv1, th); }
             if (lu1 <= lu0 || lv1 <= lv0) continue;
-            const SDL_FRect src = {lu0, lv0, lu1 - lu0, lv1 - lv0};
+            const SDL_FRect src = {lu0 + (float)tl->s_org, lv0 + (float)tl->t_org, lu1 - lu0, lv1 - lv0};
             const SDL_FRect dst = {SDL_min(sx0, sx1), SDL_min(sy0, sy1), SDL_fabsf(sx1 - sx0), SDL_fabsf(sy1 - sy0)};
             draw_tex(t, &src, &dst, (SDL_FlipMode)((fx ? SDL_FLIP_HORIZONTAL : 0) | (fy ? SDL_FLIP_VERTICAL : 0)), 0, NULL);
         }
@@ -603,12 +633,51 @@ static void blit(const HleTex *t, float x, float y, const uint32_t *p) {
              -theta * 180.0 / SDL_PI_D, &c);
 }
 
+/* A triangle from rdpq_triangle, as OP_TRIANGLE packs it: flags (1 = textured, 2 = shaded), tile,
+ * then per vertex x, y, s, t (texels) and the shade colour as RGBA8. Drawn as 2D geometry: the
+ * perspective term (inv_w) and depth are ignored, which suits the 2D games that use triangles
+ * (Hydra Harmonics' stage floor). The texture wraps over its whole surface (sub-tiles and mirrored
+ * repeats are approximated). Untextured, unshaded triangles take the primitive colour. */
+static void triangle(uint8_t *rdram, recomp_context *ctx, const uint32_t *a) {
+    const bool textured = a[0] & 1, shaded = a[0] & 2;
+    const Tile *tl = &R.tile[a[1] & 7];
+    const HleTex *t = textured ? tile_texture(rdram, ctx, tl) : NULL;
+    if (textured && !t) return;
+    SDL_Texture *tex = NULL;
+    if (t) {
+        tex = mode_texture(t, true);
+        if (!tex) return;
+        SDL_SetTextureScaleMode(tex, linear_filter() ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
+    } else {
+        const DrawState st = draw_state();
+        if (st.cycle == CYC_FILL) return;
+        SDL_SetRenderDrawBlendMode(hle_video.r, st.blend_on ? SDL_BLENDMODE_BLEND : SDL_BLENDMODE_NONE);
+    }
+    const float ssc = SDL_powf(2.0f, (float)-tl->s_scale), tsc = SDL_powf(2.0f, (float)-tl->t_scale);
+    SDL_Vertex v[3];
+    for (int i = 0; i < 3; i++) {
+        const uint32_t *p = a + 2 + i * 5;
+        v[i].position = (SDL_FPoint){bits_f(p[0]), bits_f(p[1])};
+        const uint32_t c = shaded ? p[4] : (t ? 0xFFFFFFFFu : R.prim);
+        v[i].color = (SDL_FColor){(float)(c >> 24) / 255.0f, (float)((c >> 16) & 255) / 255.0f,
+                                  (float)((c >> 8) & 255) / 255.0f, (float)(c & 255) / 255.0f};
+        if (t) {
+            v[i].tex_coord = (SDL_FPoint){(bits_f(p[2]) * ssc - tl->s_shift) / (float)t->w,
+                                          (bits_f(p[3]) * tsc - tl->t_shift) / (float)t->h};
+        } else {
+            v[i].tex_coord = (SDL_FPoint){0, 0};
+        }
+    }
+    SDL_RenderGeometry(hle_video.r, tex, v, 3, NULL, 0);
+}
+
 /* ================================================================================================
  * Commands: recorded into rspq blocks, or executed
  * ============================================================================================== */
 enum {
     OP_RESET_MODE, OP_FIXUP, OP_PUSH, OP_POP, OP_WRITE8, OP_FILL_COLOR32, OP_SCISSOR, OP_FILL_RECT,
     OP_TEX_RECT, OP_TILE_SPRITE, OP_TILE_SURFACE, OP_TLUT, OP_SPRITE_BLIT, OP_TEX_BLIT, OP_CHANGE_SOM,
+    OP_TILE_SURFACE_SUB, OP_TILE_REUSE, OP_TRIANGLE,
 };
 typedef struct {
     uint8_t code;
@@ -622,6 +691,7 @@ typedef struct {
 } Block;
 static Block g_blocks[64];
 static int g_recording; /* block index + 1 */
+static int g_last_tile = -1; /* the tile of the last texture upload (rdpq_tex_reuse) */
 
 static void set_som_bits(uint32_t which, uint32_t and_mask, uint32_t or_val) {
     /* which: 0 = high word, 4 = low word (MODIFY_OTHER_MODES offset) */
@@ -636,11 +706,13 @@ static void tile_from_texparms(Tile *t, uint8_t *rdram, uint32_t parms, const ui
     uint32_t p[10];
     for (int i = 0; i < 10; i++) p[i] = copied ? copied[i] : (parms ? n64_r32(rdram, parms + (uint32_t)i * 4) : 0);
     if (!parms && !copied) {
+        t->palette = 0;
         t->s_shift = t->t_shift = 0;
         t->s_scale = t->t_scale = 0;
         t->s_wrap = t->t_wrap = t->s_mirror = t->t_mirror = false;
         return;
     }
+    t->palette = (int)(p[1] & 15);
     t->s_shift = bits_f(p[2]);
     t->s_scale = (int32_t)p[3];
     const float srep = bits_f(p[4]);
@@ -651,6 +723,19 @@ static void tile_from_texparms(Tile *t, uint8_t *rdram, uint32_t parms, const ui
     t->t_mirror = (p[9] >> 24) != 0;
     t->s_wrap = srep > 1;
     t->t_wrap = trep > 1;
+}
+
+/* rdpq_sprite_upload and rdpq_sprite_blit also load a CI sprite's palette into TMEM, and it stays
+ * there: a game can then draw the sprite's pixels as a plain surface with that palette (Hydra
+ * Harmonics draws each hydra's neck from its collar sprite this way). Mirror that in R.tlut. */
+static void load_sprite_tlut(uint8_t *rdram, recomp_context *ctx, uint32_t sprite, int palette) {
+    const int fmt = n64_r8(rdram, sprite + 5) & 0x1F;
+    if ((fmt != 8 && fmt != 9) || !n64_sprite_get_palette) return;
+    const uint32_t pal = (uint32_t)n64rt_call(ctx, n64_sprite_get_palette, sprite, 0, 0, 0);
+    if (!pal) return;
+    const int first = fmt == 8 ? (palette & 15) * 16 : 0, count = fmt == 8 ? 16 : 256;
+    for (int i = 0; i < count; i++) R.tlut[first + i] = n64_r16(rdram, pal + (uint32_t)i * 2);
+    R.tlut_loaded = true;
 }
 
 static void exec(uint8_t *rdram, recomp_context *ctx, const Op *op) {
@@ -725,7 +810,10 @@ static void exec(uint8_t *rdram, recomp_context *ctx, const Op *op) {
             t->w = n64_r16(rdram, sp);
             t->h = n64_r16(rdram, sp + 2);
             t->stride = stride_of(t->fmt, t->w);
+            t->s_org = t->t_org = t->sub_w = t->sub_h = 0;
             tile_from_texparms(t, rdram, 0, a[2] ? a + 3 : NULL);
+            g_last_tile = (int)(a[0] & 7);
+            load_sprite_tlut(rdram, ctx, sp, t->palette);
         } break;
         case OP_TILE_SURFACE: { /* tile, flags|w, h|stride, buffer, has_parms, parms[10] */
             Tile *t = &R.tile[a[0] & 7];
@@ -735,17 +823,41 @@ static void exec(uint8_t *rdram, recomp_context *ctx, const Op *op) {
             t->h = (int)(a[2] >> 16);
             t->stride = (int)(a[2] & 0xFFFF);
             t->addr = a[3];
+            t->s_org = t->t_org = t->sub_w = t->sub_h = 0;
             tile_from_texparms(t, rdram, 0, a[4] ? a + 5 : NULL);
+            g_last_tile = (int)(a[0] & 7);
         } break;
+        case OP_TILE_SURFACE_SUB: { /* tile, flags|w, h|stride, buffer, s0|t0, s1|t1, has_parms, parms[10] */
+            Tile *t = &R.tile[a[0] & 7];
+            t->kind = 2;
+            t->fmt = (int)(a[1] >> 16) & 0x1F;
+            t->w = (int)(a[1] & 0xFFFF);
+            t->h = (int)(a[2] >> 16);
+            t->stride = (int)(a[2] & 0xFFFF);
+            t->addr = a[3];
+            t->s_org = (int16_t)(a[4] >> 16);
+            t->t_org = (int16_t)(a[4] & 0xFFFF);
+            t->sub_w = (int16_t)(a[5] >> 16) - t->s_org;
+            t->sub_h = (int16_t)(a[5] & 0xFFFF) - t->t_org;
+            tile_from_texparms(t, rdram, 0, a[6] ? a + 7 : NULL);
+            g_last_tile = (int)(a[0] & 7);
+        } break;
+        case OP_TILE_REUSE: { /* tile, has_parms, parms[10]: the last upload, with new parameters */
+            Tile *t = &R.tile[a[0] & 7];
+            if (g_last_tile >= 0 && t != &R.tile[g_last_tile]) *t = R.tile[g_last_tile];
+            tile_from_texparms(t, rdram, 0, a[1] ? a + 2 : NULL);
+        } break;
+        case OP_TRIANGLE: triangle(rdram, ctx, a); break;
         case OP_TLUT: /* tlut, first, count */
             for (uint32_t i = 0; i < a[2] && a[1] + i < 256; i++) R.tlut[a[1] + i] = n64_r16(rdram, a[0] + i * 2);
             R.tlut_loaded = true;
             break;
         case OP_SPRITE_BLIT: /* sprite, x, y, has_parms, parms[11] */
             blit(hle_sprite_texture(rdram, ctx, a[0], -1, false), bits_f(a[1]), bits_f(a[2]), a[3] ? a + 4 : NULL);
+            load_sprite_tlut(rdram, ctx, a[0], 0);
             break;
         case OP_TEX_BLIT: /* flags|w, h|stride, buffer, x, y, has_parms, parms[11] */
-            blit(surface_texture(rdram, a[0], a[1], a[2]), bits_f(a[3]), bits_f(a[4]), a[5] ? a + 6 : NULL);
+            blit(surface_texture(rdram, a[0], a[1], a[2], 0), bits_f(a[3]), bits_f(a[4]), a[5] ? a + 6 : NULL);
             break;
         default: break;
     }
@@ -836,6 +948,60 @@ void n64_rdpq_tex_upload(uint8_t *rdram, recomp_context *ctx) {
     if (ctx->r6) copy_words(rdram, (uint32_t)ctx->r6, op.a + 5, 10);
     emit(rdram, ctx, &op);
     n64_ret32(ctx, 0);
+}
+/* int rdpq_tex_upload_sub(rdpq_tile_t tile, const surface_t *tex, const rdpq_texparms_t *parms,
+ *                         int s0, int t0, int s1, int t1)
+ * Returns the TMEM bytes used, which games add up to place the next upload (Hydra Harmonics). */
+void n64_rdpq_tex_upload_sub(uint8_t *rdram, recomp_context *ctx) {
+    const uint32_t s = (uint32_t)ctx->r5;
+    const int s0 = (int)ctx->r7, t0 = (int)n64_arg32(rdram, ctx, 4);
+    const int s1 = (int)n64_arg32(rdram, ctx, 5), t1 = (int)n64_arg32(rdram, ctx, 6);
+    const uint32_t flags_w = n64_r32(rdram, s);
+    Op op = {OP_TILE_SURFACE_SUB, {(uint32_t)ctx->r4, flags_w, n64_r32(rdram, s + 4), n64_r32(rdram, s + 8),
+                                   (uint32_t)(uint16_t)s0 << 16 | (uint16_t)t0, (uint32_t)(uint16_t)s1 << 16 | (uint16_t)t1,
+                                   (uint32_t)ctx->r6 != 0}};
+    if (ctx->r6) copy_words(rdram, (uint32_t)ctx->r6, op.a + 7, 10);
+    emit(rdram, ctx, &op);
+    const int bits = 4 << ((flags_w >> 16) & 3);
+    const int row = (((s1 - s0) * bits / 8) + 7) & ~7;
+    n64_ret32(ctx, (uint32_t)SDL_max(0, row * (t1 - t0)));
+}
+/* int rdpq_tex_reuse(rdpq_tile_t tile, const rdpq_texparms_t *parms) */
+void n64_rdpq_tex_reuse(uint8_t *rdram, recomp_context *ctx) {
+    Op op = {OP_TILE_REUSE, {(uint32_t)ctx->r4, (uint32_t)ctx->r5 != 0}};
+    if (ctx->r5) copy_words(rdram, (uint32_t)ctx->r5, op.a + 2, 10);
+    emit(rdram, ctx, &op);
+    n64_ret32(ctx, 0);
+}
+/* void rdpq_triangle(const rdpq_trifmt_t *fmt, const float *v1, const float *v2, const float *v3)
+ * rdpq_trifmt_t: pos_offset, shade_offset, shade_flat (bool), tex_offset, tex_tile, tex_mipmaps,
+ * z_offset; offsets count floats into each vertex, -1 = absent. */
+void n64_rdpq_triangle(uint8_t *rdram, recomp_context *ctx) {
+    const uint32_t f = (uint32_t)ctx->r4;
+    const int pos = (int)n64_r32(rdram, f), shade = (int)n64_r32(rdram, f + 4), tex = (int)n64_r32(rdram, f + 12);
+    const bool flat = n64_r8(rdram, f + 8) != 0;
+    Op op = {OP_TRIANGLE, {(tex >= 0 ? 1u : 0u) | (shade >= 0 ? 2u : 0u), n64_r32(rdram, f + 16)}};
+    const uint32_t vtx[3] = {(uint32_t)ctx->r5, (uint32_t)ctx->r6, (uint32_t)ctx->r7};
+    for (int i = 0; i < 3; i++) {
+        uint32_t *o = op.a + 2 + i * 5;
+        const uint32_t v = vtx[i];
+        o[0] = n64_r32(rdram, v + (uint32_t)pos * 4);
+        o[1] = n64_r32(rdram, v + (uint32_t)pos * 4 + 4);
+        if (tex >= 0) {
+            o[2] = n64_r32(rdram, v + (uint32_t)tex * 4);
+            o[3] = n64_r32(rdram, v + (uint32_t)tex * 4 + 4);
+        }
+        if (shade >= 0) {
+            const uint32_t sv = flat ? vtx[0] : v;  /* flat shading: the first vertex's colour */
+            uint32_t c = 0;
+            for (int ch = 0; ch < 4; ch++) {
+                const float x = bits_f(n64_r32(rdram, sv + (uint32_t)(shade + ch) * 4));
+                c = c << 8 | (uint32_t)SDL_clamp((int)(x * 255.0f + 0.5f), 0, 255);
+            }
+            o[4] = c;
+        }
+    }
+    emit(rdram, ctx, &op);
 }
 /* void rdpq_tex_upload_tlut(uint16_t *tlut, int color_idx, int num_colors) */
 void n64_rdpq_tex_upload_tlut(uint8_t *rdram, recomp_context *ctx) {

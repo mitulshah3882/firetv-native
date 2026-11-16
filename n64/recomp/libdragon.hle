@@ -43,6 +43,11 @@ keep n64_rdpq_paragraph_*
 keep n64_rdpq_font_*
 keep n64___rdpq_font_*
 keep n64___rdpq_paragraph_*
+
+# Games' own functions that happen to start with "audio_" (Hydra Harmonics' audio.c: audio_sfx_*,
+# audio_music_*). libdragon has neither prefix, so these stay recompiled.
+keep n64_audio_sfx_*
+keep n64_audio_music_*
 stub n64_rdpq_font_render_paragraph
 
 # rdpq: code that only computes command words stays recompiled, so the host sees the leaves

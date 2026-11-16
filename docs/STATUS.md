@@ -22,12 +22,11 @@ _Last updated: 2026-11-15 evening (Gravity Choir on the TV; SuperTuxKart round t
     - a three-buffer ring for instance data
   - Features: online add-ons and news work over HTTPS; global online play needs an STK account (LAN doesn't); the on-screen keyboard is on; Quit exits cleanly.
   - Not verified: gamepads (none available).
-  - Known minor glitches:
-    - a black rectangle at the story-mode overworld's horizon
-    - Abyss's lamps draw flat white (no bloom)
+  - Fixed 2026-11-15: the black rectangle on the overworld's horizon (an invisible blocker whose transparency our asset pipeline dropped; decision 55).
+  - Expected, not a bug: lamps such as Abyss's draw as plain bright textures because the TV preset turns bloom and glow off.
 - **Every app now has audio focus and a loading splash** (vegaplat):
   - Focus is requested with a listener, given up in the background and requested again in the foreground; ducking lowers the volume and a loss silences it. Verified by the logs on the TV (arcade ↔ Gravity Choir).
-  - Each game's package carries `assets/image/splash.astc` (`tools/make-splashes.sh`), drawn as the first frame instead of black.
+  - Each game's package carries `assets/image/splash.astc` (`tools/make-splashes.sh`), drawn as the first frame instead of black, and the same picture as Vega's system splash (`assets/raw/SplashScreenImages.zip`), which the system shows from the moment of launch (decision 56).
 - **Appstore research:** `docs/research/appstore-submission.md`. Gravity Choir is the first candidate; the open items are listed there.
   - Gravity Choir's listing kit is in `apps/gravity-choir/store/`: 1280×720 icon, screenshots, background and draft text. Not submitted.
   - Every package ships `assets/licenses/` with a `NOTICE.txt` (credits, exact upstream versions, licences, source link).
@@ -110,7 +109,6 @@ _Last updated: 2026-11-15 evening (Gravity Choir on the TV; SuperTuxKart round t
 4. Polish:
    - arcade attract video/screenshots
    - case-study writeup
-   - splash screen (format undocumented; the splash service looks for `assets/raw/SplashScreenImages.zip`)
 5. Follow-up: profile LibreQuake's 9–13 s map loads (`simpleperf`).
 6. Tests: there are none yet. Good first candidates:
    - a host test for the VADPCM decoder against the source WAVs

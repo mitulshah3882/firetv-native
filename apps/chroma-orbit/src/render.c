@@ -187,18 +187,9 @@ static const char *kSkyFS =
     "  float r = length(d);\n"
     "  float R = u_star.z, e = u_star.w;\n"
     "  vec3 hot = mix(vec3(1.0, 0.55, 0.2), vec3(0.8, 0.9, 1.0), e);\n"
-    "  if (r < R) {\n"
-    "    float mu = sqrt(max(1.0 - (r / R) * (r / R), 0.0));\n"
-    "    highp vec2 q = d / R * 3.0;\n"
-    "    float pl = noise(q + vec2(t * 0.3, -t * 0.2)) * 0.6 + noise(q * 2.3 - vec2(t * 0.4, t * 0.1)) * 0.4;\n"
-    "    vec3 s = mix(vec3(1.0, 0.35, 0.08), vec3(1.0, 0.9, 0.6), pl);\n"
-    "    s = mix(s, hot, e * 0.6) * (0.55 + 0.6 * mu) * (1.1 + 0.5 * e);\n"
-    "    c = mix(c, s, smoothstep(R, R * 0.97, r));\n"
-    "  } else {\n"
-    "    float ang = atan(d.y, d.x);\n"
-    "    float corona = exp(-(r - R) / (R * (0.35 + 0.35 * e))) * (0.75 + 0.25 * sin(ang * 7.0 + t * 0.7) * sin(ang * 3.0 - t * 0.4));\n"
-    "    c += hot * corona * (0.45 + 0.6 * e);\n"
-    "  }\n"
+    "  float ang = atan(d.y, d.x);\n"
+    "  float corona = exp(-max(r - R, 0.0) / (R * (0.35 + 0.35 * e))) * (0.75 + 0.25 * sin(ang * 7.0 + t * 0.7) * sin(ang * 3.0 - t * 0.4));\n"
+    "  c += hot * corona * (0.45 + 0.6 * e);\n"
     "  c = mix(c, vec3(1.0), clamp(u_flash, 0.0, 1.0));\n"
     "  o = vec4(c, 1.0);\n"
     "}\n";
@@ -208,6 +199,46 @@ static const char *kBlitFS =
     "uniform sampler2D u_tex;\n"
     "out vec4 o;\n"
     "void main() { o = vec4(texture(u_tex, v_uv).rgb, 1.0); }\n";
+
+/* The star's disc at full resolution: a quad around it; plasma noise, limb darkening, an
+ * anti-aliased edge. */
+static const char *kStarVS =
+    "uniform vec2 u_scale;\n"
+    "uniform highp vec3 u_c;\n"   /* centre x, y and radius, canvas px */
+    "out highp vec2 v_q;\n"
+    "void main() {\n"
+    "  int id = gl_VertexID;\n"
+    "  vec2 c = vec2((id == 1 || id == 3) ? 1.0 : -1.0, (id < 2) ? -1.0 : 1.0);\n"
+    "  v_q = c * 1.04;\n"
+    "  gl_Position = vec4((u_c.xy + c * u_c.z * 1.04) * u_scale + vec2(-1.0, 1.0), 0.0, 1.0);\n"
+    "}\n";
+static const char *kStarFS =
+    "in highp vec2 v_q;\n"
+    "uniform highp float u_time;\n"
+    "uniform float u_e;\n"
+    "uniform float u_flash;\n"
+    "uniform float u_aa;\n"   /* one pixel in disc units */
+    "out vec4 o;\n"
+    "highp float hash(highp vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n"
+    "float noise(highp vec2 p) {\n"
+    "  highp vec2 i = floor(p); vec2 f = fract(p);\n"
+    "  vec2 u = f * f * (3.0 - 2.0 * f);\n"
+    "  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);\n"
+    "}\n"
+    "void main() {\n"
+    "  float r = length(v_q);\n"
+    "  float a = 1.0 - smoothstep(1.0 - u_aa, 1.0 + u_aa, r);\n"
+    "  if (a <= 0.0) discard;\n"
+    "  highp float t = u_time;\n"
+    "  float mu = sqrt(max(1.0 - r * r, 0.0));\n"
+    "  highp vec2 q = v_q * 3.0;\n"
+    "  float pl = noise(q + vec2(t * 0.3, -t * 0.2)) * 0.6 + noise(q * 2.3 - vec2(t * 0.4, t * 0.1)) * 0.4;\n"
+    "  vec3 hot = mix(vec3(1.0, 0.55, 0.2), vec3(0.8, 0.9, 1.0), u_e);\n"
+    "  vec3 s = mix(vec3(1.0, 0.35, 0.08), vec3(1.0, 0.9, 0.6), pl);\n"
+    "  s = mix(s, hot, u_e * 0.6) * (0.55 + 0.6 * mu) * (1.1 + 0.5 * u_e);\n"
+    "  s = mix(s, vec3(1.0), clamp(u_flash, 0.0, 1.0));\n"
+    "  o = vec4(s, 1.0) * a;\n"
+    "}\n";
 
 /* Arc cells: each vertex carries its local position inside the cell in pixels (along the arc, across
  * the radius) and the cell's size, so the fragment shader draws a rounded, bevelled, anti-aliased
@@ -312,7 +343,8 @@ static const float kPal[5][3][3] = {
 };
 
 static struct {
-    GLuint p_sky, p_neb, p_blit, p_cell, p_spark, p_text, p_panel;
+    GLuint p_sky, p_neb, p_blit, p_star, p_cell, p_spark, p_text, p_panel;
+    GLuint low_fbo, low_tex;  /* the sky and corona, 640x360, each frame */
     GLuint neb_tex[2];
     int neb_skin[2];  /* the skin each nebula texture holds (-1: none) */
     GLuint vao_empty, vao_cell, vbo_cell, vao_spark, vbo_spark, vao_quad, vbo_quad;
@@ -505,11 +537,12 @@ bool render_init(const char *assets_dir)
     R.p_neb = program(kFullVS, kNebFS, "nebula");
     R.neb_skin[0] = R.neb_skin[1] = -1;
     R.p_blit = program(kFullVS, kBlitFS, "blit");
+    R.p_star = program(kStarVS, kStarFS, "star");
     R.p_cell = program(kCellVS, kCellFS, "cell");
     R.p_spark = program(kSparkVS, kSparkFS, "spark");
     R.p_text = program(kQuadVS, kTextFS, "text");
     R.p_panel = program(kQuadVS, kPanelFS, "panel");
-    if (!R.p_sky || !R.p_neb || !R.p_blit || !R.p_cell || !R.p_spark || !R.p_text || !R.p_panel) return false;
+    if (!R.p_sky || !R.p_neb || !R.p_blit || !R.p_star || !R.p_cell || !R.p_spark || !R.p_text || !R.p_panel) return false;
     glGenVertexArrays(1, &R.vao_empty);
 #ifdef CO_HOST_GL
     glEnable(GL_PROGRAM_POINT_SIZE);
@@ -558,7 +591,17 @@ static void sky_target(int w, int h)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
-    SDL_Log("chroma-orbit: nebulas rendered once per world (640x360); one full-screen pass per frame");
+    glGenFramebuffers(1, &R.low_fbo);
+    glGenTextures(1, &R.low_tex);
+    glBindTexture(GL_TEXTURE_2D, R.low_tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 640, 360, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindFramebuffer(GL_FRAMEBUFFER, R.low_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, R.low_tex, 0);
+    SDL_Log("chroma-orbit: nebulas once per world, sky and corona at 640x360, the star disc at full resolution");
 }
 
 /* Renders skin `skin` into nebula texture i (only when it changes). */
@@ -652,10 +695,10 @@ void render_end(void)
     nebula(0, R.skin);
     nebula(1, R.skin2);
 
-    /* 2. the sky and the star at full resolution, straight to the window: the frame's one
-     * full-screen pass */
-    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)R.screen);
-    glViewport(0, 0, R.fb_w, R.fb_h);
+    /* 2. the sky and corona at 640x360 (a full-resolution pass with the corona's atan/exp/sin cost
+     * about 13 ms on the HD stick) */
+    glBindFramebuffer(GL_FRAMEBUFFER, R.low_fbo);
+    glViewport(0, 0, 640, 360);
     glUseProgram(R.p_sky);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, R.neb_tex[0]);
@@ -671,8 +714,30 @@ void render_end(void)
     glUniform1f(glGetUniformLocation(R.p_sky, "u_danger"), R.danger);
     glUniform1f(glGetUniformLocation(R.p_sky, "u_aspect"), CANVAS_W / CANVAS_H);
     glBindVertexArray(R.vao_empty);
-    if (T.sky) glDrawArrays(GL_TRIANGLES, 0, 3);
-    else { glClearColor(0.02f, 0.02f, 0.06f, 1); glClear(GL_COLOR_BUFFER_BIT); }
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    /* 3. upscale to the window (the frame's one full-screen pass), then the star's disc sharp */
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)R.screen);
+    glViewport(0, 0, R.fb_w, R.fb_h);
+    if (T.sky) {
+        glUseProgram(R.p_blit);
+        glBindTexture(GL_TEXTURE_2D, R.low_tex);
+        glUniform1i(glGetUniformLocation(R.p_blit, "u_tex"), 0);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+    } else {
+        glClearColor(0.02f, 0.02f, 0.06f, 1);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glUseProgram(R.p_star);
+    glUniform2f(glGetUniformLocation(R.p_star, "u_scale"), 2.0f / CANVAS_W, -2.0f / CANVAS_H);
+    glUniform3f(glGetUniformLocation(R.p_star, "u_c"), R.star_cx, R.star_cy, R.star_r);
+    glUniform1f(glGetUniformLocation(R.p_star, "u_time"), R.time);
+    glUniform1f(glGetUniformLocation(R.p_star, "u_e"), R.energy);
+    glUniform1f(glGetUniformLocation(R.p_star, "u_flash"), R.flash);
+    glUniform1f(glGetUniformLocation(R.p_star, "u_aa"), 1.5f * CANVAS_H / (float)R.fb_h / R.star_r);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     if (!T.cells) R.ncell = 0;
     if (!T.sparks) R.nsparks = 0;
     if (!T.ui) R.nglyphs = R.nglow = R.npanels = 0;

@@ -15,3 +15,4 @@ Extra moments (`<game>-2.png`, `-3.png`), which the selected card cross-fades th
 - `quake-2.png`: LibreQuake's attract demo on the TV (artwork © the LibreQuake project, BSD-3-Clause)
 - `supertuxkart-2.png`: SuperTuxKart 1.5 racing on Volcano Island on the TV (game art CC-BY-SA 3.0/4.0, CC0 and GPL, © the SuperTuxKart team)
 - `prismspire.png`: Prism Spire, our original party game (MIT), its key-art mode rendered by the Mac host preview (the same code as on the TV)
+- `chromaorbit.png`: Chroma Orbit, our original puzzle game (MIT), its key-art mode rendered by the Mac host preview

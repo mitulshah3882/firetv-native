@@ -28,6 +28,9 @@ _Last updated: 2026-11-16 evening._
   unfair, too easy or too hard (piece shapes, the plinth's width, how often wind, tremor and slippery
   glass happen).
 
+- [ ] **Try Chroma Orbit.** The third card in the arcade: a puzzle where coloured pairs fall toward a
+  star and you turn the planet. Tell Claude if it's too fast, too slow, or confusing.
+
 ## Your Amazon developer account
 - [ ] **Gravity Choir: Live App Test.** This is the first real test of whether the Appstore accepts a
   native Vega package. Claude prepares the package and listing beforehand; the steps are

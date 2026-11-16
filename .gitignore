@@ -40,3 +40,6 @@ compile_commands.json
 .idea/
 *.swp
 CMakeUserPresets.json
+
+# Written by vega build into an app's assets dir (Quake has one).
+kepler-sdk-version

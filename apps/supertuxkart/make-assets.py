@@ -71,6 +71,11 @@ def copy_tree(src, out):
 
 
 def is_opaque(im):
+    # A tRNS chunk makes a colour transparent in grey and RGB images too, not only in palette
+    # ones: STK's "transparence" blockers are 2x2 black greyscale PNGs keyed transparent. Treating
+    # them as opaque drew black boxes on the overworld, Mines, XR591 and Cocoa Temple.
+    if "transparency" in im.info:
+        return im.convert("RGBA").getchannel("A").getextrema()[0] == 255
     if im.mode in ("RGB", "L"):
         return True
     if im.mode in ("RGBA", "LA", "P", "PA"):
@@ -148,6 +153,13 @@ def main():
 
     print("copying data")
     copy_tree(src, out)
+    # Upstream data bug: the overworld's track mesh uses metaldirt_diff.png, which ships only with
+    # Lighthouse. STK looks in the track's own directory, so the surface drew black (the "black
+    # rectangle" on the overworld's horizon). Give the overworld its own copy.
+    for name in ("metaldirt_diff.png",):
+        dst = os.path.join(out, "tracks", "overworld", name)
+        if not os.path.exists(dst):
+            shutil.copy2(os.path.join(out, "tracks", "lighthouse", name), dst)
     # Without the emoji font, stk_config.xml must not name it (STK treats a missing font as fatal).
     cfg = os.path.join(out, "stk_config.xml")
     with open(cfg, "r", encoding="utf-8") as f:

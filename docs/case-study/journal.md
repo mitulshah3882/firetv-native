@@ -634,3 +634,21 @@ The memory KPI wants Appium, which isn't installed, so that number comes from `/
 | Cocoa Temple | 40.4, 41.6 | 39.7, 39.7 |
 
 Screenshots of Black Forest at level 0 showed nothing missing: the forest still reaches the horizon. Cornfield's small gain didn't survive a third run (44.3), so only Black Forest now computes its LOD distances at level 0, through a small patch where STK computes them; a check run measured 30.0 fps. The saved setting never changes, and a player who picks a lower level keeps it.
+
+## 2026-11-16: Prism Spire, the second original game
+
+The user picked the next two original games, Prism Spire and then Chroma Orbit, and chose to keep them open source in this repository. Prism Spire is a pass-the-remote party game: players take turns dropping glass prisms onto a tower on a stone plinth, and whoever makes it fall loses the round. It is built for the TV's living-room case, one remote passed around the couch, no phones, no gamepads.
+
+**How it's made.** The rules are a 2D physics problem (Box2D 3.1.1), drawn in 3D: every piece is a convex outline extruded into a bevelled glass prism. The glass is drawn opaque and only looks transparent. Each pixel shows a low-resolution copy of the background, offset along the surface normal, a little further for blue than for red, mixed by Fresnel with a reflection of the analytic sunset sky. Pieces never overlap in depth, so there is no sorting and no blending. The first render on the Mac stood the tower against a dark floor and the glass looked like plastic. Two changes made it read as glass: dropping the camera so the tower stands against the sky, and turning the floor into a calm lake that reflects the sunset, with a glitter path under the sun. The sound is synthesized like Gravity Choir's: a bell for each piece that comes to rest, pitched up a pentatonic scale with the height, chimes for every impact in a collapse, and a glass harmonica that swells while the tower sways.
+
+**Getting it to 60 fps on the stick took four measured steps.** The first TV build ran at 17 fps, and its screen was black:
+- **17 → 60 fps (black screen).** The scene used a 4× multisampled renderbuffer resolved with `glBlitFramebuffer`. Our own GPU benchmark had already measured that at 25 ms, against 3 ms with `EXT_multisampled_render_to_texture`, which keeps the samples in tile memory. Switching gave 60 fps, but on a black screen.
+- **The black screen.** The renderer asked GL which framebuffer belonged to the window, but only after creating its own targets, which left one of ours bound. The Mac renders hid this, because the preview binds its screenshot target before every frame. With that fixed, the real cost showed: 46–48 fps.
+- **A hidden stall.** The CPU spent 19 ms per frame inside GL while the render thread was only half busy. Three UI uploads went into one vertex buffer per frame, so each upload waited for the GPU to finish with the last. Orphaning the buffer took the CPU to 2 ms. The frame rate stayed put, so the GPU was the limit.
+- **An A/B sweep on the GPU.** Launch-URI knobs turned each pass off or down in turn, and showed that MSAA was now free. The two real costs were the full-screen copy to the window, about 3.5 ms, and the half-resolution background. Two more experiments followed:
+  - **A multisampled window surface**, which would have removed the copy: Vega accepts one, and it ran at 19 fps.
+  - **The background at a third of the resolution**, with half-precision fragment shaders and per-vertex lighting on the hills: steady 60.
+
+  The sun turned to noise in half precision, because its disc is a threshold on a cosine near 1.0; it now stays in full precision.
+
+Prism Spire is in the arcade, second after Gravity Choir.

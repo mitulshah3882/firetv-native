@@ -23,28 +23,17 @@ _Last updated: 2026-11-16 evening._
 - [ ] **Gamepad, if you have one:** pair a Bluetooth gamepad with the stick and tell Claude. Nothing has
   been tested with a pad: Gravity Choir's 2–4 players, SuperTuxKart and SuperTux.
 
+- [ ] **Play Prism Spire with friends.** It's the second card in the arcade: 2–8 players pass the remote
+  and stack glass until someone topples it. Claude can't playtest a party game; tell it what felt
+  unfair, too easy or too hard (piece shapes, the plinth's width, how often wind, tremor and slippery
+  glass happen).
+
 ## Your Amazon developer account
 - [ ] **Gravity Choir: Live App Test.** This is the first real test of whether the Appstore accepts a
   native Vega package. Claude prepares the package and listing beforehand; the steps are
   in `apps/gravity-choir/store/README.md` (section "Live App Test steps").
 
 ## Decisions
-- [ ] **The next big project:** the second original game (a store candidate), or 3D N64 games?
-  The 3D work is designed in `docs/research/tiny3d-hle.md`: about 2 weeks to a first 3D jam game
-  and 3–4 to the first one worth shipping. Claude's pick: the original game first, since only our
-  own games can go to the store; the 3D N64 work after it.
-- [ ] **Which original game next?** Only our own games can go to the store without legal questions.
-  The research picks (`docs/research/original-game-concepts.md`):
-  - **Chroma Orbit**, a synesthetic colour-matching puzzle. Best fit for a remote and the widest
-    audience. **Claude's pick:** it reuses Gravity Choir's renderer and synth.
-  - **Prism Spire**, a pass-the-remote party stacker for groups, no gamepads needed.
-  - **Phosphor**, the smallest: you are the electron beam, and the shape you draw is the sound you
-    hear.
-- [ ] **Open source or private for future original games?** Gravity Choir is already public under
-  MIT (it was pushed on 2026-11-15, and that can't be taken back). If you might want to sell a
-  game, or keep its code to yourself, the next one should start in a private repo that uses this
-  repo's MIT engine as a dependency. Claude's pick: keep Gravity Choir here, and decide this before
-  the second original game starts.
 - [ ] **The GPL ports and the store.** Claude recommends keeping Doom, Quake, SuperTux and SuperTuxKart
   sideload-only and submitting only our own games. Putting any of them in the store first needs
   answers to `docs/research/appstore-submission.md` section 6: the SDK code linked into GPL apps,
@@ -63,4 +52,5 @@ _Last updated: 2026-11-16 evening._
   ```
 
 ## Done
-_(nothing yet)_
+- 2026-11-16: **Open source or private?** Open source in this repo.
+- 2026-11-16: **The next big project:** original games, Prism Spire then Chroma Orbit.

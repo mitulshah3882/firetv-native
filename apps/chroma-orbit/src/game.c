@@ -26,7 +26,7 @@
 #endif
 #define TAU 6.2831853f
 #define SECTOR_A (TAU / SECTORS)
-#define CX 960.0f
+#define CX (g_cx)
 #define CY 562.0f
 #define STAR_R 62.0f
 #define RING0 84.0f
@@ -35,6 +35,7 @@
 #define MAX_FX 3000
 #define WORLDS 5
 
+static float g_cx = 960.0f;  /* the board's centre: slides right on the title so the menu has room */
 static float clampf(float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
 static float approach(float cur, float target, float rate, float dt) { return cur + (target - cur) * (1.0f - expf(-rate * dt)); }
 
@@ -340,6 +341,8 @@ static void update(float dt)
     G.mix = approach(G.mix, 1.0f, 1.5f, dt);
     if (G.mix > 0.995f) G.mix = 1.0f;
     G.energy_shown = approach(G.energy_shown, G.energy, 6.0f, dt);
+    const bool title = (G.state == ST_TITLE || G.state == ST_HOWTO || G.state == ST_CREDITS) && !G.keyart;
+    g_cx = approach(g_cx, title ? 1300.0f : 960.0f, 3.0f, dt);
     /* the planet turns smoothly toward the board's rotation (the short way round) */
     float d = (float)G.b.rot - G.rot_vis;
     while (d > SECTORS / 2) d -= SECTORS;
@@ -439,22 +442,23 @@ static void draw_center(const char *s, float y, float px, Col c, float glow) { r
 static void draw_title(void)
 {
     const float a = clampf(G.time / 1.0f, 0, 1);
-    render_panel(560, 70, 800, 210, 40, col(0.03f, 0.02f, 0.08f, 0.55f * a));
-    draw_center("CHROMA ORBIT", 95, 112, col(0.95f, 0.95f, 1.0f, a), 1.0f);
-    draw_center("Turn the planet. Feed the star.", 225, 30, col(1.0f, 0.82f, 0.6f, a), 0);
+    const float lx = 470.0f;  /* the left half; the board turns on the right */
+    render_text("CHROMA ORBIT", lx, 250, 104, col(0.95f, 0.95f, 1.0f, a), 0, 1.0f);
+    render_text("Turn the planet. Feed the star.", lx, 375, 30, col(1.0f, 0.82f, 0.6f, a), 0, 0);
     static const char *const items[3] = {"PLAY", "HOW TO PLAY", "CREDITS"};
-    render_panel(760, 730, 400, 250, 26, col(0.03f, 0.02f, 0.08f, 0.6f * a));
+    render_panel(lx - 200, 520, 400, 250, 26, col(0.03f, 0.02f, 0.08f, 0.6f * a));
     for (int i = 0; i < 3; i++) {
         const bool sel = i == G.menu_sel;
-        const float y = 752 + i * 72;
-        if (sel) render_panel(790, y - 8, 340, 58, 18, col(1.0f, 0.75f, 0.45f, 0.2f));
-        draw_center(items[i], y, sel ? 38 : 32, sel ? col(1.0f, 0.93f, 0.8f, a) : col(0.78f, 0.78f, 0.95f, a * 0.85f), sel ? 0.5f : 0);
+        const float y = 542 + i * 72;
+        if (sel) render_panel(lx - 170, y - 8, 340, 58, 18, col(1.0f, 0.75f, 0.45f, 0.2f));
+        render_text(items[i], lx, y, sel ? 38 : 32, sel ? col(1.0f, 0.93f, 0.8f, a) : col(0.78f, 0.78f, 0.95f, a * 0.85f), 0, sel ? 0.5f : 0);
     }
     char s[64];
     if (G.best > 0) {
         SDL_snprintf(s, sizeof s, "BEST  %lld", G.best);
-        draw_center(s, 300, 26, col(0.75f, 0.78f, 0.95f, a), 0);
+        render_text(s, lx, 440, 26, col(0.75f, 0.78f, 0.95f, a), 0, 0);
     }
+    render_text("UP/DOWN choose   OK start   BACK exit", lx, 1000, 22, col(0.7f, 0.72f, 0.88f, a * 0.8f), 0, 0);
 }
 
 static void draw_text_page(const char *title, const char *const *lines, int n)

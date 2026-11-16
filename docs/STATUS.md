@@ -35,6 +35,7 @@ _Last updated: 2026-11-15 evening (Gravity Choir on the TV; SuperTuxKart round t
   - `vega device terminate-app` stops the wrong app when one package id is a prefix of another; our scripts use `vlcm terminate-app --pkg-id` now.
   - Land Grab's hints, legend and controls are remote-friendly.
   - Exits froze on the last frame for up to 6 s: our SDL audio driver blocked while holding SDL's device lock (decision 54). Exits now take about 90 ms.
+  - The same lock starvation was behind LibreQuake's long map loads: the first load's stall fell from 6.1 s to 1.1 s, and a demo's map change now costs one 87 ms frame. A simpleperf profile showed the main thread idle, not loading.
 - **N64brew Game Jam 2024: Land Grab runs on the TV** (`apps/n64-landgrab`, card in the arcade). Mallard runs on the Mac but isn't cleared to ship (undocumented music and art licences). See `n64/jam24/CREDITS.md` and the journal.
 - **GPU/CPU benchmark measured** (`apps/gpu-bench`, report in `docs/research/gpu-bench.md`):
   - About 1 Gpix/s (2.1 ms per blended 1080p layer), 30 GFLOPS fp32 / 58 with `mediump`, about 80 ns per particle sprite, about 6 µs of CPU per draw call.
@@ -102,18 +103,12 @@ _Last updated: 2026-11-15 evening (Gravity Choir on the TV; SuperTuxKart round t
   - `apps/n64-helloworld` and `apps/n64-brew-volley`: Vega packages via `n64_add_recomp_app()`.
 
 ## Next
-1. **Polish round across every game** (in progress): check each on the TV, fix what's unfinished. Then Appstore prep for Gravity Choir (store art, a Live App Test).
-2. **N64:** Hydra Harmonics (swap its commercial font for an OFL one), clear or replace Mallard's assets, then a GLES RDP backend and tiny3d for the 3D jam games.
-3. **SuperTuxKart follow-ups:** the heavy tracks' CPU cost (scene traversal, Mesa draw overhead), the overworld's black rectangle, a gamepad test, and checks on the 4K sticks.
-3. More libdragon examples or N64brew jam games (all open source). Each new title will exercise more rdpq HLE, and patch 9 shows that new titles may hit new recompiler gaps.
-4. Polish:
-   - arcade attract video/screenshots
-   - case-study writeup
-5. Follow-up: profile LibreQuake's 9–13 s map loads (`simpleperf`).
-6. Tests: there are none yet. Good first candidates:
-   - a host test for the VADPCM decoder against the source WAVs
-   - a test for the font bit order
-   - the address masking
+1. **Gravity Choir to the Appstore:** the listing kit is ready (`apps/gravity-choir/store/`). Needs the user: a Live App Test on their developer account, and the open questions in `docs/research/appstore-submission.md` (native-only packages, Play/Pause as a game control).
+2. **N64:** Hydra Harmonics (swap its commercial font for an OFL one), clear or replace Mallard's assets, then a GLES RDP backend and tiny3d for the 3D jam games. More libdragon examples or jam games will exercise more of the rdpq HLE.
+3. **SuperTuxKart follow-ups:** the heavy tracks' CPU cost (scene traversal, Mesa draw overhead), a gamepad test, and checks on the 4K sticks.
+4. **Remote ergonomics:** Doom, Quake and SuperTux's running jumps need the D-pad and OK at once, which is awkward on a remote and discouraged by the store's test criteria. Consider an auto-run or a jump on another key.
+5. **Polish:** arcade attract video or screenshots; the case-study writeup.
+6. **Tests:** none yet. The silent-VADPCM bug argues for a device check that every optional recompiled function links to the recompiled version; also a host test for the VADPCM decoder against the source WAVs, the font bit order and the address masking.
 
 ## Needs a user decision
 - Testing on the other two sticks (the user plans to test at home). On a 4K stick, also run `apps/gpu-bench/tools/run-bench.sh -q 'only=scene'` to see whether the 4K upscale costs GPU time.

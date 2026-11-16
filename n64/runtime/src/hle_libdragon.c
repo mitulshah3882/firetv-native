@@ -194,13 +194,42 @@ void n64_rdpq_font_render_paragraph(uint8_t *rdram, recomp_context *ctx) {
  * ============================================================================================== */
 static SDL_Gamepad *g_pads[4];
 
+/* Back exits only when pressed twice: the first press shows a hint for this long, so a stray
+ * press mid-game doesn't throw the game away (N64 games have no Back button of their own). */
+#define BACK_WINDOW_NS 2500000000ull
+static uint64_t g_back_ns;
+
+static void back_pressed(void) {
+    const uint64_t now = SDL_GetTicksNS();
+    if (g_back_ns && now - g_back_ns < BACK_WINDOW_NS) n64rt_exit(0);
+    g_back_ns = now;
+}
+
+static void draw_back_hint(SDL_Renderer *r, int ow, int oh) {
+    if (!g_back_ns) return;
+    const uint64_t age = SDL_GetTicksNS() - g_back_ns;
+    if (age >= BACK_WINDOW_NS) { g_back_ns = 0; return; }
+    const float fade = age > BACK_WINDOW_NS - 400000000ull ? (float)(BACK_WINDOW_NS - age) / 4e8f : 1.0f;
+    static const char text[] = "Press BACK again to exit";
+    const float scale = oh / 270.0f;  /* SDL's 8x8 debug font at about 32 px on a 1080p canvas */
+    const float tw = (sizeof text - 1) * 8.0f * scale, th = 8.0f * scale;
+    const SDL_FRect box = {(ow - tw) / 2 - th, oh - th * 4.5f, tw + 2 * th, th * 2.2f};
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(r, 0, 0, 0, (Uint8)(190 * fade));
+    SDL_RenderFillRect(r, &box);
+    SDL_SetRenderScale(r, scale, scale);
+    SDL_SetRenderDrawColor(r, 255, 255, 255, (Uint8)(255 * fade));
+    SDL_RenderDebugText(r, (box.x + th) / scale, (box.y + th * 0.6f) / scale, text);
+    SDL_SetRenderScale(r, 1.0f, 1.0f);
+}
+
 static void handle_events(void) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
             case SDL_EVENT_QUIT: n64rt_exit(0); break;
             case SDL_EVENT_KEY_DOWN:
-                if (e.key.key == SDLK_ESCAPE || e.key.key == SDLK_AC_BACK) n64rt_exit(0);
+                if ((e.key.key == SDLK_ESCAPE || e.key.key == SDLK_AC_BACK) && !e.key.repeat) back_pressed();
                 break;
             case SDL_EVENT_GAMEPAD_ADDED:
                 for (int i = 0; i < 4; ++i)
@@ -228,6 +257,7 @@ static void present(void) {
     const SDL_FRect dst = {(ow - dw) / 2, (oh - dh) / 2, dw, dh};
     SDL_SetTextureBlendMode(hle_video.fb, SDL_BLENDMODE_NONE);
     SDL_RenderTexture(r, hle_video.fb, NULL, &dst);
+    draw_back_hint(r, ow, oh);
     if (G.shot_path && (int)G.frames + 1 >= G.shot_frames) {
         SDL_Surface *s = SDL_RenderReadPixels(r, NULL);
         if (s && SDL_SavePNG(s, G.shot_path)) n64rt_log("wrote %s", G.shot_path);

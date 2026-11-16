@@ -78,6 +78,8 @@ Debugging on the host:
 
 Crashes print a backtrace; recompiled functions are host symbols.
 
+On the TV, Back exits a recompiled game only when pressed twice: the first press shows "Press BACK again to exit" for 2.5 s (N64 games have no Back button of their own, so a stray press used to end the game).
+
 Input: the remote's OK, Menu and media keys map to N64 buttons with `N64_REMOTE_MAP` (env, or the
 compile-time `N64_REMOTE_MAP_DEFAULT`), for example `playpause=R,playpause_hold=L,menu_hold=B`;
 a `<key>_hold` entry makes that key tap-or-hold. Defaults: OK=A, Menu=START, Play/Pause=B,

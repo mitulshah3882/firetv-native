@@ -52,6 +52,23 @@ rules from the start.
   play. A clear is a chord stab; chains arpeggiate upward; the star's brightness is the master
   filter.
 
+## Pressure: solar flares
+Without pressure the rules are too forgiving: a one-move greedy AI that can reach any rotation never
+lost in 2,000 pairs. So every few pairs the star **flares**: every cell moves one ring outward and a
+new core ring appears with 12 of 16 sectors filled (it clears as a full ring once you fill the gaps).
+Headless runs (`tools/rules-sim.c`, 200 games each; "reach" = sectors a player can turn before the
+pair lands, falling with fall speed):
+
+| Flare every | Reach | Colours | Strong AI | Sloppy AI (skill 0.6) |
+|---|---|---|---|---|
+| 6 pairs | 4 | 4 | 1,026 pairs | 579 |
+| 5 | 3 | 4 | 216 | 163 |
+| 6 | 4 | 5 | 714 | 393 |
+| 4 | 3 | 4 | 170 | |
+
+So the worlds ramp: flares every 9 pairs in world 1 down to 4 by world 6, falls faster each world
+(less reach), and a fifth colour from world 3.
+
 ## Rules check before the art
 The rules are prototyped with a plain renderer on the Mac first (scripted AI plus a few hand-played
 runs) to answer: is a pair-dropper on a ring readable, and do full rings happen often enough to matter

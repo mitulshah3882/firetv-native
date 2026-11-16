@@ -6,3 +6,8 @@ Card art, cropped from screenshots Claude captured on the TV of the games runnin
 - `supertuxkart.png`: SuperTuxKart 1.5 (code GPL-3.0; game art CC-BY-SA 3.0/4.0, CC0 and GPL, © the SuperTuxKart team; Cornfield Crossing track), running natively on the TV
 - `landgrab.png`: Land Grab by Meeq (N64brew Game Jam 2024, MIT; fonts CC BY 3.0 / OFL), a render of the recompiled build (our host runner, the same code as on the TV)
 - `gravitychoir.png`: Gravity Choir, our original game (MIT), a render from its Mac host preview (the same code as on the TV)
+
+Extra moments (`<game>-2.png`, `-3.png`), which the selected card cross-fades through:
+- `gravitychoir-2.png`, `gravitychoir-3.png`: Gravity Choir's demo AI playing and the Crescendo, rendered by its Mac host preview
+- `hydraharmonics-2.png`, `hydraharmonics-3.png`: Hydra Harmonics by Catch-64 (N64brew Game Jam 2024, MIT; text in Coustard, OFL), its instructions panel and a match, renders of the recompiled build by our host runner
+- `supertux-2.png`: SuperTux 0.7 on the TV, Tux jumping in "Welcome to Antarctica" (game art CC-BY-SA 3.0 / GPL, © the SuperTux team)

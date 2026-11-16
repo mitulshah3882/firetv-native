@@ -29,7 +29,10 @@ foreach(f ChakraPetch-Regular.ttf ChakraPetch-SemiBold.ttf ChakraPetch-Bold.ttf 
 endforeach()
 configure_file("${FONTS_DIR}/ChakraPetch/OFL.txt" "${PKGROOT}/assets/fonts/OFL-ChakraPetch.txt" COPYONLY)
 configure_file("${FONTS_DIR}/PressStart2P/OFL.txt" "${PKGROOT}/assets/fonts/OFL-PressStart2P.txt" COPYONLY)
-foreach(f gravitychoir.png doom.png quake.png brewvolley.png supertux.png supertuxkart.png landgrab.png hydraharmonics.png)
+# Card art: art/<game>.png, plus optional extra moments art/<game>-2.png, -3.png that the
+# selected card cross-fades through.
+file(GLOB _arcade_art RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/art" CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/art/*.png")
+foreach(f ${_arcade_art})
   configure_file("${CMAKE_CURRENT_SOURCE_DIR}/art/${f}" "${PKGROOT}/assets/art/${f}" COPYONLY)
 endforeach()
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/icon/icon.png" "${PKGROOT}/assets/image/icon.png" COPYONLY)

@@ -40,6 +40,10 @@
 #define NUM_STARS 230
 #define CARD_STARS 120
 
+#define ART_MAX_FRAMES 3
+#define ART_HOLD 3.6f /* seconds on each frame of a selected card */
+#define ART_FADE 0.7f /* cross-fade to the next */
+
 /* ------------------------------------------------------------------------------------------------ */
 typedef enum { CARD_ART, CARD_STARFIELD, CARD_SOON } CardKind;
 
@@ -56,6 +60,11 @@ typedef struct {
     SDL_Texture *art_tex, *card_tex;
     bool dirty;
     Star3 stars[CARD_STARS];
+    /* Extra moments of the game (art/<game>-2.png, -3.png): the selected card holds each for
+     * ART_HOLD seconds, then cross-fades to the next. frames[0] is art_tex. */
+    SDL_Texture *frames[ART_MAX_FRAMES];
+    int nframes, frame;
+    float frame_t;
 } Game;
 
 static Game g_games[] = {
@@ -332,7 +341,16 @@ static void render_card(Game *g, float dt) {
     batch_flush(NULL);
     const SDL_FRect art = {ART_X, ART_Y, ART_W, ART_H};
     if (g->kind == CARD_ART && g->art_tex) {
-        SDL_RenderTexture(A.r, g->art_tex, NULL, &art);
+        SDL_Texture *cur = g->nframes > 1 ? g->frames[g->frame] : g->art_tex;
+        SDL_SetTextureAlphaModFloat(cur, 1.0f);
+        SDL_RenderTexture(A.r, cur, NULL, &art);
+        const float fade = g->nframes > 1 ? (g->frame_t - ART_HOLD) / ART_FADE : 0.0f;
+        if (fade > 0) {
+            SDL_Texture *next = g->frames[(g->frame + 1) % g->nframes];
+            SDL_SetTextureAlphaModFloat(next, fade < 1 ? fade * fade * (3 - 2 * fade) : 1.0f);
+            SDL_RenderTexture(A.r, next, NULL, &art);
+            SDL_SetTextureAlphaModFloat(next, 1.0f);
+        }
     } else if (g->kind == CARD_STARFIELD) {
         draw_art_starfield(g, dt);
         batch_flush(NULL);
@@ -785,6 +803,25 @@ static void update(float dt) {
         A.beat_phase = (float)(A.beats - floor(A.beats));
     }
 
+    /* The selected card plays through its moments; the others rest on their main art. */
+    for (int i = 0; i < NUM_GAMES; ++i) {
+        Game *g = &g_games[i];
+        if (g->nframes < 2) continue;
+        if (i != A.sel || A.state != ST_BROWSE) {
+            if (g->frame != 0 || g->frame_t > ART_HOLD) g->dirty = true;
+            g->frame = 0;
+            g->frame_t = 0;
+            continue;
+        }
+        g->frame_t += dt;
+        if (g->frame_t > ART_HOLD) g->dirty = true;
+        if (g->frame_t >= ART_HOLD + ART_FADE) {
+            g->frame = (g->frame + 1) % g->nframes;
+            g->frame_t = 0;
+            g->dirty = true;
+        }
+    }
+
     /* attract mode: drift through the cards when nobody is around */
     if (A.state == ST_BROWSE && !A.about && A.idle_t > 45) {
         A.attract_t += dt;
@@ -936,7 +973,23 @@ int main(int argc, char **argv) {
         return 1;
     }
     for (int i = 0; i < NUM_GAMES; ++i) {
-        if (g_games[i].art) g_games[i].art_tex = load_png(base, g_games[i].art);
+        Game *g = &g_games[i];
+        if (g->art) {
+            g->art_tex = load_png(base, g->art);
+            g->frames[0] = g->art_tex;
+            g->nframes = g->art_tex ? 1 : 0;
+            /* Optional extra moments: art/<game>-2.png, -3.png */
+            const char *dot = SDL_strrchr(g->art, '.');
+            for (int k = 2; g->nframes > 0 && dot && k <= ART_MAX_FRAMES; ++k) {
+                char rel[256], path[512];
+                SDL_snprintf(rel, sizeof rel, "%.*s-%d%s", (int)(dot - g->art), g->art, k, dot);
+                SDL_snprintf(path, sizeof path, "%s%s", base, rel);
+                if (!SDL_GetPathInfo(path, NULL)) break;
+                SDL_Texture *t = load_png(base, rel);
+                if (!t) break;
+                g->frames[g->nframes++] = t;
+            }
+        }
         if (g_games[i].kind == CARD_STARFIELD) starfield_init(&g_games[i]);
     }
     A.glow9 = make_alpha_tex(128, 128, glow_fn, NULL);

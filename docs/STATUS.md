@@ -119,10 +119,10 @@ _Last updated: 2026-11-16 (Gravity Choir store prep; Hydra Harmonics; the test s
 
 ## Next
 1. **Gravity Choir to the Appstore:** the listing kit is ready (`apps/gravity-choir/store/`). Needs the user: a Live App Test on their developer account, and the open questions in `docs/research/appstore-submission.md` (native-only packages, Play/Pause as a game control).
-2. **N64:** clear or replace Mallard's assets, then a GLES RDP backend and tiny3d for the 3D jam games. More jam games (DamN64, the other 2024 minigames) will exercise more of the rdpq HLE.
+2. **N64:** the 2D jam games are done: of the other 18 Jam 2024 minigames, 16 load tiny3d models (checked 2026-11-16 from their asset lists), 64beats is 2D but its music licence is unclear, and sb_hot loads no assets. So the next N64 step is 3D: HLE of tiny3d's API (`t3d_*`) on GLES, since its RSP microcode can't be recompiled, then the 3D jam games (Cathode Quest 64 from Jam 2025 is the showpiece). Mallard still needs its assets cleared or replaced.
 3. **SuperTuxKart follow-ups:** the heavy tracks' CPU cost (scene traversal, Mesa draw overhead), a gamepad test, and checks on the 4K sticks.
 4. **Remote ergonomics:** Doom and Quake need the D-pad and OK at once to move while firing, which is awkward on a remote and discouraged by the store's test criteria. SuperTux now jumps with Up as well as OK by default (SuperTux's own "Jump with Up" option; seen working on the TV 2026-11-16).
-5. **Polish:** arcade attract video or screenshots; the case-study writeup.
+5. **Polish:** the selected arcade card now cross-fades through extra moments of its game (`art/<game>-2.png`, `-3.png`; Gravity Choir, Hydra Harmonics and SuperTux have them). More frames for Doom, Quake, SuperTuxKart and the other N64 games would help; the case-study writeup.
 6. **Tests:** `tools/test.sh` covers the N64 runtime and the recompiled games. Not covered yet: XM instruments against their sources, Gravity Choir's synthesizer (`tools/audio-test.sh` is separate), and anything on the device.
 
 ## Needs a user decision

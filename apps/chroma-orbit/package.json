@@ -1,0 +1,8 @@
+{
+  "name": "chroma-orbit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chroma Orbit: an original falling-block puzzle around a star for Fire TV (native C, SDL3, OpenGL ES).",
+  "license": "MIT",
+  "kepler": { "projectType": "native", "targets": ["tv"] }
+}

@@ -63,3 +63,4 @@ splash supertuxkart supertuxkart.png "SuperTuxKart" 255 158 31
 splash n64-brew-volley brewvolley.png "Brew Volley" 125 255 79
 splash n64-landgrab landgrab.png "Land Grab" 255 97 97
 splash n64-hydraharmonics hydraharmonics.png "Hydra Harmonics" 255 112 176
+splash prism-spire prismspire.png "Prism Spire" 255 170 110

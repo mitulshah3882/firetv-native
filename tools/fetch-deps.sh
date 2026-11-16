@@ -21,6 +21,8 @@ DEPS=(
   "sdl2compat|2.32.74|https://github.com/libsdl-org/sdl2-compat/releases/download/release-2.32.74/sdl2-compat-2.32.74.tar.gz|sdl2-compat-2.32.74"
   "supertux|0.7.0|https://github.com/SuperTux/supertux/releases/download/v0.7.0/SuperTux-v0.7.0-Source.tar.gz|SuperTux-v0.7.0-Source"
   # Libraries for the SDL2 game ports (SuperTux, SuperTuxKart), built from source per app.
+  # Box2D 3.1.1 (MIT): 2D rigid-body physics for Prism Spire.
+  "box2d|3.1.1|https://github.com/erincatto/box2d/archive/refs/tags/v3.1.1.tar.gz|box2d-3.1.1"
   "zlib|1.3.2|https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz|zlib-1.3.2"
   "libpng|1.6.58|https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.58.tar.gz|libpng-1.6.58"
   "physfs|3.2.0|https://github.com/icculus/physfs/archive/refs/tags/release-3.2.0.tar.gz|physfs-release-3.2.0"

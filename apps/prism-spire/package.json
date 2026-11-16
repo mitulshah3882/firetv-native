@@ -1,0 +1,8 @@
+{
+  "name": "prism-spire",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Prism Spire: an original pass-the-remote glass-stacking party game for Fire TV (native C, SDL3, OpenGL ES, Box2D).",
+  "license": "MIT",
+  "kepler": { "projectType": "native", "targets": ["tv"] }
+}

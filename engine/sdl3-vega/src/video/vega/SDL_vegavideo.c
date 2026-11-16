@@ -382,6 +382,9 @@ static void VEGA_GL_UnloadLibrary(SDL_VideoDevice *_this)
 
 static SDL_GLContext VEGA_GL_CreateContext(SDL_VideoDevice *_this, SDL_Window *window)
 {
+    /* SDL_GL_MULTISAMPLEBUFFERS / SDL_GL_MULTISAMPLESAMPLES: a multisampled window surface */
+    if (_this->gl_config.multisamplebuffers > 0 && _this->gl_config.multisamplesamples > 1)
+        vp_gl_set_samples(_this->gl_config.multisamplesamples);
     if (!vp_gl_create_context()) {
         SDL_SetError("Could not create Vega GL context");
         return NULL;

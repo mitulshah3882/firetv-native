@@ -49,6 +49,8 @@ bool vp_gl_load(void);                      /* dlopen libGLESv2 */
 void *vp_gl_get_proc(const char *name);     /* core symbol or extension entry point; the returned
                                                glBindFramebuffer maps framebuffer 0 to the surface */
 bool vp_gl_create_context(void);            /* GPU device, context and window surface */
+void vp_gl_set_samples(int samples);        /* MSAA samples per pixel for the window surface; call
+                                               before vp_gl_create_context (0: none, the default) */
 bool vp_gl_make_current(bool current);
 unsigned vp_gl_framebuffer(void);           /* FBO backing the window surface (often 0) */
 bool vp_gl_swap(void);                      /* present; blocks while the app is backgrounded */

@@ -679,26 +679,44 @@ static void drawSplash(int width, int height) {
     vp_log("splash: %dx%d ASTC %dx%d%s", w, hh, bx, by, err ? " (GL error)" : "");
 }
 
+static int gSamples = 0;
+extern "C" void vp_gl_set_samples(int samples) { gSamples = samples; }
+
 extern "C" bool vp_gl_create_context(void) {
     auto& s = S();
     if (s.context) return true;
     if (!vp_window_create()) return false;
     try {
         s.gpu = s.module->createGpuDeviceUsingOpenGlesApi(s.display);
-        s.config = s.gpu->createContextConfig(std::move(MakeBuilderFor<kg::ContextConfigAttributes>())
+        auto makeConfig = [&](int samples) {
+            return s.gpu->createContextConfig(std::move(MakeBuilderFor<kg::ContextConfigAttributes>())
                                                   ->numRedBits(8)
                                                   ->numGreenBits(8)
                                                   ->numBlueBits(8)
                                                   ->numAlphaBits(8)
                                                   ->numDepthBits(24)
                                                   ->numStencilBits(8)
-                                                  ->numSamplesPerPixel(-1)
+                                                  ->numSamplesPerPixel(samples)
                                                   ->needPackedDepthStencilBuffer(true)
                                                   ->presentationMode(kg::PresentationMode::SYSTEM_DEFAULT)
                                                   ->compressionPolicy(kg::CompressionPolicy::SYSTEM_DEFAULT)
                                                   ->isLossyCompressionOk(false)
                                                   ->build()
                                                   .QueryInterface<kg::ContextConfigAttributes>());
+        };
+        // An app may ask for a multisampled window surface (vp_gl_set_samples, from SDL's
+        // SDL_GL_MULTISAMPLESAMPLES). On a tiler the samples stay in tile memory and the resolve
+        // happens on the way out, so it costs little. If the driver refuses, fall back to none.
+        s.config = nullptr;
+        if (gSamples > 1) {
+            try {
+                s.config = makeConfig(gSamples);
+                vp_log("GL: %d samples per pixel requested", gSamples);
+            } catch (const std::exception& e) {
+                vp_log("GL: %d samples per pixel refused (%s); no MSAA", gSamples, e.what());
+            }
+        }
+        if (!s.config) s.config = makeConfig(-1);
         s.context = s.gpu->createContext(nullptr, s.config);
         s.surface = s.gpu->createScreenSurface(s.window->getHandle(), s.config);
         s.context->makeCurrent(s.surface);

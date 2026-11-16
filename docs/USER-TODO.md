@@ -4,7 +4,7 @@ Things only you can do: your accounts, your ears, your hardware, your call. Clau
 current while it works. A one-line answer in chat is enough for any decision. Finished items move to
 **Done** at the bottom with the date.
 
-_Last updated: 2026-11-16._
+_Last updated: 2026-11-16 evening._
 
 > **Pushing:** Claude keeps pushing finished work to GitHub under your OK of 2026-11-15 ("feel free to
 > push"). Say so if you'd rather it hold commits locally.
@@ -29,6 +29,10 @@ _Last updated: 2026-11-16._
   in `apps/gravity-choir/store/README.md` (section "Live App Test steps").
 
 ## Decisions
+- [ ] **The next big project:** the second original game (a store candidate), or 3D N64 games?
+  The 3D work is designed in `docs/research/tiny3d-hle.md`: about 2 weeks to a first 3D jam game
+  and 3–4 to the first one worth shipping. Claude's pick: the original game first, since only our
+  own games can go to the store; the 3D N64 work after it.
 - [ ] **Which original game next?** Only our own games can go to the store without legal questions.
   The research picks (`docs/research/original-game-concepts.md`):
   - **Chroma Orbit**, a synesthetic colour-matching puzzle. Best fit for a remote and the widest

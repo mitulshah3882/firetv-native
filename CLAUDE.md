@@ -102,6 +102,7 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
   - On the device, `SDL: gravity-choir: fps ...` lines arrive in the log stream every 2 s.
   - Hand-resolved GL pointers must be `visibility("hidden")` (decision 45), or they bind to the driver's own symbols.
 - **vegaplat extras every app gets:** audio focus (listener, background release; `audio focus:` log lines), a one-time `audio: N frames/s written` check, and a loading splash from `<app>/icon/splash.astc` if present (`tools/make-splashes.sh`; `splash:` log line). `<app>/icon/SplashScreenImages.zip` becomes Vega's system splash (`assets/raw/`), shown from launch until the first frame.
+- **Before installing or shipping, run `tools/check-packages.sh`:** it checks icon size, licences, splashes, NEEDED libraries, exported GL symbols and the N64 VADPCM link in every Release package.
 - **Benchmarks on an idle stick:** the screensaver takes the foreground about 2 s after a launch, and a launch sent while the previous instance is still exiting is dropped. Send a key before launching and wait for the exit (`bench-tracks.sh` does both).
 - **STK benchmarks:** `apps/supertuxkart/tools/bench-tracks.sh [-t tune] [tracks]`. Interleave A/B runs: noise is ±3 fps. Every STK build adds a 161 MB debug file to `build/debug/.build-id`; delete the old ones.
 - **3D ports (see `apps/supertuxkart`):**

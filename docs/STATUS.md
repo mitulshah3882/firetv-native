@@ -113,6 +113,14 @@ _Last updated: 2026-11-15 evening (Gravity Choir on the TV; SuperTuxKart round t
 
 ## Needs a user decision
 - Testing on the other two sticks (the user plans to test at home). On a 4K stick, also run `apps/gpu-bench/tools/run-bench.sh -q 'only=scene'` to see whether the 4K upscale costs GPU time.
+- **Gravity Choir's Appstore submission:** run a Live App Test from the developer console with `apps/gravity-choir/store/`. Also decide whether to keep Play/Pause as the Crescendo button: the store's test criteria say non-media apps "should not" use media keys.
+- **Before any GPL game goes to the store** (see `docs/research/appstore-submission.md`, section 7):
+  - whether linking the SDK-generated IDL library and libc++ into GPL apps is acceptable;
+  - SuperTux's two CC BY-NC assets;
+  - the trademarks "Doom" and "Quake";
+  - upstream consent for SuperTux and SuperTuxKart.
+- **Doom and Quake on a remote:** moving while firing needs two thumbs. Options: leave it, add an auto-fire toggle, or put fire on another key as well.
+- **Hearing check:** nobody has listened to the audio on the TV this round. The logs show audio focus, the stream rate and every N64 sample decoding, but Gravity Choir's music, Brew Volley's effects and Land Grab's music deserve a listen.
 
 ## Watch items
 - The home screen's "Your apps and channels" row didn't list our apps even with 512×512 icons. They do show in Settings → Applications. A TV-UI launch path for sideloaded apps is still open.

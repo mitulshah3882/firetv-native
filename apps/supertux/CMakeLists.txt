@@ -41,6 +41,22 @@ _sdl3vega_patch("${ST_SRC}/src/control/keyboard_config.cpp"
   "  m_keymap[SDL_SCANCODE_GRAVE]"
   "#ifdef VEGA_PORT /* vega-port: TV remote defaults */\n  m_keymap[SDL_SCANCODE_RETURN] = {0, Control::JUMP};\n  m_keymap[SDL_SCANCODE_AUDIOPLAY] = {0, Control::ACTION};\n  m_keymap[SDL_SCANCODE_AUDIOREWIND] = {0, Control::ACTION};\n  m_keymap[SDL_SCANCODE_AUDIOFASTFORWARD] = {0, Control::ITEM};\n  m_keymap[SDL_SCANCODE_MENU] = {0, Control::START};\n#endif\n"
   "VEGA_PORT /* vega-port: TV remote defaults */")
+# "Jump with Up" on by default: a remote's OK sits inside the D-pad ring, so running (Right) and
+# jumping (OK) at once needs two thumbs; with this, Up jumps too. It's stored under a new key so
+# configs saved before this change (which hold the old default, off) get it; the keyboard menu's
+# "Jump with Up" toggle still turns it off.
+_sdl3vega_patch("${ST_SRC}/src/control/keyboard_config.cpp"
+  "  m_keymap[SDL_SCANCODE_GRAVE]"
+  "#ifdef VEGA_PORT /* vega-port: jump with Up */\n  m_jump_with_up_kbd = true;\n#endif\n"
+  "VEGA_PORT /* vega-port: jump with Up */")
+_sdl3vega_patch("${ST_SRC}/src/control/keyboard_config.cpp"
+  "  keymap_mapping.get(\"jump-with-up\", m_jump_with_up_kbd);"
+  "#ifdef VEGA_PORT /* vega-port: jump-with-up-remote read */\n  keymap_mapping.get(\"jump-with-up-remote\", m_jump_with_up_kbd);\n  if (false)\n#endif\n"
+  "VEGA_PORT /* vega-port: jump-with-up-remote read */")
+_sdl3vega_patch("${ST_SRC}/src/control/keyboard_config.cpp"
+  "  writer.write(\"jump-with-up\", m_jump_with_up_kbd);"
+  "#ifdef VEGA_PORT /* vega-port: jump-with-up-remote write */\n  writer.write(\"jump-with-up-remote\", m_jump_with_up_kbd);\n#endif\n"
+  "VEGA_PORT /* vega-port: jump-with-up-remote write */")
 
 set(VEGA ON)
 set(ENABLE_OPENGL OFF CACHE BOOL "" FORCE)      # SDL renderer = our OpenGL ES 2 backend

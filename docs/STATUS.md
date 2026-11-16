@@ -34,6 +34,7 @@ _Last updated: 2026-11-15 evening (Gravity Choir on the TV; SuperTuxKart round t
   - Brew Volley's sound effects and Land Grab's XM instruments were silent on the device (VADPCM never decoded; decision 51).
   - `vega device terminate-app` stops the wrong app when one package id is a prefix of another; our scripts use `vlcm terminate-app --pkg-id` now.
   - Land Grab's hints, legend and controls are remote-friendly.
+  - Back in the N64 games exits only on a second press, with a "Press BACK again to exit" hint.
   - Exits froze on the last frame for up to 6 s: our SDL audio driver blocked while holding SDL's device lock (decision 54). Exits now take about 90 ms.
   - The same lock starvation was behind LibreQuake's long map loads: the first load's stall fell from 6.1 s to 1.1 s, and a demo's map change now costs one 87 ms frame. A simpleperf profile showed the main thread idle, not loading.
 - **N64brew Game Jam 2024: Land Grab runs on the TV** (`apps/n64-landgrab`, card in the arcade). Mallard runs on the Mac but isn't cleared to ship (undocumented music and art licences). See `n64/jam24/CREDITS.md` and the journal.
@@ -106,7 +107,7 @@ _Last updated: 2026-11-15 evening (Gravity Choir on the TV; SuperTuxKart round t
 1. **Gravity Choir to the Appstore:** the listing kit is ready (`apps/gravity-choir/store/`). Needs the user: a Live App Test on their developer account, and the open questions in `docs/research/appstore-submission.md` (native-only packages, Play/Pause as a game control).
 2. **N64:** Hydra Harmonics (swap its commercial font for an OFL one), clear or replace Mallard's assets, then a GLES RDP backend and tiny3d for the 3D jam games. More libdragon examples or jam games will exercise more of the rdpq HLE.
 3. **SuperTuxKart follow-ups:** the heavy tracks' CPU cost (scene traversal, Mesa draw overhead), a gamepad test, and checks on the 4K sticks.
-4. **Remote ergonomics:** Doom, Quake and SuperTux's running jumps need the D-pad and OK at once, which is awkward on a remote and discouraged by the store's test criteria. Consider an auto-run or a jump on another key.
+4. **Remote ergonomics:** Doom and Quake need the D-pad and OK at once to move while firing, which is awkward on a remote and discouraged by the store's test criteria. SuperTux now jumps with Up as well as OK by default (SuperTux's own "Jump with Up" option; patched default, not yet watched in play because the first level is a cutscene).
 5. **Polish:** arcade attract video or screenshots; the case-study writeup.
 6. **Tests:** none yet. The silent-VADPCM bug argues for a device check that every optional recompiled function links to the recompiled version; also a host test for the VADPCM decoder against the source WAVs, the font bit order and the address masking.
 

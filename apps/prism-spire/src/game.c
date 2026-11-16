@@ -132,6 +132,7 @@ typedef struct {
     Col tint;
     float frost, born, glow;
     bool rung;          /* its bell has rung (it came to rest) */
+    float under_t;      /* time spent down in the lake; it sinks away */
 } Piece;
 
 typedef struct { float x, y, z, vx, vy, vz, life, max, size; Col c; int kind; } Fx;  /* kind 0 spark, 1 streak */
@@ -702,6 +703,16 @@ static void update(float dt)
                rng_range(&G.rng, 0.5f, 1.4f), col(0.9f, 0.85f, 1.0f, 0.35f), 1);
     }
     G.shown_top = approach(G.shown_top, G.top, 3.0f, dt);
+    /* glass in the lake sinks: it shrinks away after a while, then is removed */
+    if (G.state != ST_PAUSE) {
+        for (int i = 0; i < MAX_PIECES; i++) {
+            Piece *p = &G.pieces[i];
+            if (!p->used) continue;
+            if (b2Body_GetPosition(p->body).y < -1.0f) p->under_t += dt;
+            else p->under_t = 0;
+            if (p->under_t > 3.5f && G.state != ST_AIM && G.state != ST_SETTLE) piece_destroy(i);
+        }
+    }
 }
 
 /* ---- the attract-mode tower on the title screen ----------------------------------------------- */
@@ -783,7 +794,7 @@ static void draw_world(void)
     /* Eye a little below the tower's middle, so the glass stands against the sky. On the title the
      * tower sits to the right of the menu. */
     const bool title = G.state == ST_TITLE || G.state == ST_HOWTO || G.state == ST_CREDITS;
-    const float side = title && !G.keyart ? -3.2f : 0.0f;
+    const float side = title && !G.keyart ? -4.6f : 0.0f;
     G.cam_x = approach(G.cam_x, side, 2.0f, 1.0f / 60.0f);
     const float eye[3] = {G.cam_x + sinf(G.cam_orbit) * G.cam_r, G.cam_y - 0.2f + G.cam_r * 0.035f, cosf(G.cam_orbit) * G.cam_r};
     const float tgt[3] = {G.cam_x, G.cam_y + 0.4f, 0.0f};
@@ -807,7 +818,9 @@ static void draw_world(void)
         const b2Vec2 c = b2Body_GetPosition(p->body);
         const float a = b2Rot_GetAngle(b2Body_GetRotation(p->body));
         const float fresh = clampf(1.0f - (G.time - p->born) / 0.5f, 0.0f, 1.0f);
-        render_piece(g_mesh[p->shape], c.x, c.y, a, p->tint, p->frost, fresh * 0.4f, p->shard ? 1.0f : 1.0f);
+        const float sink = clampf(1.0f - (p->under_t - 2.0f) / 1.5f, 0.0f, 1.0f);
+        if (sink <= 0.0f) continue;
+        render_piece(g_mesh[p->shape], c.x, c.y - (1.0f - sink) * 0.3f, a, p->tint, p->frost, fresh * 0.4f, sink);
     }
     /* the piece being placed, its drop guide and where it will land */
     if (aiming) {

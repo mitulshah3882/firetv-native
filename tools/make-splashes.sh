@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Regenerates each game's loading splash (apps/<app>/icon/splash.astc): its card art, its title and
-# "LOADING" at 1920x1080, compressed to ASTC 8x8. vegaplat shows it as the first frame (see
-# vp_gl_create_context), so slow loaders don't sit on a black screen. Apps without the file keep the
-# black first frame.
+# Regenerates each game's loading splash: its card art, its title and "LOADING" at 1920x1080.
+#   apps/<app>/icon/splash.astc           ASTC 8x8; vegaplat draws it as the first frame
+#                                         (vp_gl_create_context), so slow loaders don't sit on black
+#   apps/<app>/icon/SplashScreenImages.zip  the same picture as Vega's system splash, shown from the
+#                                         launch until that first frame
+# Apps without them keep a black first frame.
 #
 #   tools/make-splashes.sh            (PNGs for review land in build/host-tools/splash/)
 #
@@ -35,7 +37,16 @@ splash() {  # app art title r g b
   local png="$OUT/splash/$1.png"
   "$OUT/make-splash" "$png" "$ROOT/apps/arcade/art/$2" "$3" "$FONT" "$4" "$5" "$6"
   "$ASTCENC" -cl "$png" "$ROOT/apps/$1/icon/splash.astc" 8x8 -medium -silent
-  echo "apps/$1/icon/splash.astc"
+  # The same picture as Vega's system splash (assets/raw/SplashScreenImages.zip: one 1920x1080 PNG
+  # in _loop/ plus desc.txt), which the system shows the moment the app is launched, before our
+  # process starts; our first frame then draws the same image.
+  local z="$OUT/splash/$1-zip"
+  rm -rf "$z" && mkdir -p "$z/_loop"
+  cp "$png" "$z/_loop/loop00000.png"
+  printf '1920 1080 30\nc 0 0 _loop\n' > "$z/desc.txt"
+  rm -f "$ROOT/apps/$1/icon/SplashScreenImages.zip"
+  (cd "$z" && zip -q -X -0 -r "$ROOT/apps/$1/icon/SplashScreenImages.zip" desc.txt _loop)
+  echo "apps/$1/icon/splash.astc, SplashScreenImages.zip"
 }
 # Accent colours match the arcade's cards.
 splash gravity-choir gravitychoir.png "Gravity Choir" 204 102 255

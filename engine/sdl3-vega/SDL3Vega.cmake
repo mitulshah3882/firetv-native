@@ -138,6 +138,11 @@ function(vega_add_sdl3_app target)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/icon/splash.astc")
       configure_file("${CMAKE_CURRENT_SOURCE_DIR}/icon/splash.astc" "${arg_ASSETS_DIR}/assets/image/splash.astc" COPYONLY)
     endif()
+    # Vega's system splash, shown from the launch until our first frame (same picture).
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/icon/SplashScreenImages.zip")
+      configure_file("${CMAKE_CURRENT_SOURCE_DIR}/icon/SplashScreenImages.zip"
+                     "${arg_ASSETS_DIR}/assets/raw/SplashScreenImages.zip" COPYONLY)
+    endif()
     # Licences and credits (assets/licenses/): the app's own LICENSE and NOTICE.txt if it has them,
     # this repo's MIT licence (vegaplat), the SDL3 drivers' and SDL3's licences (zlib; BSD-3 for
     # SDL's bundled yuv2rgb), and every file registered with vega_app_license().

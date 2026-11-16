@@ -130,12 +130,41 @@ static GLuint compile(GLenum type, const char *const *parts, int n, const char *
 
 
 /* ---- shaders ------------------------------------------------------------------------------------ */
-/* The sky (low resolution): a dark gradient, a nebula in the world's palette, and the star: a
- * plasma of fbm noise with limb darkening and a corona, hotter with energy. */
+/* The nebula of one world, rendered once into a 640x360 texture when the world changes: a dark
+ * gradient, two layers of fbm in the world's palette, and fixed stars. */
+static const char *kNebFS =
+    "in highp vec2 v_uv;\n"
+    "uniform vec3 u_pal[3];\n"      /* deep, nebula, accent */
+    "uniform highp float u_aspect;\n"
+    "out vec4 o;\n"
+    "highp float hash(highp vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n"
+    "float noise(highp vec2 p) {\n"
+    "  highp vec2 i = floor(p); vec2 f = fract(p);\n"
+    "  vec2 u = f * f * (3.0 - 2.0 * f);\n"
+    "  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);\n"
+    "}\n"
+    "float fbm(highp vec2 p) {\n"
+    "  float v = 0.0, a = 0.5;\n"
+    "  for (int i = 0; i < 5; i++) { v += a * noise(p); p = p * 2.03 + vec2(17.1, 9.2); a *= 0.5; }\n"
+    "  return v;\n"
+    "}\n"
+    "void main() {\n"
+    "  highp vec2 p = vec2((v_uv.x - 0.5) * u_aspect, v_uv.y - 0.5);\n"
+    "  float n1 = fbm(p * 2.2);\n"
+    "  float n2 = fbm(p * 4.5 + n1);\n"
+    "  vec3 c = u_pal[0] * (0.6 + 0.4 * (1.0 - v_uv.y));\n"
+    "  c += u_pal[1] * smoothstep(0.35, 0.85, n2) * 0.55;\n"
+    "  c += u_pal[2] * pow(smoothstep(0.55, 0.95, n1 * n2 * 1.8), 2.0) * 0.35;\n"
+    "  c += vec3(0.8, 0.85, 1.0) * step(0.996, hash(floor(v_uv * vec2(640.0, 360.0)))) * 0.6;\n"
+    "  o = vec4(c, 1.0);\n"
+    "}\n";
+
+/* Per frame, at full resolution: the two nebulas cross-faded (with a slow drift), danger tint, and
+ * the star (plasma only inside its radius, a cheap corona), plus the supernova's white-out. */
 static const char *kSkyFS =
     "in highp vec2 v_uv;\n"
+    "uniform sampler2D u_neb0, u_neb1;\n"
     "uniform highp float u_time;\n"
-    "uniform vec3 u_pal[6];\n"      /* two palettes: deep, nebula, accent (x2 for the cross-fade) */
     "uniform float u_mix;\n"
     "uniform highp vec4 u_star;\n"  /* centre (uv), radius (in uv of the height), energy */
     "uniform float u_flash;\n"
@@ -148,40 +177,28 @@ static const char *kSkyFS =
     "  vec2 u = f * f * (3.0 - 2.0 * f);\n"
     "  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);\n"
     "}\n"
-    "float fbm(highp vec2 p) {\n"
-    "  float v = 0.0, a = 0.5;\n"
-    "  for (int i = 0; i < 4; i++) { v += a * noise(p); p = p * 2.03 + vec2(17.1, 9.2); a *= 0.5; }\n"
-    "  return v;\n"
-    "}\n"
     "void main() {\n"
-    "  vec3 deep = mix(u_pal[0], u_pal[3], u_mix), neb = mix(u_pal[1], u_pal[4], u_mix), acc = mix(u_pal[2], u_pal[5], u_mix);\n"
-    "  highp vec2 p = vec2((v_uv.x - 0.5) * u_aspect, v_uv.y - 0.5);\n"
-    "  highp vec2 sc = vec2((u_star.x - 0.5) * u_aspect, u_star.y - 0.5);\n"
-    "  highp vec2 d = p - sc;\n"
-    "  float r = length(d);\n"
     "  highp float t = u_time;\n"
-    "  float n1 = fbm(p * 2.2 + vec2(t * 0.012, -t * 0.008));\n"
-    "  float n2 = fbm(p * 4.5 - vec2(t * 0.02, t * 0.01) + n1);\n"
-    "  vec3 c = deep * (0.6 + 0.4 * (1.0 - v_uv.y));\n"
-    "  c += neb * smoothstep(0.35, 0.85, n2) * 0.55 * (1.0 - 0.5 * u_danger);\n"
-    "  c += acc * pow(smoothstep(0.55, 0.95, n1 * n2 * 1.8), 2.0) * 0.35;\n"
-    "  float stars = step(0.996, hash(floor(v_uv * vec2(640.0, 360.0)))) * (0.5 + 0.5 * sin(t * 2.0 + hash(floor(v_uv * 300.0)) * 30.0));\n"
-    "  c += vec3(0.8, 0.85, 1.0) * stars * 0.6;\n"
+    "  highp vec2 duv = (v_uv - 0.5) * 0.94 + 0.5 + vec2(sin(t * 0.013), cos(t * 0.011)) * 0.025;\n"
+    "  vec3 c = mix(texture(u_neb0, duv).rgb, texture(u_neb1, duv).rgb, u_mix);\n"
     "  c = mix(c, c * vec3(1.2, 0.55, 0.5), u_danger * 0.5);\n"
-    /* the star */
-    "  float R = u_star.z;\n"
-    "  float e = u_star.w;\n"
+    "  highp vec2 p = vec2((v_uv.x - 0.5) * u_aspect, v_uv.y - 0.5);\n"
+    "  highp vec2 d = p - vec2((u_star.x - 0.5) * u_aspect, u_star.y - 0.5);\n"
+    "  float r = length(d);\n"
+    "  float R = u_star.z, e = u_star.w;\n"
     "  vec3 hot = mix(vec3(1.0, 0.55, 0.2), vec3(0.8, 0.9, 1.0), e);\n"
     "  if (r < R) {\n"
-    "    float mu = sqrt(max(1.0 - (r / R) * (r / R), 0.0));\n"   /* limb darkening */
-    "    highp vec2 q = d / R;\n"
-    "    float pl = fbm(q * 3.0 + vec2(t * 0.15, -t * 0.1) + fbm(q * 5.0 - t * 0.2));\n"
+    "    float mu = sqrt(max(1.0 - (r / R) * (r / R), 0.0));\n"
+    "    highp vec2 q = d / R * 3.0;\n"
+    "    float pl = noise(q + vec2(t * 0.3, -t * 0.2)) * 0.6 + noise(q * 2.3 - vec2(t * 0.4, t * 0.1)) * 0.4;\n"
     "    vec3 s = mix(vec3(1.0, 0.35, 0.08), vec3(1.0, 0.9, 0.6), pl);\n"
     "    s = mix(s, hot, e * 0.6) * (0.55 + 0.6 * mu) * (1.1 + 0.5 * e);\n"
     "    c = mix(c, s, smoothstep(R, R * 0.97, r));\n"
+    "  } else {\n"
+    "    float ang = atan(d.y, d.x);\n"
+    "    float corona = exp(-(r - R) / (R * (0.35 + 0.35 * e))) * (0.75 + 0.25 * sin(ang * 7.0 + t * 0.7) * sin(ang * 3.0 - t * 0.4));\n"
+    "    c += hot * corona * (0.45 + 0.6 * e);\n"
     "  }\n"
-    "  float corona = exp(-max(r - R, 0.0) / (R * (0.35 + 0.35 * e))) * (0.6 + 0.4 * fbm(vec2(atan(d.y, d.x) * 3.0, t * 0.3)));\n"
-    "  c += hot * corona * (0.45 + 0.6 * e) * step(R * 0.97, r);\n"
     "  c = mix(c, vec3(1.0), clamp(u_flash, 0.0, 1.0));\n"
     "  o = vec4(c, 1.0);\n"
     "}\n";
@@ -280,7 +297,6 @@ static GLuint program(const char *vs, const char *fs, const char *what)
 /* ---- state -------------------------------------------------------------------------------------- */
 #define MAX_CELL_VERTS 24000
 #define MAX_SPARKS 6000
-#define SKY_DIV 3  /* the sky at 1/3 resolution (decision 63) */
 
 typedef struct { float x, y, w, h, u0, v0, u1, v1; float c[4]; } Quad;
 typedef struct { float u0, v0, u1, v1, xoff, yoff, w, h, adv; bool ok; } Glyph;
@@ -296,9 +312,11 @@ static const float kPal[5][3][3] = {
 };
 
 static struct {
-    GLuint p_sky, p_blit, p_cell, p_spark, p_text, p_panel;
+    GLuint p_sky, p_neb, p_blit, p_cell, p_spark, p_text, p_panel;
+    GLuint neb_tex[2];
+    int neb_skin[2];  /* the skin each nebula texture holds (-1: none) */
     GLuint vao_empty, vao_cell, vbo_cell, vao_spark, vbo_spark, vao_quad, vbo_quad;
-    GLuint sky_fbo, sky_tex;
+    GLuint sky_fbo;
     int fb_w, fb_h;
     GLint screen;
     float time;
@@ -450,16 +468,48 @@ static void draw_quads(GLuint prog, const Quad *q, int n, float soft)
 }
 
 
+/* GPU A/B knobs from the launch URI (pkg://...?co=sky:0,cells:0,sparks:0,ui:0) or CO_TUNE on the Mac. */
+static struct { int sky, cells, sparks, ui; } T = {1, 1, 1, 1};
+#ifndef CO_HOST_GL
+const char *vp_launch_uri_received(void);
+#endif
+static void tune_parse(void)
+{
+#ifndef CO_HOST_GL
+    const char *uri = vp_launch_uri_received();
+    const char *q = uri ? strstr(uri, "co=") : NULL;
+    if (q) q += 3;
+#else
+    const char *q = getenv("CO_TUNE");
+#endif
+    while (q && *q) {
+        char key[16] = {0};
+        int val = 0, n = 0;
+        if (sscanf(q, "%15[a-z]:%d%n", key, &val, &n) < 2) break;
+        if (!strcmp(key, "sky")) T.sky = val;
+        else if (!strcmp(key, "cells")) T.cells = val;
+        else if (!strcmp(key, "sparks")) T.sparks = val;
+        else if (!strcmp(key, "ui")) T.ui = val;
+        q += n;
+        if (*q == ',') q++;
+        else break;
+    }
+    SDL_Log("chroma-orbit: tune sky %d cells %d sparks %d ui %d", T.sky, T.cells, T.sparks, T.ui);
+}
+
 /* ---- init --------------------------------------------------------------------------------------- */
 bool render_init(const char *assets_dir)
 {
+    tune_parse();
     R.p_sky = program(kFullVS, kSkyFS, "sky");
+    R.p_neb = program(kFullVS, kNebFS, "nebula");
+    R.neb_skin[0] = R.neb_skin[1] = -1;
     R.p_blit = program(kFullVS, kBlitFS, "blit");
     R.p_cell = program(kCellVS, kCellFS, "cell");
     R.p_spark = program(kSparkVS, kSparkFS, "spark");
     R.p_text = program(kQuadVS, kTextFS, "text");
     R.p_panel = program(kQuadVS, kPanelFS, "panel");
-    if (!R.p_sky || !R.p_blit || !R.p_cell || !R.p_spark || !R.p_text || !R.p_panel) return false;
+    if (!R.p_sky || !R.p_neb || !R.p_blit || !R.p_cell || !R.p_spark || !R.p_text || !R.p_panel) return false;
     glGenVertexArrays(1, &R.vao_empty);
 #ifdef CO_HOST_GL
     glEnable(GL_PROGRAM_POINT_SIZE);
@@ -495,21 +545,38 @@ void render_shutdown(void) {}
 
 static void sky_target(int w, int h)
 {
-    if (w == R.fb_w && h == R.fb_h && R.sky_fbo) return;
     R.fb_w = w;
     R.fb_h = h;
-    if (!R.sky_fbo) glGenFramebuffers(1, &R.sky_fbo);
-    else glDeleteTextures(1, &R.sky_tex);
-    glGenTextures(1, &R.sky_tex);
-    glBindTexture(GL_TEXTURE_2D, R.sky_tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w / SKY_DIV, h / SKY_DIV, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    if (R.sky_fbo) return;
+    glGenFramebuffers(1, &R.sky_fbo);
+    for (int i = 0; i < 2; i++) {
+        glGenTextures(1, &R.neb_tex[i]);
+        glBindTexture(GL_TEXTURE_2D, R.neb_tex[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 640, 360, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    SDL_Log("chroma-orbit: nebulas rendered once per world (640x360); one full-screen pass per frame");
+}
+
+/* Renders skin `skin` into nebula texture i (only when it changes). */
+static void nebula(int i, int skin)
+{
+    if (R.neb_skin[i] == skin) return;
+    R.neb_skin[i] = skin;
     glBindFramebuffer(GL_FRAMEBUFFER, R.sky_fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, R.sky_tex, 0);
-    SDL_Log("chroma-orbit: sky %dx%d, cells and UI straight to the window", w / SKY_DIV, h / SKY_DIV);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, R.neb_tex[i], 0);
+    glViewport(0, 0, 640, 360);
+    glUseProgram(R.p_neb);
+    float pal[9];
+    for (int k = 0; k < 3; k++)
+        for (int ch = 0; ch < 3; ch++) pal[k * 3 + ch] = kPal[skin][k][ch];
+    glUniform3fv(glGetUniformLocation(R.p_neb, "u_pal"), 3, pal);
+    glUniform1f(glGetUniformLocation(R.p_neb, "u_aspect"), CANVAS_W / CANVAS_H);
+    glBindVertexArray(R.vao_empty);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
 }
 
 void render_begin(int fb_w, int fb_h, float time)
@@ -579,19 +646,24 @@ void render_spark(float x, float y, float size, Col c)
 
 void render_end(void)
 {
-    /* 1. the sky and the star, at low resolution */
-    glBindFramebuffer(GL_FRAMEBUFFER, R.sky_fbo);
-    glViewport(0, 0, R.fb_w / SKY_DIV, R.fb_h / SKY_DIV);
+    /* 1. the nebulas (only when the world changes) */
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
+    nebula(0, R.skin);
+    nebula(1, R.skin2);
+
+    /* 2. the sky and the star at full resolution, straight to the window: the frame's one
+     * full-screen pass */
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)R.screen);
+    glViewport(0, 0, R.fb_w, R.fb_h);
     glUseProgram(R.p_sky);
-    float pal[18];
-    for (int k = 0; k < 3; k++)
-        for (int ch = 0; ch < 3; ch++) {
-            pal[k * 3 + ch] = kPal[R.skin][k][ch];
-            pal[9 + k * 3 + ch] = kPal[R.skin2][k][ch];
-        }
-    glUniform3fv(glGetUniformLocation(R.p_sky, "u_pal"), 6, pal);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, R.neb_tex[0]);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, R.neb_tex[1]);
+    glActiveTexture(GL_TEXTURE0);
+    glUniform1i(glGetUniformLocation(R.p_sky, "u_neb0"), 0);
+    glUniform1i(glGetUniformLocation(R.p_sky, "u_neb1"), 1);
     glUniform1f(glGetUniformLocation(R.p_sky, "u_mix"), R.mix);
     glUniform1f(glGetUniformLocation(R.p_sky, "u_time"), R.time);
     glUniform4f(glGetUniformLocation(R.p_sky, "u_star"), R.star_cx / CANVAS_W, 1.0f - R.star_cy / CANVAS_H, R.star_r / CANVAS_H, R.energy);
@@ -599,16 +671,11 @@ void render_end(void)
     glUniform1f(glGetUniformLocation(R.p_sky, "u_danger"), R.danger);
     glUniform1f(glGetUniformLocation(R.p_sky, "u_aspect"), CANVAS_W / CANVAS_H);
     glBindVertexArray(R.vao_empty);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
-
-    /* 2. upscale to the window: the frame's one full-screen pass */
-    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)R.screen);
-    glViewport(0, 0, R.fb_w, R.fb_h);
-    glUseProgram(R.p_blit);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, R.sky_tex);
-    glUniform1i(glGetUniformLocation(R.p_blit, "u_tex"), 0);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
+    if (T.sky) glDrawArrays(GL_TRIANGLES, 0, 3);
+    else { glClearColor(0.02f, 0.02f, 0.06f, 1); glClear(GL_COLOR_BUFFER_BIT); }
+    if (!T.cells) R.ncell = 0;
+    if (!T.sparks) R.nsparks = 0;
+    if (!T.ui) R.nglyphs = R.nglow = R.npanels = 0;
 
     /* 3. cells, sparks, UI */
     glEnable(GL_BLEND);

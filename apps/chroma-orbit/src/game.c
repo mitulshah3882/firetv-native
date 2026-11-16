@@ -148,8 +148,10 @@ static void fx_update(float dt)
 /* ---- game flow -------------------------------------------------------------------------------- */
 static float fall_interval(void)
 {
-    const float base = 0.62f * powf(0.85f, (float)G.world);
-    return G.hold_down && !G.demo ? 0.04f : base;
+    /* a pair crosses the 8 rings in about 3 s in world 1, 12% faster each world */
+    const float base = 0.36f * powf(0.88f, (float)G.world);
+    if (G.demo) return G.ai_planned && G.b.rot == G.ai_move.rot && !G.keyart ? 0.06f : base;  /* the AI drops once lined up */
+    return G.hold_down ? 0.04f : base;
 }
 static int flare_every(void) { int f = 9 - G.world; return f < 4 ? 4 : f; }
 static float world_goal(void) { return 90.0f + 30.0f * G.world; }

@@ -4,7 +4,7 @@ Things only you can do: your accounts, your ears, your hardware, your call. Clau
 current while it works. A one-line answer in chat is enough for any decision. Finished items move to
 **Done** at the bottom with the date.
 
-_Last updated: 2026-11-16 evening._
+_Last updated: 2026-11-17._
 
 > **Pushing:** Claude keeps pushing finished work to GitHub under your OK of 2026-11-15 ("feel free to
 > push"). Say so if you'd rather it hold commits locally.
@@ -26,7 +26,9 @@ _Last updated: 2026-11-16 evening._
 - [ ] **Play Prism Spire with friends.** It's the second card in the arcade: 2–8 players pass the remote
   and stack glass until someone topples it. Claude can't playtest a party game; tell it what felt
   unfair, too easy or too hard (piece shapes, the plinth's width, how often wind, tremor and slippery
-  glass happen).
+  glass happen). Since your last look: OK now lowers the piece gently onto the tower, and the tricky
+  shapes only arrive after the fifth piece. With the computer playing carefully, a round lasts about
+  11 pieces (up to 17); people should do better. How long should a round feel?
 
 - [ ] **Try Chroma Orbit.** The third card in the arcade: a puzzle where coloured pairs fall toward a
   star and you turn the planet. Tell Claude if it's too fast, too slow, or confusing.
@@ -35,6 +37,8 @@ _Last updated: 2026-11-16 evening._
 - [ ] **Gravity Choir: Live App Test.** This is the first real test of whether the Appstore accepts a
   native Vega package. Claude prepares the package and listing beforehand; the steps are
   in `apps/gravity-choir/store/README.md` (section "Live App Test steps").
+  Prism Spire and Chroma Orbit now have listing kits too (`apps/<game>/store/`), so once Gravity
+  Choir's test shows the store accepts a native package, they can follow the same steps.
 
 ## Decisions
 - [ ] **The GPL ports and the store.** Claude recommends keeping Doom, Quake, SuperTux and SuperTuxKart

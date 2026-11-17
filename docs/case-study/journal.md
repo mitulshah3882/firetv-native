@@ -668,3 +668,23 @@ Chroma Orbit is a falling-block puzzle bent into a circle. Coloured pairs fall i
 - **A bug the scripts found:** when the computer player lost in the title's attract mode, the title menu gave way to a game-over screen. It now just starts a new game.
 
 Chroma Orbit is in the arcade, third, after Gravity Choir and Prism Spire. Neither new game has been played by a person yet; that's on the user's list.
+
+## 2026-11-17: Store kits, and what making them showed
+
+Gravity Choir has had a listing kit since 2026-11-15. Prism Spire and Chroma Orbit now have one too: a 1280×720 app icon, screenshots, a background and draft listing text. Every image is a frame the game rendered itself, from the Mac build running the same renderer. A `make-kit.sh` per game drives the scripted modes to fixed frames, and the scripts are deterministic, so the kit can be rebuilt. Choosing the frames meant looking at hundreds of them, and that turned up more than art problems.
+
+**Prism Spire's rounds were too short.** The computer player toppled the tower at about 8 pieces even when it built carefully: a round of a party game for four was two turns each. Two causes, and a headless measurement for each (`host-preview.sh shots tall 18000 1` plays five minutes of rounds and logs each one's end):
+- **The drop.** A piece hovered 2.4 m above the tower and fell the whole way, hitting at about 6 m/s. Now OK glides it down its beam to just above whatever is under any part of it (seven rays across its width), and lets go there.
+- **The deal.** Triangles, wedges and the L were a third of the pieces from the first one, and a triangle laid point-up early nearly guarantees a slide. Now the first five pieces are friendly shapes, and the tricky ones reach full odds by the 13th, just as wind, tremor and slippery glass start.
+
+Together: 8.1 pieces and 3.1 m per round became 10.7 and 4.9 m, the best 17 pieces and 7.8 m. On the TV a careful round reached 15 pieces. Whether that's the right length is for people to say.
+
+**The title screen was never at 60 fps.** The earlier measurement was in play. On the title, the UI over the scene pushed a frame already near 16 ms over the line: 55–57 fps. The frame drew the low-resolution background into the 3D target as a full 1080p pass, then copied that target to the window as a second one. Now the 3D pass clears to transparent and draws only the plinth, the glass and the sparks, and the one copy to the window puts the background underneath (decision 65). The title went to 59.5 fps and play stayed at 59.3. In the same pass the background got MSAA, so the hills stopped stair-stepping, and the sun's disc became a blend instead of a clipped threshold.
+
+**Things only a still frame shows.**
+- On a tall tower, the hovering piece covered the "Player 4" label at the top centre, and the event banner landed in the middle of the tower while the player was aiming. Both moved under the height on the left; the event arrives big and settles there.
+- The title's attract tower kept leaning into the menu. The menu moved left, and the spire builds on the right.
+- The Daily Spire showed "today's best 0.0 m" before any climb. It now shows nothing until there is a best to beat.
+- Chroma Orbit's computer player is good enough that its boards stay nearly empty, which makes a poor screenshot. A `tour` script plays worse, with a supernova every 22 pairs, so every world appears with a fuller board. The key art and the icon use a still, full board instead of a game in progress.
+
+The arcade's cards for both games now cross-fade through two more moments each, like the others.

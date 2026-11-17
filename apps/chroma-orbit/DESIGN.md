@@ -36,8 +36,13 @@ rules from the start.
 - A stage is one world and one song. Clearing cells feeds the star's **energy** meter. When it is full
   (about 3–4 minutes of good play) the star goes **supernova**: it swells, swallows the rings, the
   screen flashes white on the downbeat, and the next world blooms in a new key with an empty board.
-- Five worlds, each a palette plus one shader skin: nebula, aurora, ocean, ember, night city. Falls get
-  faster each world.
+- Five worlds, each with its own backdrop (rendered once per world at 640×360): nebula clouds, aurora
+  curtains, ocean currents, embers rising from a glowing floor, and a neon skyline. Falls get faster
+  each world.
+- The supernova: the star swells and swallows the rings (each cell flashes white-hot and bursts, with a
+  rising bell per ring), a white-out covers the screen, and the new world's title card fades in over the
+  empty board before the next pair. Game over drains the rings into the star from the outside in, a
+  falling bell per ring, before the score panel.
 - Endless after the fifth (a sixth and later loop the skins faster). Best score per mode in `/data`.
 
 ## Look

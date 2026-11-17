@@ -54,11 +54,15 @@ static struct {
     float t, time, phase_t, fall_acc;
     bool shots, demo, keyart;
     const char *script;
+    int nova_test;
+    bool sky_test;      /* script "sky": each world's backdrop for a second, no board or UI */      /* script "nova": the star goes supernova every few pairs, to see every world */
     Board b;
     int world, pairs_since_flare, menu_sel, pause_sel;
     float energy, energy_shown, rot_vis, star_r, flash, danger, mix;
     int skin_from;
     bool nova_switched;
+    float card_t;       /* the new world's title card */
+    int drain_ring;     /* game over: the next ring to drain into the star */
     bool hold_l, hold_r, hold_down;
     float repeat_t;
     /* the resolve sequence */
@@ -94,7 +98,7 @@ static void save_load(void)
 }
 static void save_store(void)
 {
-    if (G.shots || G.demo) return;
+    if (G.shots || G.demo || G.script) return;
     FILE *f = fopen(save_path(), "w");
     if (!f) return;
     fprintf(f, "%lld\n", G.best);
@@ -156,20 +160,35 @@ static float fall_interval(void)
 static int flare_every(void) { int f = 9 - G.world; return f < 4 ? 4 : f; }
 static float world_goal(void) { return 90.0f + 30.0f * G.world; }
 
+/* a cell bursting into sparks; orbit: they spiral into the star */
+static void burst_cell(int r, int s, Col c, int n, float speed, float life)
+{
+    float x, y;
+    cell_center(r, s, &x, &y);
+    for (int k = 0; k < n; k++)
+        fx_add(x + (frand() - 0.5f) * 30, y + (frand() - 0.5f) * 30, (frand() - 0.5f) * speed, (frand() - 0.5f) * speed,
+               life + frand(), 5.0f + frand() * 6.0f, c, 1);
+}
+
 static void banner(const char *s)
 {
     SDL_snprintf(G.banner, sizeof G.banner, "%s", s);
     G.banner_t = 2.0f;
 }
 
+static float world_goal(void);
+static void new_game(bool demo);
 static void spawn(void)
 {
     G.phase = PH_FALL;
     G.fall_acc = 0;
     G.ai_planned = false;
+    if (G.nova_test && ++G.nova_test % 10 == 0) G.energy = world_goal();
     if (!board_spawn(&G.b)) {
+        if (G.demo && G.state != ST_PLAY) { new_game(true); return; }  /* the title's attract mode just starts over */
         G.state = ST_OVER;
         G.t = 0;
+        G.drain_ring = RINGS - 1;
         if (G.b.score > G.best && !G.demo) { G.best = G.b.score; save_store(); }
         audio_shatter(1.0f, 0);
         audio_music(0);
@@ -215,12 +234,7 @@ static void resolve_update(float dt)
         /* burst every cleared cell into sparks that fall into the star */
         for (int r = 0; r < RINGS; r++)
             for (int s = 0; s < SECTORS; s++) {
-                if (!c.mask[r][s]) continue;
-                float x, y;
-                cell_center(r, s, &x, &y);
-                for (int k = 0; k < 7; k++)
-                    fx_add(x + (frand() - 0.5f) * 30, y + (frand() - 0.5f) * 30, (frand() - 0.5f) * 220, (frand() - 0.5f) * 220,
-                           1.6f + frand(), 5.0f + frand() * 6.0f, kCellCol[c.mask[r][s]], 1);
+                if (c.mask[r][s]) burst_cell(r, s, kCellCol[c.mask[r][s]], 7, 220, 1.6f);
             }
         const int base = 3 + (c.chain - 1) * 2;
         audio_bell(base, 0.8f, -0.3f);
@@ -261,6 +275,21 @@ static void supernova_update(float dt)
     const float t = G.phase_t;
     G.star_r = t < 1.2f ? 1.0f + t * t * 4.0f : 1.0f + 5.76f * clampf(1.0f - (t - 1.2f) / 1.0f, 0, 1);
     G.flash = t < 1.2f ? clampf((t - 0.9f) / 0.3f, 0, 1) : clampf(1.0f - (t - 1.2f) / 0.8f, 0, 1);
+    if (!G.nova_switched) {
+        /* the swelling star swallows the rings it reaches: each cell flashes white-hot and bursts */
+        const float reach = STAR_R * G.star_r * 0.92f;
+        for (int r = 0; r < RINGS; r++) {
+            if (ring_r0((float)r) + RING_W * 0.5f > reach) break;
+            int n = 0;
+            for (int s = 0; s < SECTORS; s++) {
+                if (!G.b.cell[r][s]) continue;
+                burst_cell(r, s, col_mix(kCellCol[G.b.cell[r][s]], col(1, 0.95f, 0.85f, 1), 0.5f), 5, 520, 0.6f);
+                G.b.cell[r][s] = 0;
+                n++;
+            }
+            if (n) audio_bell(12 + r, 0.35f + 0.05f * (float)n, 0);
+        }
+    }
     if (t > 1.2f && !G.nova_switched) {
         G.nova_switched = true;
         /* the new world */
@@ -271,12 +300,11 @@ static void supernova_update(float dt)
         memset(G.b.cell, 0, sizeof G.b.cell);
         if (G.world >= 2) G.b.colors = 5;
         G.b.score += 2000LL * G.world;
-        char s[64];
-        SDL_snprintf(s, sizeof s, "WORLD %d  %s", G.world + 1, kWorldName[G.world % WORLDS]);
-        banner(s);
+        G.card_t = 2.4f;
+        G.pairs_since_flare = 0;
         audio_mood(G.world & 3);
     }
-    if (t > 2.4f) {
+    if (t > 3.3f) {  /* play resumes as the world's title card fades */
         G.star_r = 1.0f;
         G.flash = 0;
         audio_music(1);
@@ -339,6 +367,19 @@ static void update(float dt)
     G.t += dt;
     if (G.banner_t > 0) G.banner_t -= dt;
     if (G.chain_t > 0) G.chain_t -= dt;
+    if (G.card_t > 0) G.card_t -= dt;
+    /* game over: the rings drain into the star from the outside in, each with a falling bell */
+    if (G.state == ST_OVER && G.drain_ring >= 0 && G.t > 0.5f + (float)(RINGS - 1 - G.drain_ring) * 0.14f) {
+        int n = 0;
+        for (int s = 0; s < SECTORS; s++)
+            if (G.b.cell[G.drain_ring][s]) {
+                burst_cell(G.drain_ring, s, col_scale(kCellCol[G.b.cell[G.drain_ring][s]], 0.8f), 4, 120, 1.2f);
+                G.b.cell[G.drain_ring][s] = 0;
+                n++;
+            }
+        if (n) audio_bell(G.drain_ring + 2, 0.45f, 0);
+        G.drain_ring--;
+    }
     fx_update(dt);
     G.mix = approach(G.mix, 1.0f, 1.5f, dt);
     if (G.mix > 0.995f) G.mix = 1.0f;
@@ -402,6 +443,8 @@ static void draw_board(void)
         const Fx *f = &G.fx[i];
         render_spark(f->x, f->y, f->size, col_alpha(f->c, clampf(f->life / f->max, 0, 1)));
     }
+    /* the supernova's white-out covers the board too (panels draw over cells and sparks) */
+    if (G.flash > 0.01f) render_panel(0, 0, 1920, 1080, 0, col(1.0f, 0.97f, 0.92f, 0.92f * G.flash));
 }
 
 static void draw_pair_preview(const uint8_t *p, float x, float y, const char *label)
@@ -436,7 +479,14 @@ static void draw_hud(void)
         render_text(s, CX, CY - 30, 56, col(1.0f, 0.95f, 0.8f, clampf(G.chain_t, 0, 1)), 0, 1.0f);
     }
     if (G.banner_t > 0) render_text(G.banner, CX, 980, 40, col(1.0f, 0.82f, 0.5f, clampf(G.banner_t, 0, 1)), 0, 0.6f);
-    if (!G.demo) render_text("LEFT/RIGHT turn   DOWN fall   OK swap   UP hold", CX, 1036, 22, col_alpha(dim, 0.8f), 0, 0);
+    if (G.card_t > 0) {
+        /* the new world's title card, over the empty board */
+        const float a = clampf((2.4f - G.card_t) / 0.4f, 0, 1) * clampf(G.card_t / 0.6f, 0, 1);
+        SDL_snprintf(s, sizeof s, "WORLD %d", G.world + 1);
+        render_text(s, CX, 300, 44, col(1.0f, 0.85f, 0.6f, a), 0, 0.4f);
+        render_text(kWorldName[G.world % WORLDS], CX, 356, 92, col(0.97f, 0.97f, 1.0f, a), 0, 1.0f);
+    }
+    if (!G.demo && G.state == ST_PLAY) render_text("LEFT/RIGHT turn   DOWN fall   OK swap   UP hold", CX, 1036, 22, col_alpha(dim, 0.8f), 0, 0);
 }
 
 static void draw_center(const char *s, float y, float px, Col c, float glow) { render_text(s, CX, y, px, c, 0, glow); }
@@ -506,7 +556,8 @@ static void draw_credits(void)
 static void draw_over(void)
 {
     char s[96];
-    const float a = clampf(G.t / 0.6f, 0, 1);
+    const float a = clampf((G.t - 1.5f) / 0.6f, 0, 1);
+    if (a <= 0) return;
     render_panel(560, 300, 800, 460, 28, col(0.03f, 0.02f, 0.08f, 0.85f * a));
     draw_center("THE ORBIT IS FULL", 340, 54, col(1.0f, 0.82f, 0.55f, a), 0.7f);
     SDL_snprintf(s, sizeof s, "%lld", G.b.score);
@@ -555,6 +606,22 @@ bool game_init(const char *script, bool shots)
         else if (!strcmp(script, "howto")) G.state = ST_HOWTO;
         else if (!strcmp(script, "credits")) G.state = ST_CREDITS;
         else if (!strcmp(script, "keyart")) G.keyart = true;
+        else if (!strcmp(script, "sky")) { G.keyart = true; G.sky_test = true; }
+        else if (!strcmp(script, "nova")) { G.state = ST_PLAY; G.nova_test = 1; new_game(true); }
+        else if (!strcmp(script, "over")) {
+            /* a nearly full board with no clusters, then a pair that has no room: the game-over screen */
+            G.state = ST_PLAY;
+            new_game(false);
+            for (int r = 0; r < RINGS; r++)
+                for (int s = 0; s < SECTORS; s++)
+                    if (r < 5 || (s * 7 + r * 3) % 5 != 0 || s == G.b.rot || s == (G.b.rot + 1) % SECTORS)
+                        G.b.cell[r][s] = (uint8_t)(1 + (r + 2 * s) % 4);
+            G.world = 2;
+            G.b.score = 48210;
+            G.b.best_chain = 4;
+            G.b.rings_cleared = 3;
+            spawn();
+        }
     }
     return true;
 }
@@ -627,7 +694,7 @@ bool game_button(GameButton b, bool down)
         }
         break;
     case ST_OVER:
-        if (G.t < 0.8f) break;
+        if (G.t < 1.8f) break;
         if (b == GB_OK || b == GB_START) { G.state = ST_PLAY; G.t = 0; new_game(false); }
         else if (b == GB_BACK || b == GB_MENU) go_title();
         break;
@@ -639,7 +706,14 @@ void game_frame(float dt, int fb_w, int fb_h, float fps)
 {
     (void)fps;
     update(dt);
-    if (G.state == ST_OVER && G.demo && G.t > 3.0f) { G.state = ST_PLAY; new_game(true); }
+    if (G.sky_test) {
+        G.world = G.skin_from = ((int)G.time) % WORLDS;
+        G.mix = 1.0f;
+        memset(G.b.cell, 0, sizeof G.b.cell);
+        G.b.falling = false;
+        G.nfx = 0;
+    }
+    if (G.state == ST_OVER && G.demo && G.t > 4.0f) { G.state = ST_PLAY; new_game(true); }
     render_begin(fb_w, fb_h, G.time);
     draw_board();
     switch (G.state) {

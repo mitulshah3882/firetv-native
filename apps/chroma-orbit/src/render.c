@@ -132,10 +132,14 @@ static GLuint compile(GLenum type, const char *const *parts, int n, const char *
 /* ---- shaders ------------------------------------------------------------------------------------ */
 /* The nebula of one world, rendered once into a 640x360 texture when the world changes: a dark
  * gradient, two layers of fbm in the world's palette, and fixed stars. */
+/* Each world's backdrop, rendered once into a 640x360 texture when the world changes (so its cost
+ * doesn't matter per frame). u_form picks the shape: 0 nebula clouds, 1 aurora curtains, 2 ocean
+ * currents, 3 embers rising from a glowing floor, 4 a neon skyline. uv: (0, 0) is the bottom left. */
 static const char *kNebFS =
     "in highp vec2 v_uv;\n"
     "uniform vec3 u_pal[3];\n"      /* deep, nebula, accent */
     "uniform highp float u_aspect;\n"
+    "uniform int u_form;\n"
     "out vec4 o;\n"
     "highp float hash(highp vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n"
     "float noise(highp vec2 p) {\n"
@@ -149,13 +153,58 @@ static const char *kNebFS =
     "  return v;\n"
     "}\n"
     "void main() {\n"
-    "  highp vec2 p = vec2((v_uv.x - 0.5) * u_aspect, v_uv.y - 0.5);\n"
-    "  float n1 = fbm(p * 2.2);\n"
-    "  float n2 = fbm(p * 4.5 + n1);\n"
-    "  vec3 c = u_pal[0] * (0.6 + 0.4 * (1.0 - v_uv.y));\n"
-    "  c += u_pal[1] * smoothstep(0.35, 0.85, n2) * 0.55;\n"
-    "  c += u_pal[2] * pow(smoothstep(0.55, 0.95, n1 * n2 * 1.8), 2.0) * 0.35;\n"
-    "  c += vec3(0.8, 0.85, 1.0) * step(0.996, hash(floor(v_uv * vec2(640.0, 360.0)))) * 0.6;\n"
+    "  highp vec2 p = vec2((v_uv.x - 0.5) * u_aspect, v_uv.y - 0.5) + vec2(float(u_form) * 7.3, float(u_form) * 3.1);\n"
+    "  float y = v_uv.y;\n"
+    "  vec3 c = u_pal[0] * (0.6 + 0.4 * (1.0 - y));\n"
+    "  if (u_form == 1) {\n"   /* aurora: curtains with a bright lower edge, rays rising from it */
+    "    c = u_pal[0] * (0.5 + 0.6 * (1.0 - y));\n"
+    "    for (int k = 0; k < 2; k++) {\n"
+    "      float fk = float(k);\n"
+    "      highp float arc = 0.5 + 0.14 * fk + 0.07 * sin(p.x * (2.0 + fk) + fk * 2.0) + 0.08 * (fbm(vec2(p.x * 1.5, fk * 4.0)) - 0.5);\n"
+    "      float above = y - arc;\n"
+    "      float curtain = above > 0.0 ? exp(-above * (3.5 + 2.0 * fk)) : exp(above * 45.0);\n"
+    "      float rays = 0.35 + 0.65 * fbm(vec2(p.x * 26.0, fk * 9.0 + y * 0.5));\n"
+    "      c += mix(u_pal[1], u_pal[2], clamp(above * 2.5, 0.0, 1.0)) * curtain * rays * (0.6 - 0.25 * fk);\n"
+    "    }\n"
+    "  } else if (u_form == 2) {\n"   /* ocean: long currents, light from above */
+    "    float n1 = fbm(vec2(p.x * 1.2, p.y * 3.0));\n"
+    "    float n2 = fbm(vec2(p.x * 2.0 + n1 * 1.5, p.y * 7.0 + n1));\n"
+    "    c += u_pal[1] * smoothstep(0.4, 0.8, n2) * (0.25 + 0.4 * y);\n"
+    "    c += u_pal[2] * pow(smoothstep(0.62, 0.9, n2), 2.0) * 0.3 * y;\n"
+    "    c += u_pal[2] * 0.08 * smoothstep(0.55, 1.0, y) * (0.6 + 0.4 * fbm(vec2(p.x * 9.0, 2.0)));\n"
+    "  } else if (u_form == 3) {\n"   /* ember: a glowing floor, heat haze and drifting sparks */
+    "    float n1 = fbm(p * vec2(2.0, 1.2) - vec2(0.0, y * 1.5));\n"
+    "    float glow = exp(-y * 3.2);\n"
+    "    c += u_pal[1] * glow * (0.35 + 0.5 * n1);\n"
+    "    c += u_pal[1] * smoothstep(0.45, 0.85, fbm(p * vec2(3.0, 1.6) + n1)) * 0.25 * (1.0 - y);\n"
+    "    highp vec2 gp = v_uv * vec2(80.0, 45.0);\n"   /* soft motes, a little taller than wide (rising) */
+    "    highp vec2 g = floor(gp);\n"
+    "    vec2 q = (fract(gp) - 0.5 - (vec2(hash(g + 1.0), hash(g + 2.0)) - 0.5) * 0.5) * vec2(1.0, 0.55);\n"
+    "    float mote = step(0.955, hash(g + 3.0)) * exp(-dot(q, q) * 90.0) * (0.3 + 0.7 * hash(g + 9.0)) * (1.1 - y);\n"
+    "    c += u_pal[2] * mote * 1.3;\n"
+    "  } else if (u_form == 4) {\n"   /* night city: a neon haze over a skyline with lit windows */
+    "    float n1 = fbm(p * 2.0);\n"
+    "    c += u_pal[1] * smoothstep(0.3, 0.8, n1) * 0.3 * y;\n"
+    "    c += u_pal[2] * exp(-max(y - 0.16, 0.0) * 9.0) * 0.4;\n"   /* the city's glow on the haze */
+    "    highp float colw = 1.0 / 70.0;\n"
+    "    highp float cx = floor(v_uv.x / colw);\n"
+    "    float h = 0.06 + 0.2 * pow(hash(vec2(cx, 1.0)), 2.2) + 0.08 * step(0.93, hash(vec2(cx, 5.0)));\n"
+    "    if (y < h) {\n"
+    "      c = u_pal[0] * 0.5;\n"
+    "      highp vec2 w = vec2(fract(v_uv.x / colw) * 4.0, y * 120.0);\n"
+    "      highp vec2 wi = floor(w);\n"
+    "      vec2 wf = fract(w);\n"
+    "      float lit = step(0.62, hash(wi + vec2(cx * 4.0, 0.0))) * step(0.25, wf.x) * step(wf.x, 0.75) * step(0.3, wf.y) * step(wf.y, 0.75);\n"
+    "      c += mix(vec3(1.0, 0.8, 0.5), u_pal[2], step(0.7, hash(wi + vec2(cx, 7.0)))) * lit * 0.55;\n"
+    "      c += u_pal[2] * 0.4 * (1.0 - smoothstep(0.0, 0.01, h - y));\n"   /* neon rim on the roof */
+    "    }\n"
+    "  } else {\n"   /* nebula */
+    "    float n1 = fbm(p * 2.2);\n"
+    "    float n2 = fbm(p * 4.5 + n1);\n"
+    "    c += u_pal[1] * smoothstep(0.35, 0.85, n2) * 0.55;\n"
+    "    c += u_pal[2] * pow(smoothstep(0.55, 0.95, n1 * n2 * 1.8), 2.0) * 0.35;\n"
+    "  }\n"
+    "  if (u_form != 4 || y > 0.3) c += vec3(0.8, 0.85, 1.0) * step(0.996, hash(floor(v_uv * vec2(640.0, 360.0)))) * 0.6;\n"
     "  o = vec4(c, 1.0);\n"
     "}\n";
 
@@ -618,6 +667,7 @@ static void nebula(int i, int skin)
         for (int ch = 0; ch < 3; ch++) pal[k * 3 + ch] = kPal[skin][k][ch];
     glUniform3fv(glGetUniformLocation(R.p_neb, "u_pal"), 3, pal);
     glUniform1f(glGetUniformLocation(R.p_neb, "u_aspect"), CANVAS_W / CANVAS_H);
+    glUniform1i(glGetUniformLocation(R.p_neb, "u_form"), skin);
     glBindVertexArray(R.vao_empty);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 }

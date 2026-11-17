@@ -20,6 +20,10 @@ float vp_gl_thread_busy(void);  /* vegaplat: the rendering thread's CPU share be
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef CO_HOST_GL
+const char *vp_launch_uri_received(void);
+#endif
+
 
 typedef struct {
     SDL_Window *win;
@@ -203,6 +207,16 @@ int main(int argc, char **argv)
     }
     SDL_Log("chroma-orbit: %s / %s", (const char *)glGetString(GL_RENDERER), (const char *)glGetString(GL_VERSION));
     if (!render_init(assets_dir())) return 1;
+#ifndef CO_HOST_GL
+    /* On the TV a test script comes from the launch URI: pkg://<component>?script=nova (or over). */
+    static char uri_script[16];
+    const char *uri = vp_launch_uri_received();
+    const char *q = uri ? strstr(uri, "script=") : NULL;
+    if (q && sscanf(q + 7, "%15[a-z]", uri_script) == 1) {
+        script = uri_script;
+        SDL_Log("chroma-orbit: script %s", script);
+    }
+#endif
     if (!game_init(script, shot_dir != NULL)) return 1;
 
     A.running = true;

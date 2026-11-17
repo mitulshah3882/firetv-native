@@ -106,6 +106,7 @@ void n64_rdpq_init(uint8_t *rdram, recomp_context *ctx) {
     (void)ctx;
     /* libdragon code checks this flag (e.g. rdpq_font_load asserts on it). */
     if (n64rt_sym_rdpq_inited) n64_w8(rdram, n64rt_sym_rdpq_inited, 1);
+    hle_rspq_boot(rdram); /* rdpq_init would have called rspq_init */
 }
 
 void n64_rdpq_attach(uint8_t *rdram, recomp_context *ctx) {
@@ -309,7 +310,12 @@ static void present(void) {
     }
 }
 
-void n64_rdpq_detach_show(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; present(); }
+void n64_rdpq_detach_show(uint8_t *rdram, recomp_context *ctx) {
+    (void)ctx;
+    hle_rspq_drain(rdram);
+    hle_rspq_frame();
+    present();
+}
 void n64_rdpq_detach_wait(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
 void n64_rdpq_detach(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
 void n64_display_show(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; present(); }

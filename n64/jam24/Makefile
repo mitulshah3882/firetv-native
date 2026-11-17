@@ -30,6 +30,18 @@ N64_MKDFS_ROOT = $(BUILD_DIR)/fs
 
 include $(N64_INST)/include/n64.mk
 
+# tiny3d (third_party/_src/tiny3d-*, built by tools/n64-jam24.sh) for minigames that draw 3D:
+# USE_T3D=1 and T3D_DIR come from tools/n64-jam24.sh. Its library is linked only into those
+# programs, so the 2D games' ELFs (and their recompiled code) don't change.
+ifeq ($(USE_T3D),1)
+include $(T3D_DIR)/t3d.mk
+# Models as in the jam's Makefile, minus its mkasset compression (our runtime decodes LZ4 only).
+$(FILESYSTEM_DIR)/%.t3dm: $(ASSETS_DIR)/%.glb
+	@mkdir -p $(dir $@)
+	@echo "    [T3D-MODEL] $@"
+	$(T3D_GLTF_TO_3D) $(T3DM_FLAGS) "$<" $@
+endif
+
 # As in the jam's Makefile (DEBUG=1, FINAL=0): keep debug info, no extra asset compression.
 N64_CFLAGS += -g -DDEBUG=1
 

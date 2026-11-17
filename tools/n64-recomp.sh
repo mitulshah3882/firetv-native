@@ -89,6 +89,8 @@ cat > "$OUT/n64_image.h" <<EOF
 #define N64_SYM_BOOT_TVTYPE   $(optsym __boot_tvtype)u
 #define N64_SYM_ENTROPY_STATE $(optsym __entropy_state)u
 #define N64_SYM_RDPQ_INITED   $(optsym __rdpq_inited)u
+#define N64_SYM_RSPQ_CUR_POINTER  $(optsym rspq_cur_pointer)u   /* the rspq tap (hle_rspq.c) */
+#define N64_SYM_RSPQ_CUR_SENTINEL $(optsym rspq_cur_sentinel)u
 $( if [[ -n "$(sym __wrap___do_global_ctors)" ]]; then echo "#define N64_GLOBAL_CTORS n64___wrap___do_global_ctors"; elif [[ -n "$(sym __do_global_ctors)" ]]; then echo "#define N64_GLOBAL_CTORS n64___do_global_ctors"; fi )
 EOF
 # The cartridge image (code + the DFS filesystem the program reads with dma_read), if built.

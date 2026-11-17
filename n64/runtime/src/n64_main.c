@@ -69,6 +69,11 @@ int main(int argc, char **argv) {
     n64rt_set_boot_globals(N64_SYM_BOOT_MEMSIZE, N64_SYM_BOOT_TVTYPE, N64_SYM_ENTROPY_STATE);
     extern uint32_t n64rt_sym_rdpq_inited;
     n64rt_sym_rdpq_inited = N64_SYM_RDPQ_INITED;
+#ifdef N64_SYM_RSPQ_CUR_POINTER /* images generated before the rspq tap don't have it */
+    extern uint32_t n64rt_sym_rspq_cur_pointer, n64rt_sym_rspq_cur_sentinel;
+    n64rt_sym_rspq_cur_pointer = N64_SYM_RSPQ_CUR_POINTER;
+    n64rt_sym_rspq_cur_sentinel = N64_SYM_RSPQ_CUR_SENTINEL;
+#endif
     SDL_Log("n64: running %s natively (statically recompiled from MIPS)", N64_IMAGE_NAME);
 #ifdef N64_GLOBAL_CTORS
     const int rc = n64rt_run_boot(N64_GLOBAL_CTORS, n64_main, N64_GP);

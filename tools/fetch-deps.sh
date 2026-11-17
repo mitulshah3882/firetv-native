@@ -43,6 +43,8 @@ DEPS=(
   "doomgeneric|e257a09|https://github.com/ozkl/doomgeneric/archive/e257a09527062bfb986b6e5e0780839b6cbd5b71.tar.gz|doomgeneric-e257a09527062bfb986b6e5e0780839b6cbd5b71"
   "chocolate-doom|2.3.0|https://github.com/chocolate-doom/chocolate-doom/archive/refs/tags/chocolate-doom-2.3.0.tar.gz|chocolate-doom-chocolate-doom-2.3.0"
   "libdragon|39d0d60|https://github.com/DragonMinded/libdragon/archive/39d0d6096130836a65710da6730290701d060272.tar.gz|libdragon-39d0d6096130836a65710da6730290701d060272"
+  # tiny3d (MIT), the 3D library of most N64brew Jam 2024 games: built against our libdragon for the N64 3D work (docs/research/tiny3d-hle.md)
+  "tiny3d|6f5ac0b|https://github.com/HailToDodongo/tiny3d/archive/6f5ac0ba098f86d04e549ea754834f1be3c150e1.tar.gz|tiny3d-6f5ac0ba098f86d04e549ea754834f1be3c150e1"
   "quakegeneric|1305210|https://github.com/erysdren/quakegeneric/archive/13052102577c629650cf07a46151a4b6e1b19c3c.tar.gz|quakegeneric-13052102577c629650cf07a46151a4b6e1b19c3c"
   "idquake|bf4ac42|https://github.com/id-Software/Quake/archive/bf4ac424ce754894ac8f1dae6a3981954bc9852d.tar.gz|Quake-bf4ac424ce754894ac8f1dae6a3981954bc9852d"
   "librequake|0.09-beta|https://github.com/lavenderdotpet/LibreQuake/releases/download/v0.09-beta/lite.zip|librequake-0.09-lite"
@@ -54,7 +56,7 @@ DEPS=(
   # minigames we recompile. Other minigames are never fetched (Hydra Harmonics bundles a commercial
   # font). Never run git commands that need every blob (ls-tree -l, grep, log -p) in this checkout:
   # a blobless clone fetches missing blobs on demand.
-  "n64jam2024|0dea720|https://github.com/n64brew/N64brew-GameJam2024.git#0dea720fc295797ae779302425791c01cb67d244|N64brew-GameJam2024-0dea720|/*.c /*.h /Makefile /LICENSE /README.md /.gitmodules /assets/squarewave.ttf /assets/core/StartButton.png /assets/core/AButton.png /assets/core/Start.wav /assets/core/Countdown.wav /assets/core/Stop.wav /assets/core/Winner.wav /assets/minigames/landgrab.txt /assets/minigames/mallard.txt /code/landgrab/ /assets/landgrab/ /code/mallard/ /assets/mallard/ /assets/minigames/hydraharmonics.txt /code/hydraharmonics/ /assets/hydraharmonics/ !/assets/hydraharmonics/*.ttf"
+  "n64jam2024|0dea720|https://github.com/n64brew/N64brew-GameJam2024.git#0dea720fc295797ae779302425791c01cb67d244|N64brew-GameJam2024-0dea720|/*.c /*.h /Makefile /LICENSE /README.md /.gitmodules /assets/squarewave.ttf /assets/core/StartButton.png /assets/core/AButton.png /assets/core/Start.wav /assets/core/Countdown.wav /assets/core/Stop.wav /assets/core/Winner.wav /assets/minigames/landgrab.txt /assets/minigames/mallard.txt /code/landgrab/ /assets/landgrab/ /code/mallard/ /assets/mallard/ /assets/minigames/hydraharmonics.txt /code/hydraharmonics/ /assets/hydraharmonics/ !/assets/hydraharmonics/*.ttf /assets/minigames/swordstrike.txt /code/swordstrike/ /assets/swordstrike/ !/assets/swordstrike/*.wav"
   # Hydra Harmonics bundles a commercial font (Superclarendon); the "!" pattern keeps it out, and
   # apps/n64-hydraharmonics builds with an OFL font instead.
   # Single files (fonts and header-only libraries) land in <extracted-dir>/<file name>.

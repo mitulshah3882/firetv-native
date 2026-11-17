@@ -1028,8 +1028,8 @@ void n64_rdpq_tex_multi_end(uint8_t *rdram, recomp_context *ctx) { (void)rdram; 
  * rspq blocks: record the calls above between begin and end, replay them on run.
  * ============================================================================================== */
 void n64_rspq_block_begin_reuse(uint8_t *rdram, recomp_context *ctx) {
-    (void)rdram;
     (void)ctx;
+    hle_rspq_drain(rdram);
     for (int i = 0; i < (int)SDL_arraysize(g_blocks); i++) {
         if (!g_blocks[i].used) {
             g_blocks[i].used = true;
@@ -1042,7 +1042,7 @@ void n64_rspq_block_begin_reuse(uint8_t *rdram, recomp_context *ctx) {
 }
 void n64_rspq_block_begin(uint8_t *rdram, recomp_context *ctx) { n64_rspq_block_begin_reuse(rdram, ctx); }
 void n64_rspq_block_end(uint8_t *rdram, recomp_context *ctx) {
-    (void)rdram;
+    hle_rspq_drain(rdram);
     n64_ret32(ctx, g_recording ? 0x80000000u | (uint32_t)g_recording : 0); /* opaque handle */
     g_recording = 0;
 }
@@ -1052,6 +1052,7 @@ static Block *block_of(uint32_t h) {
     return (idx >= 0 && idx < (int)SDL_arraysize(g_blocks) && g_blocks[idx].used) ? &g_blocks[idx] : NULL;
 }
 void n64_rspq_block_run(uint8_t *rdram, recomp_context *ctx) {
+    hle_rspq_drain(rdram);
     const Block *b = block_of((uint32_t)ctx->r4);
     if (!b) return;
     for (int i = 0; i < b->n; ++i) {

@@ -49,3 +49,14 @@ overrides in `overrides/`, and the button icons in `assets-remote/`, drawn by
 `assets/core/StartButton.png`, `AButton.png`, `Start.wav`, `Countdown.wav`, `Stop.wav`,
 `Winner.wav`. Part of the MIT jam template; their original sources are not documented, so confirm
 them before shipping too.
+
+## Sword Strike (`code/swordstrike`, `assets/swordstrike`)
+- By Super Boognish (`assets/minigames/swordstrike.txt`), in the MIT repo: code, the fighter sprites,
+  the two backdrop models (`background_cube_*.glb`) and the sand texture.
+- 3D through tiny3d (MIT, Max Bebök), pinned at `6f5ac0b` (`tools/fetch-deps.sh tiny3d`).
+- **Sounds replaced.** The game's two WAVs aren't fetched: `wilhelm_scream.wav` (the knock-out; the
+  Wilhelm scream's provenance is murky) and `challengers.wav` (the fight music; no documented source).
+  `overrides/swordstrike-sfx.py` synthesizes our own under the same names: a sliding square-wave yelp
+  and an 8-bar chiptune loop in A minor (MIT).
+- Not packaged for the TV yet: its 3D backdrop needs the tiny3d host microcode (phase 2 of
+  `docs/research/tiny3d-hle.md`), and its controls (A jump, B attack, L slide) need a remote patch.

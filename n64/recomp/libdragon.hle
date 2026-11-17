@@ -14,6 +14,9 @@ stub n64_rdpq_*
 stub n64___rdpq_*
 stub n64_rspq_*
 stub n64___rspq_*
+# ...but rspq_overlay_get_state is pure CPU while the queue isn't running (rspq_init is ours): it
+# returns the state area inside the ucode's data in RDRAM, where t3d_init/tpx_init poke harmlessly.
+keep n64_rspq_overlay_get_state
 stub n64_rsp_*
 stub n64___rsp_*
 stub n64_display_*
@@ -61,6 +64,23 @@ keep n64_rdpq_mode_end
 keep n64___rdpq_fill_rectangle_offline
 keep n64___rdpq_texture_rectangle_offline
 keep n64___rdpq_texture_rectangle_scaled_offline
+# Code built at -Os (tiny3d) calls the out-of-line copies of libdragon's extern-inline mode and
+# colour helpers instead of inlining them. They too only compute command words for the leaves
+# above (__rdpq_fixup_mode*, __rdpq_write8_syncchange, __rdpq_fixup_write8_syncchange).
+# rdpq_mode_push/pop write to the queue themselves and stay stubbed.
+keep n64_rdpq_mode_*
+stub n64_rdpq_mode_push
+stub n64_rdpq_mode_pop
+keep n64___rdpq_mode_change_som
+keep n64_rdpq_set_mode_fill
+keep n64_rdpq_set_prim_color
+keep n64_rdpq_set_env_color
+keep n64_rdpq_set_blend_color
+keep n64_rdpq_set_fog_color
+
+# Games' own functions that start with "rdpq_": Sword Strike's rdpq_draw_one_rectangle and
+# rdpq_draw_one_floor_piece (local after ld -r, so their names carry an address suffix).
+keep n64_rdpq_draw_one_*
 
 # GCC nested functions (run-time stack trampolines) can't be recompiled: replace their callers.
 stub n64_rompak_search_ext

@@ -42,3 +42,9 @@ void hle_draw_combined(const HleTex *t, const SDL_FRect *src, const SDL_FRect *d
 
 /* Called on attach/present so the RDP state (scissor) follows the render target. */
 void hle_rdpq_frame_begin(void);
+
+/* The rspq tap (hle_rspq.c): aim libdragon's inline queue writes at a scratch area, decode what
+ * is there (before anything that must stay in program order), and a per-frame summary. */
+void hle_rspq_boot(uint8_t *rdram);
+void hle_rspq_drain(uint8_t *rdram);
+void hle_rspq_frame(void);

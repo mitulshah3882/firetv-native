@@ -652,3 +652,19 @@ The user picked the next two original games, Prism Spire and then Chroma Orbit, 
   The sun turned to noise in half precision, because its disc is a threshold on a cosine near 1.0; it now stays in full precision.
 
 Prism Spire is in the arcade, second after Gravity Choir.
+
+## 2026-11-16: Chroma Orbit, the third original game
+
+Chroma Orbit is a falling-block puzzle bent into a circle. Coloured pairs fall inward, ring by ring, toward a star at the centre of a planet, and the player turns the whole planet to choose where they land. Four of a colour clear, so does any full ring, and the cells outside fall in, which can set off chains. It needs only Left, Right, Down, OK and Up, so it suits the remote.
+
+**The rules came first, without graphics.** `board.c` is plain C with no rendering, so a headless simulator (`tools/rules-sim.c`) could play thousands of games with a greedy computer player before anything was drawn. The first finding: the rules were too forgiving. A player who can turn to any sector before a pair lands never lost in 2,000 pairs. So every few pairs the star now **flares**: everything moves one ring outward and a new core ring appears with 12 of its 16 sectors filled. The simulator tuned the rate: a strong player lasts about 1,000 pairs with a flare every 6, and 170 with a flare every 4. So the worlds ramp from a flare every 9 pairs down to 4, with faster falls and a fifth colour from world 3. The same greedy player runs the title screen's attract mode.
+
+**60 fps on the stick: draw the sky at a third of the resolution.** The first TV build ran at 33–39 fps. The launch-URI knobs that found Prism Spire's costs (`?co=sky:0,cells:0,...`) pointed straight at the sky: a full-screen pass with trigonometry and exponentials per pixel for the star's corona, about 13 ms on the HD stick, even with the nebula already cached per world. The sky and corona now render at 640×360 and are stretched up by a plain copy. Only the star's disc, the thing the eye rests on, is drawn at full resolution, as a small quad. Steady 60 fps (decision 64). The cells cost almost nothing: each arc is two triangles per segment, and the shader anti-aliases its edges from its own coordinates, so there is no MSAA at all.
+
+**The moments that matter, checked on the TV.** A supernova and a game over are rare in testing, so the game now takes a test script from its launch URI (`?script=nova`, `over` or `sky`): a supernova every ten pairs, a nearly full board that ends at once, or each world's backdrop for a second. Watching them on the TV led to a polish pass:
+- **The supernova** first just flashed white over the board. Now the swelling star swallows the rings as it reaches them: each cell flashes white-hot and bursts, with a rising bell per ring. The white-out covers the board, and the new world's name fades in over the empty board before the next pair falls. The frame that switches worlds costs up to 49 ms (it renders the next backdrop), but it happens at the peak of the white-out, where nobody can see it.
+- **The game over** now drains the rings into the star from the outside in, a falling bell per ring, before the score panel. The controls hint no longer sits under it.
+- **Five worlds that looked like one.** Every world used the same cloud shape in a different colour, and on the TV Night City was hard to tell from the first world. Each now has its own backdrop: nebula clouds, aurora curtains with rays rising from a bright lower edge, ocean currents, embers rising from a glowing floor, and a neon skyline with lit windows. Each is rendered once when the world begins, so detail is free.
+- **A bug the scripts found:** when the computer player lost in the title's attract mode, the title menu gave way to a game-over screen. It now just starts a new game.
+
+Chroma Orbit is in the arcade, third, after Gravity Choir and Prism Spire. Neither new game has been played by a person yet; that's on the user's list.

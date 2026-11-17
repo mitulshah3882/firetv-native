@@ -154,6 +154,7 @@ static struct {
     /* the turn */
     bool solo, demo;        /* demo: the AI plays (attract mode and scripts) */
     bool keyart;            /* the attract tower with no UI (store art, icon, splash) */
+    bool logo;              /* key art with the tower to the right and the name on the left (store icon) */
     int nplayers, cur, menu_sel, pause_sel, party_n;
     int losses[MAX_PLAYERS];
     int loser, last_drop;   /* the toppler; the piece index dropped last */
@@ -208,7 +209,7 @@ static void save_load(void)
 
 static void save_store(void)
 {
-    if (G.shots) return;
+    if (G.shots || G.script) return;
     FILE *f = fopen(save_path(), "w");
     if (!f) return;
     fprintf(f, "%u %.3f %.3f\n", G.day, G.best_today, G.best_ever);
@@ -794,7 +795,7 @@ static void draw_world(void)
     /* Eye a little below the tower's middle, so the glass stands against the sky. On the title the
      * tower sits to the right of the menu. */
     const bool title = G.state == ST_TITLE || G.state == ST_HOWTO || G.state == ST_CREDITS;
-    const float side = title && !G.keyart ? -4.6f : 0.0f;
+    const float side = title && (!G.keyart || G.logo) ? -4.6f : 0.0f;
     G.cam_x = approach(G.cam_x, side, 2.0f, 1.0f / 60.0f);
     const float eye[3] = {G.cam_x + sinf(G.cam_orbit) * G.cam_r, G.cam_y - 0.2f + G.cam_r * 0.035f, cosf(G.cam_orbit) * G.cam_r};
     const float tgt[3] = {G.cam_x, G.cam_y + 0.4f, 0.0f};
@@ -930,8 +931,9 @@ static void draw_result(void)
 static void draw_title(void)
 {
     const float a = clampf(G.time / 1.2f, 0, 1);
+    /* No backing panel behind the name: the title is GPU-bound at 1080p, and every blended layer over
+     * it costs frames (a third of the screen in panels took it from 59 to 55 fps on the HD stick). */
     render_dim(0.18f);
-    render_panel(380, 120, 1160, 290, 60, col(0.05f, 0.03f, 0.1f, 0.35f * a));
     draw_center("PRISM SPIRE", 150, 150, col(0.96f, 0.93f, 1.0f, a), 1.0f);
     draw_center("Stack the glass. Pass the remote. Don't be the one who drops it.", 340, 30, col(1.0f, 0.82f, 0.62f, a * 0.9f), 0);
     char s[96];
@@ -1061,6 +1063,8 @@ bool game_init(const char *script, bool shots)
             G.state = ST_CREDITS;
         } else if (!strcmp(script, "keyart")) {
             G.keyart = true;
+        } else if (!strcmp(script, "logo")) {
+            G.keyart = G.logo = true;
         }
     }
     return true;
@@ -1181,7 +1185,13 @@ void game_frame(float dt, int fb_w, int fb_h, float fps)
     render_begin(fb_w, fb_h, G.time);
     draw_world();
     switch (G.state) {
-    case ST_TITLE: if (!G.keyart) draw_title(); break;
+    case ST_TITLE:
+        if (G.logo) {
+            render_text("PRISM", 600, 300, 190, col(0.96f, 0.93f, 1.0f, 1), 0, 1.0f);
+            render_text("SPIRE", 600, 480, 190, col(0.96f, 0.93f, 1.0f, 1), 0, 1.0f);
+            render_text("Stack the glass. Pass the remote.", 600, 710, 40, col(1.0f, 0.82f, 0.62f, 0.95f), 0, 0.3f);
+        } else if (!G.keyart) draw_title();
+        break;
     case ST_HOWTO: draw_howto(); break;
     case ST_CREDITS: draw_credits(); break;
     case ST_AIM: case ST_SETTLE: case ST_COLLAPSE: draw_hud(); break;

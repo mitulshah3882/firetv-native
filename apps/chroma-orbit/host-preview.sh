@@ -7,7 +7,7 @@
 #                                                             # renders PNGs to build/host-chroma-orbit/shots-<script>/
 #
 # Scripts: title (attract mode), play (the AI plays), keyart (no UI), howto, credits, nova (a supernova
-# every 10 pairs: every world), over (the game-over screen), sky (each backdrop for a second). On the TV: pkg://<component>?script=nova.
+# every 10 pairs: every world), over (the game-over screen), sky (each backdrop for a second), logo (the store icon frame). On the TV: pkg://<component>?script=nova.
 #
 # SPDX-FileCopyrightText: 2026 Mitul Shah
 # SPDX-License-Identifier: MIT

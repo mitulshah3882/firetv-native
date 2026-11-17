@@ -55,7 +55,8 @@ static struct {
     bool shots, demo, keyart;
     const char *script;
     int nova_test;
-    bool sky_test;      /* script "sky": each world's backdrop for a second, no board or UI */      /* script "nova": the star goes supernova every few pairs, to see every world */
+    bool sky_test;
+    bool logo;          /* script "logo": the title layout with only the name (store icon) */      /* script "sky": each world's backdrop for a second, no board or UI */      /* script "nova": the star goes supernova every few pairs, to see every world */
     Board b;
     int world, pairs_since_flare, menu_sel, pause_sel;
     float energy, energy_shown, rot_vis, star_r, flash, danger, mix;
@@ -384,7 +385,7 @@ static void update(float dt)
     G.mix = approach(G.mix, 1.0f, 1.5f, dt);
     if (G.mix > 0.995f) G.mix = 1.0f;
     G.energy_shown = approach(G.energy_shown, G.energy, 6.0f, dt);
-    const bool title = (G.state == ST_TITLE || G.state == ST_HOWTO || G.state == ST_CREDITS) && !G.keyart;
+    const bool title = (G.state == ST_TITLE || G.state == ST_HOWTO || G.state == ST_CREDITS) && (!G.keyart || G.logo);
     g_cx = approach(g_cx, title ? 1300.0f : 960.0f, 3.0f, dt);
     /* the planet turns smoothly toward the board's rotation (the short way round) */
     float d = (float)G.b.rot - G.rot_vis;
@@ -606,6 +607,7 @@ bool game_init(const char *script, bool shots)
         else if (!strcmp(script, "howto")) G.state = ST_HOWTO;
         else if (!strcmp(script, "credits")) G.state = ST_CREDITS;
         else if (!strcmp(script, "keyart")) G.keyart = true;
+        else if (!strcmp(script, "logo")) G.keyart = G.logo = true;
         else if (!strcmp(script, "sky")) { G.keyart = true; G.sky_test = true; }
         else if (!strcmp(script, "nova")) { G.state = ST_PLAY; G.nova_test = 1; new_game(true); }
         else if (!strcmp(script, "over")) {
@@ -717,7 +719,13 @@ void game_frame(float dt, int fb_w, int fb_h, float fps)
     render_begin(fb_w, fb_h, G.time);
     draw_board();
     switch (G.state) {
-    case ST_TITLE: if (!G.keyart) draw_title(); break;
+    case ST_TITLE:
+        if (G.logo) {
+            render_text("CHROMA", 480, 330, 150, col(0.95f, 0.95f, 1.0f, 1), 0, 1.0f);
+            render_text("ORBIT", 480, 480, 150, col(0.95f, 0.95f, 1.0f, 1), 0, 1.0f);
+            render_text("Turn the planet. Feed the star.", 480, 680, 40, col(1.0f, 0.82f, 0.6f, 1), 0, 0.3f);
+        } else if (!G.keyart) draw_title();
+        break;
     case ST_HOWTO: draw_howto(); break;
     case ST_CREDITS: draw_credits(); break;
     case ST_PLAY: draw_hud(); break;

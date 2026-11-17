@@ -121,7 +121,8 @@ static const char *kSkyFn =
     "  highp float s = max(dot(d, u_sun), 0.0);\n"
     "  c += vec3(1.0, 0.5, 0.25) * pow(s, 8.0) * 0.35;\n"
     "  c += vec3(1.0, 0.72, 0.45) * pow(s, 900.0) * 0.5;\n"
-    "  c += vec3(1.0, 0.92, 0.75) * smoothstep(0.99975, 0.99988, s) * 3.0;\n"
+    "  c += vec3(1.0, 0.7, 0.45) * pow(s, 2500.0) * 0.45;\n"   /* a tight halo */
+    "  c = mix(c, vec3(1.0, 0.96, 0.86) * 1.45, smoothstep(0.99968, 0.99990, s));\n"   /* the disc: a blend, so its edge spans a few pixels instead of clipping */
     "  if (y < 0.0) c = mix(c, vec3(0.10, 0.07, 0.12), smoothstep(0.0, 0.08, -y));\n"
     "  return c;\n"
     "}\n";
@@ -340,17 +341,19 @@ static const char *kBeamFS =
     "uniform float u_dim;\n"
     "void main() { float f = 1.0 - abs(v_across); o = v_col * f * f * (1.0 - u_dim); }\n";
 
-/* Composite: the resolved scene, a vignette and the menu dimming. */
+/* Composite, the frame's one full-screen 1080p pass: the low-resolution background (with a vignette and
+ * the menu dimming) under the resolved 3D layer, which holds only the plinth, the glass and the sparks
+ * over transparent black (premultiplied, so its MSAA edges blend). */
 static const char *kCompFS =
     "in vec2 v_uv;\n"
-    "uniform sampler2D u_tex;\n"
+    "uniform sampler2D u_bg, u_scene;\n"
     "uniform float u_dim;\n"
     "out vec4 o;\n"
     "void main() {\n"
-    "  vec3 c = texture(u_tex, v_uv).rgb;\n"
+    "  vec4 s = texture(u_scene, v_uv);\n"
     "  vec2 q = (v_uv - 0.5) * vec2(1.7778, 1.0);\n"
-    "  c *= (1.0 - 0.35 * clamp(dot(q, q) * 1.2, 0.0, 1.0)) * (1.0 - u_dim);\n"
-    "  o = vec4(c, 1.0);\n"
+    "  vec3 b = texture(u_bg, v_uv).rgb * (1.0 - 0.35 * clamp(dot(q, q) * 1.2, 0.0, 1.0)) * (1.0 - u_dim);\n"
+    "  o = vec4(b * (1.0 - s.a) + s.rgb, 1.0);\n"
     "}\n";
 static const char *kBlitFS =
     "in vec2 v_uv;\n"
@@ -505,6 +508,8 @@ static struct {
     bool msrtt;  /* EXT_multisampled_render_to_texture: MSAA resolved in tile memory */
     GLint screen; /* the window's framebuffer (not 0 on Vega) */
     GLuint bg_fbo, bg_tex, bg_depth;
+    GLuint bg_ms_fbo, bg_ms_color;  /* the Mac: the background's MSAA renderbuffer, resolved by a blit */
+    bool bg_blit;
     GLuint ms_fbo, ms_color, ms_depth;
     GLuint res_fbo, res_tex;
     /* font */
@@ -535,7 +540,7 @@ static struct {
 /* Debug knobs for GPU A/B runs, from the launch URI's query on the TV (pkg://...?ps=msaa:0,bg:3) or
  * PS_TUNE on the Mac: msaa (0 or 4), bg (background resolution divisor), comp (0 skips the
  * composite), glass, water, stars (0 turns each off). */
-static struct { int msaa, bg, comp, glass, water, stars; } T = {4, 3, 1, 1, 1, 1};
+static struct { int msaa, bg, comp, glass, water, stars, bgaa, ui; } T = {4, 3, 1, 1, 1, 1, 1, 1};
 #ifndef PS_HOST_GL
 const char *vp_launch_uri_received(void);
 #endif
@@ -558,11 +563,14 @@ static void tune_parse(void)
         else if (!strcmp(key, "glass")) T.glass = val;
         else if (!strcmp(key, "water")) T.water = val;
         else if (!strcmp(key, "stars")) T.stars = val;
+        else if (!strcmp(key, "bgaa")) T.bgaa = val;
+        else if (!strcmp(key, "ui")) T.ui = val;
         q += n;
         if (*q == ',') q++;
         else break;
     }
-    SDL_Log("prism-spire: tune msaa %d, bg 1/%d, comp %d, glass %d, water %d, stars %d", T.msaa, T.bg, T.comp, T.glass, T.water, T.stars);
+    SDL_Log("prism-spire: tune msaa %d, bg 1/%d, comp %d, glass %d, water %d, stars %d, bgaa %d", T.msaa, T.bg, T.comp, T.glass, T.water,
+            T.stars, T.bgaa);
 }
 
 static const float kSun[3] = {-0.32945f, 0.10483f, -0.93843f};
@@ -745,6 +753,45 @@ typedef void (*PFN_msrtt_rb)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
 static PS_GL_HIDDEN PFN_msrtt_tex p_glFramebufferTexture2DMultisampleEXT;
 static PS_GL_HIDDEN PFN_msrtt_rb p_glRenderbufferStorageMultisampleEXT;
 
+/* The background gets MSAA too: the hills, the plinth and the lake's horizon are the longest edges on
+ * screen, and at a third of the resolution they stair-step. On the TV the samples stay in tile memory
+ * (free at 640x360); on the Mac a multisampled renderbuffer is resolved by a blit. */
+static void bg_targets(int bw, int bh)
+{
+    R.bg_blit = false;
+    glBindFramebuffer(GL_FRAMEBUFFER, R.bg_fbo);
+    if (R.samples >= 2 && R.msrtt && T.bgaa) {
+        glBindRenderbuffer(GL_RENDERBUFFER, R.bg_depth);
+        p_glRenderbufferStorageMultisampleEXT(GL_RENDERBUFFER, R.samples, GL_DEPTH_COMPONENT24, bw, bh);
+        p_glFramebufferTexture2DMultisampleEXT(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, R.bg_tex, 0, R.samples);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, R.bg_depth);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) return;
+        SDL_Log("prism-spire: background MSAA incomplete; none");
+    } else if (R.samples >= 2 && T.bgaa) {
+        if (!R.bg_ms_fbo) {
+            glGenFramebuffers(1, &R.bg_ms_fbo);
+            glGenRenderbuffers(1, &R.bg_ms_color);
+        }
+        glBindRenderbuffer(GL_RENDERBUFFER, R.bg_ms_color);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, R.samples, GL_RGBA8, bw, bh);
+        glBindRenderbuffer(GL_RENDERBUFFER, R.bg_depth);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, R.samples, GL_DEPTH_COMPONENT24, bw, bh);
+        glBindFramebuffer(GL_FRAMEBUFFER, R.bg_ms_fbo);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, R.bg_ms_color);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, R.bg_depth);
+        glBindFramebuffer(GL_FRAMEBUFFER, R.bg_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, R.bg_tex, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, 0);
+        R.bg_blit = true;
+        return;
+    }
+    glBindRenderbuffer(GL_RENDERBUFFER, R.bg_depth);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, bw, bh);
+    glBindFramebuffer(GL_FRAMEBUFFER, R.bg_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, R.bg_tex, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, R.bg_depth);
+}
+
 static void targets(int w, int h)
 {
     if (w == R.fb_w && h == R.fb_h && R.ms_fbo) return;
@@ -763,11 +810,6 @@ static void targets(int w, int h)
     }
     const int bw = w / T.bg, bh = h / T.bg;
     R.bg_tex = make_tex(bw, bh);
-    glBindRenderbuffer(GL_RENDERBUFFER, R.bg_depth);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, bw, bh);
-    glBindFramebuffer(GL_FRAMEBUFFER, R.bg_fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, R.bg_tex, 0);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, R.bg_depth);
 
     GLint maxs = 4;
     glGetIntegerv(GL_MAX_SAMPLES, &maxs);
@@ -779,6 +821,7 @@ static void targets(int w, int h)
     R.msrtt = p_glFramebufferTexture2DMultisampleEXT && p_glRenderbufferStorageMultisampleEXT &&
               SDL_GL_ExtensionSupported("GL_EXT_multisampled_render_to_texture");
 #endif
+    bg_targets(bw, bh);
     if (R.samples < 2) {  /* no MSAA: the resolve texture with a plain depth buffer */
         glBindRenderbuffer(GL_RENDERBUFFER, R.ms_depth);
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
@@ -1216,6 +1259,7 @@ static void draw_additive(void)
 {
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);  /* light only: the layer's alpha is its coverage */
     glDepthMask(GL_FALSE);
     if (R.nsparks) {
         static float buf[MAX_SPARKS * 8];
@@ -1242,6 +1286,7 @@ static void draw_additive(void)
         glDrawArrays(GL_TRIANGLES, 0, R.nbeamverts);
     }
     glDepthMask(GL_TRUE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDisable(GL_BLEND);
 }
 
@@ -1269,7 +1314,7 @@ void render_end(void)
     const GLint screen = R.screen;
 
     /* 1. background, half resolution: what the glass refracts */
-    glBindFramebuffer(GL_FRAMEBUFFER, R.bg_fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, R.bg_blit ? R.bg_ms_fbo : R.bg_fbo);
     glViewport(0, 0, bw, bh);
     glClear(GL_DEPTH_BUFFER_BIT);
     glDisable(GL_DEPTH_TEST);
@@ -1282,21 +1327,20 @@ void render_end(void)
         const GLenum depth = GL_DEPTH_ATTACHMENT;
         if (glInvalidateFramebuffer) glInvalidateFramebuffer(GL_FRAMEBUFFER, 1, &depth);
     }
+    if (R.bg_blit) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, R.bg_ms_fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, R.bg_fbo);
+        glBlitFramebuffer(0, 0, bw, bh, 0, 0, bw, bh, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
 
-    /* 2. the 3D scene with MSAA: on the TV straight into the window, on the Mac offscreen */
+    /* 2. the 3D layer with MSAA, over transparent black: only what is sharper than the background
+     * (the plinth, the glass, sparks and beams); the composite puts the background under it */
     glBindFramebuffer(GL_FRAMEBUFFER, R.direct ? (GLuint)screen : R.ms_fbo);
     glViewport(0, 0, R.fb_w, R.fb_h);
-    glClear(GL_DEPTH_BUFFER_BIT | (R.direct ? 0x0400 /* STENCIL */ : 0));
-    glDisable(GL_DEPTH_TEST);
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | (R.direct ? 0x0400 /* STENCIL */ : 0));
     R.pass_dim = R.dim;
-    glUseProgram(R.p_blit);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, R.bg_tex);
-    glUniform1i(glGetUniformLocation(R.p_blit, "u_tex"), 0);
-    glUniform1f(glGetUniformLocation(R.p_blit, "u_dim"), R.dim);
-    glUniform1f(glGetUniformLocation(R.p_blit, "u_vignette"), 0.35f);
-    glBindVertexArray(R.vao_empty);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
     glEnable(GL_DEPTH_TEST);
     draw_scenery(false, false, true);  /* the plinth again, sharp */
     draw_glass();
@@ -1316,16 +1360,20 @@ void render_end(void)
         glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)screen);
         glViewport(0, 0, R.fb_w, R.fb_h);
         if (T.comp) {
-            glUseProgram(R.p_blit);
+            glUseProgram(R.p_comp);
+            glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, R.res_tex);
-            glUniform1i(glGetUniformLocation(R.p_blit, "u_tex"), 0);
-            glUniform1f(glGetUniformLocation(R.p_blit, "u_dim"), 0.0f);
-            glUniform1f(glGetUniformLocation(R.p_blit, "u_vignette"), 0.0f);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, R.bg_tex);
+            glUniform1i(glGetUniformLocation(R.p_comp, "u_bg"), 0);
+            glUniform1i(glGetUniformLocation(R.p_comp, "u_scene"), 1);
+            glUniform1f(glGetUniformLocation(R.p_comp, "u_dim"), R.dim);
             glBindVertexArray(R.vao_empty);
             glDrawArrays(GL_TRIANGLES, 0, 3);
         }
     }
 
+    if (!T.ui) R.npanels = R.nglow = R.nglyphs = 0;
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     draw_quads(R.p_panel, R.panels, R.npanels, 0);

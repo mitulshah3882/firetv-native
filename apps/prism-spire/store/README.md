@@ -11,7 +11,7 @@ App Test walkthrough is in [Gravity Choir's kit](../../gravity-choir/store/READM
 | `app-icon-1280x720.png` | Fire TV app icon (required; no transparency) | 1280×720 |
 | `../icon/icon.png` | large icon (also the package's launcher icon) | 512×512 |
 | `icon-114.png` | small icon | 114×114 |
-| `screenshot-1.jpg` … `screenshot-7.jpg` | the title, aiming at 6 m, 7.3 m, an event, a collapse, the results, the Daily Spire | 1920×1080 |
+| `screenshot-1.jpg` … `screenshot-8.jpg` | the title, aiming at 6 m, 7.3 m, an event, a collapse, its replay, the results, the Daily Spire | 1920×1080 |
 | `background-1920x1080.jpg` | optional background image | 1920×1080 |
 
 Every image is a frame the game rendered itself: `make-kit.sh` runs the Mac build
@@ -34,7 +34,7 @@ The demo AI plays the party rounds; frames on the stick look the same (checked a
 >
 > On your own, climb the Daily Spire: everyone gets the same pieces and events today, and your best height is saved.
 >
-> The glass catches the low sun and bends the sky behind it, every piece that comes to rest rings a bell tuned to its height, and a collapse sends shards ringing into the lake. All the sound is synthesized live. The game runs natively at 60 frames per second.
+> The glass catches the low sun and bends the sky behind it, every piece that comes to rest rings a bell tuned to its height, and a collapse sends shards ringing into the lake, then plays again in slow motion from the other side. All the sound is synthesized live. The game runs natively at 60 frames per second.
 >
 > Controls: Left and Right move the piece, Up and Down turn it, OK drops it, and Back pauses. Gamepads work too, for whoever's turn it is.
 
@@ -60,7 +60,7 @@ The demo AI plays the party rounds; frames on the stick look the same (checked a
 - **Credits and licences:** Credits on the title screen; `assets/licenses/` in the package (Box2D, SDL,
   the Chakra Petch font).
 - **Testing instructions** (the console's field for things a reviewer might not find):
-  > Fire TV remote: on the title, Up/Down choose and Left/Right set the number of players for a party; OK starts. In a round, Left/Right move the hovering piece, Up/Down rotate it, and OK drops it; pass the remote to the player named on the left. A round ends when a piece falls off the plinth; OK starts the next round, Back returns to the title. Back during play pauses; Back on the title exits. Daily Spire is a solo mode with the same pieces for everyone each day. After three minutes without input the sound goes quiet so the screensaver can start; any button brings it back. No account, network connection or purchase is involved.
+  > Fire TV remote: on the title, Up/Down choose and Left/Right set the number of players for a party; OK starts. In a round, Left/Right move the hovering piece, Up/Down rotate it, and OK drops it; pass the remote to the player named on the left. A round ends when a piece falls off the plinth: a short replay of the collapse plays (OK skips it), then the results, where OK starts the next round and Back returns to the title. Back during play pauses; Back on the title exits. Daily Spire is a solo mode with the same pieces for everyone each day. After three minutes without input the sound goes quiet so the screensaver can start; any button brings it back. No account, network connection or purchase is involved.
 
 ## Before submitting
 - A playtest with people: round length and the piece mix were tuned with the demo AI only

@@ -51,8 +51,10 @@ is "live".
 - **Scene:** a dusk gradient sky with a low sun and a few early stars, three layers of low-poly hills in
   atmospheric perspective, a stone plinth whose top carries coloured caustics cast by the glass.
 - **Collapse:** slow motion, the camera swings round, pieces that hit the ground shatter into shards
-  (small glass prisms in the physics world too), and every impact rings a chime. Afterwards a short
-  replay from two more angles.
+  (small glass prisms in the physics world too), and every impact rings a chime. Then a 4 s replay:
+  the last 6 s of every piece's position are kept from each drop on (with the chimes and shatters),
+  and the moments around the collapse play again, letterboxed, from a camera that cuts to the other
+  side and sweeps round the plinth. OK skips it.
 - 4× MSAA on the 3D pass; the UI is SDF text from the same font as Gravity Choir (Chakra Petch).
 
 ## Sound (all synthesized)

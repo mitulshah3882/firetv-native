@@ -137,7 +137,7 @@ typedef struct {
 
 typedef struct { float x, y, z, vx, vy, vz, life, max, size; Col c; int kind; } Fx;  /* kind 0 spark, 1 streak */
 
-typedef enum { ST_TITLE, ST_HOWTO, ST_CREDITS, ST_AIM, ST_SETTLE, ST_COLLAPSE, ST_RESULT, ST_PAUSE } State;
+typedef enum { ST_TITLE, ST_HOWTO, ST_CREDITS, ST_AIM, ST_SETTLE, ST_COLLAPSE, ST_REPLAY, ST_RESULT, ST_PAUSE } State;
 typedef enum { EV_NONE, EV_WIND, EV_TREMOR, EV_SLIPPERY } Event;
 static const char *const kEventName[] = {"", "WIND", "TREMOR", "SLIPPERY GLASS"};
 
@@ -152,6 +152,7 @@ static struct {
     Piece pieces[MAX_PIECES];
     int npieces_placed;     /* pieces dropped this round */
     bool lowering;          /* OK was pressed: the piece glides down the beam before it is let go */
+    int replay_from, replay_to, replay_ev;  /* the collapse replay: recorded frames, next event */
     float release_y;
     /* the turn */
     bool solo, demo;        /* demo: the AI plays (attract mode and scripts) */
@@ -381,6 +382,70 @@ static void fx_add(float x, float y, float z, float vx, float vy, float vz, floa
     G.fx[G.nfx++] = (Fx){x, y, z, vx, vy, vz, life, life, size, c, kind};
 }
 
+/* ---- the collapse replay ----------------------------------------------------------------------- */
+/* From each drop on, the last 6 s of every piece's position (and the plinth's shake) are kept in a
+ * ring of frames, with the chimes and shatters as events. After a collapse the game plays the
+ * moments around it again from a camera sweeping round the plinth, before the results. */
+#define REC_FRAMES 360
+#define REC_PER_FRAME 128
+#define REC_EVENTS 768   /* at most 2 chimes a frame are kept, so 6 s of collapse fits */
+typedef struct { float x, y, a, sink; uint8_t shape, frost, rgba[4]; } RecEnt;
+typedef struct { int frame; int kind; float vel, pan, x; Col tint; } RecEvent;  /* kind 0 chime, 1 shatter */
+static RecEnt g_rec[REC_FRAMES][REC_PER_FRAME];
+static uint8_t g_rec_n[REC_FRAMES];
+static float g_rec_shake[REC_FRAMES];
+static RecEvent g_rec_ev[REC_EVENTS];
+static int g_rec_frames, g_rec_nev, g_rec_collapse = -1;
+static bool g_recording;
+
+static void rec_reset(void)
+{
+    g_rec_frames = g_rec_nev = 0;
+    g_rec_collapse = -1;
+}
+static void rec_event(int kind, float vel, float pan, float x, Col tint)
+{
+    static int frame = -1, in_frame;
+    if (!g_recording) return;
+    if (frame != g_rec_frames) { frame = g_rec_frames; in_frame = 0; }
+    if (kind == 0 && in_frame >= 2) return;
+    in_frame++;
+    if (g_rec_nev >= REC_EVENTS) {  /* full (a long settle): forget events older than the frame ring */
+        int j = 0;
+        for (int i = 0; i < g_rec_nev; i++)
+            if (g_rec_ev[i].frame > g_rec_frames - REC_FRAMES) g_rec_ev[j++] = g_rec_ev[i];
+        g_rec_nev = j;
+        if (g_rec_nev >= REC_EVENTS) return;
+    }
+    g_rec_ev[g_rec_nev++] = (RecEvent){g_rec_frames, kind, vel, pan, x, tint};
+}
+static uint8_t to_u8(float v) { return (uint8_t)(clampf(v, 0.0f, 1.0f) * 255.0f + 0.5f); }
+static void rec_frame(void)
+{
+    const int f = g_rec_frames % REC_FRAMES;
+    int n = 0;
+    for (int i = 0; i < MAX_PIECES && n < REC_PER_FRAME; i++) {
+        const Piece *p = &G.pieces[i];
+        if (!p->used) continue;
+        const b2Vec2 c = b2Body_GetPosition(p->body);
+        RecEnt *e = &g_rec[f][n++];
+        e->x = c.x;
+        e->y = c.y;
+        e->a = b2Rot_GetAngle(b2Body_GetRotation(p->body));
+        e->sink = clampf(1.0f - (p->under_t - 2.0f) / 1.5f, 0.0f, 1.0f);
+        e->shape = (uint8_t)p->shape;
+        e->frost = p->frost > 0.5f;
+        e->rgba[0] = to_u8(p->tint.r);
+        e->rgba[1] = to_u8(p->tint.g);
+        e->rgba[2] = to_u8(p->tint.b);
+        e->rgba[3] = to_u8(p->tint.a);
+    }
+    g_rec_n[f] = (uint8_t)n;
+    g_rec_shake[f] = G.shake;
+    g_rec_frames++;
+}
+static int replay_frame(void) { return G.replay_from + (int)(G.t * 60.0f); }
+
 static void fx_burst(float x, float y, Col c, int n, float speed)
 {
     for (int i = 0; i < n; i++) {
@@ -442,6 +507,7 @@ static void toast(const char *s)
 static void begin_turn(void)
 {
     G.lowering = false;
+    rec_reset();
     G.state = ST_AIM;
     G.t = 0;
     G.hover_shape = G.next_shape;
@@ -482,7 +548,7 @@ static void new_round(bool keep_scores)
     G.new_best = false;
     if (!keep_scores) memset(G.losses, 0, sizeof G.losses);
     if (G.solo) {
-        G.day = today();
+        G.day = G.shots ? 20408u : today();  /* scripted shots: a fixed day, so the store frames reproduce */
         G.deal.s = (uint64_t)G.day * 2654435761ull + 12345;
         G.cur = 0;
         G.nplayers = 1;
@@ -548,6 +614,7 @@ static void start_collapse(void)
     G.state = ST_COLLAPSE;
     G.t = 0;
     G.loser = G.cur;
+    g_rec_collapse = g_rec_frames;
     G.slowmo = 0.3f;
     G.event = EV_NONE;
     G.tremor_t = 0;
@@ -638,7 +705,10 @@ static void physics_step(float dt)
         const int pi = ia >= 0 ? ia : ib;
         const float vel = clampf(h->approachSpeed / 6.0f, 0.0f, 1.0f);
         if (G.state == ST_COLLAPSE || G.state == ST_RESULT) {
-            if (chimes++ < 6) audio_chime(vel, h->point.x / 5.0f);
+            if (chimes++ < 6) {
+                audio_chime(vel, h->point.x / 5.0f);
+                rec_event(0, vel, h->point.x / 5.0f, 0.0f, col(1, 1, 1, 1));
+            }
         }
         if (ground && pi >= 0 && G.pieces[pi].used && !G.pieces[pi].shard && h->approachSpeed > 2.5f && nshatter < 16) {
             bool dup = false;
@@ -666,6 +736,7 @@ static void physics_step(float dt)
             }
             fx_burst(c.x, -PLINTH_H + 0.2f, tint, 18, 4.0f);
             audio_shatter(vel, c.x / 5.0f);
+            rec_event(1, vel, c.x / 5.0f, c.x, tint);
         }
     }
 }
@@ -711,6 +782,31 @@ static void settle_update(float dt)
     }
 }
 
+static void show_result(void)
+{
+    G.state = ST_RESULT;
+    G.t = 0;
+    audio_music(0);
+    audio_ui(UI_FANFARE, 0);
+}
+
+static void start_replay(void)
+{
+    const int oldest = g_rec_frames > REC_FRAMES ? g_rec_frames - REC_FRAMES : 0;
+    G.replay_from = g_rec_collapse - 50 > oldest ? g_rec_collapse - 50 : oldest;
+    G.replay_to = g_rec_collapse + 190 < g_rec_frames - 1 ? g_rec_collapse + 190 : g_rec_frames - 1;
+    if (g_rec_collapse < 0 || G.replay_to - G.replay_from < 60) {
+        show_result();
+        return;
+    }
+    G.state = ST_REPLAY;
+    G.t = 0;
+    SDL_Log("prism-spire: replay: %d frames, %d events", G.replay_to - G.replay_from, g_rec_nev);
+    for (G.replay_ev = 0; G.replay_ev < g_rec_nev && g_rec_ev[G.replay_ev].frame < G.replay_from; G.replay_ev++) {}
+    audio_music(0);
+    audio_ui(UI_TURN, 0);
+}
+
 static void aim_update(float dt)
 {
     if (G.lowering) {
@@ -744,20 +840,28 @@ static void update(float dt)
     G.t += dt;
     if (G.toast_t > 0) G.toast_t -= dt;
     fx_update(dt);
-    const bool playing = G.state == ST_AIM || G.state == ST_SETTLE || G.state == ST_COLLAPSE || G.state == ST_RESULT ||
+    const bool playing = G.state == ST_AIM || G.state == ST_SETTLE || G.state == ST_COLLAPSE || G.state == ST_REPLAY || G.state == ST_RESULT ||
                          ((G.state == ST_TITLE || G.state == ST_HOWTO || G.state == ST_CREDITS) && G.demo);
     if (G.state == ST_PAUSE) return;
     if (playing) {
         if (G.state == ST_COLLAPSE) {
             G.slowmo = G.t < 2.2f ? 0.3f : approach(G.slowmo, 1.0f, 2.0f, dt);
-            if (G.t > 5.0f) {
-                G.state = ST_RESULT;
-                G.t = 0;
-                audio_music(0);
-                audio_ui(UI_FANFARE, 0);
+            if (G.t > 5.0f) start_replay();
+        } else if (G.state == ST_REPLAY) {
+            const int f = replay_frame();
+            for (; G.replay_ev < g_rec_nev && g_rec_ev[G.replay_ev].frame <= f; G.replay_ev++) {
+                const RecEvent *e = &g_rec_ev[G.replay_ev];
+                if (e->kind == 0) audio_chime(e->vel, e->pan);
+                else {
+                    audio_shatter(e->vel, e->pan);
+                    fx_burst(e->x, -PLINTH_H + 0.2f, e->tint, 18, 4.0f);
+                }
             }
+            if (f > G.replay_to) show_result();
         }
+        g_recording = G.state == ST_SETTLE || G.state == ST_COLLAPSE;
         physics_step(STEP * G.slowmo);
+        if (g_recording) rec_frame();
         if (G.state == ST_AIM) aim_update(dt);
         settle_update(dt);
         /* attract mode: rebuild after a collapse */
@@ -857,7 +961,17 @@ static void draw_world(void)
     float orbit = 0.22f * sinf(G.time * 0.11f);
     if (G.state == ST_COLLAPSE) orbit += 0.6f * sinf(clampf(G.t / 5.0f, 0, 1) * (float)M_PI * 0.5f);
     if (G.state == ST_TITLE || G.state == ST_HOWTO || G.state == ST_CREDITS) orbit = 0.45f * sinf(G.time * 0.07f);
-    G.cam_orbit = approach(G.cam_orbit, orbit, 1.5f, 1.0f / 60.0f);
+    const bool replay = G.state == ST_REPLAY;
+    if (replay) {
+        /* the replay cuts to the other side and sweeps round; the whole spire stays in frame between
+         * the letterbox bars */
+        const float k = clampf((float)(replay_frame() - G.replay_from) / (float)(G.replay_to - G.replay_from), 0.0f, 1.0f);
+        G.cam_orbit = -0.95f + 1.75f * k * k * (3.0f - 2.0f * k);
+        G.cam_r = target_r * 1.08f;
+        G.cam_y = target_y * 0.92f;
+    } else {
+        G.cam_orbit = approach(G.cam_orbit, orbit, 1.5f, 1.0f / 60.0f);
+    }
     /* Eye a little below the tower's middle, so the glass stands against the sky. On the title the
      * tower sits to the right of the menu. */
     const bool title = G.state == ST_TITLE || G.state == ST_HOWTO || G.state == ST_CREDITS;
@@ -867,10 +981,22 @@ static void draw_world(void)
     const float tgt[3] = {G.cam_x, G.cam_y + 0.4f, 0.0f};
     render_camera(eye, tgt, 42.0f);
 
-    render_plinth(G.shake);
+    const int rf = replay ? replay_frame() % REC_FRAMES : 0;
+    render_plinth(replay ? g_rec_shake[rf] : G.shake);
     /* caustics: glass near the bottom of the tower colours the plinth's top */
     int nc = 0;
-    for (int i = 0; i < MAX_PIECES && nc < 16; i++) {
+    if (replay) {
+        for (int k = 0; k < g_rec_n[rf]; k++) {
+            const RecEnt *e = &g_rec[rf][k];
+            const Col t = col(e->rgba[0] / 255.0f, e->rgba[1] / 255.0f, e->rgba[2] / 255.0f, e->rgba[3] / 255.0f);
+            if (e->y >= 0 && e->y <= 1.6f && e->shape != SH_SHARD && nc < 16) {
+                render_caustic(e->x, 0.55f, col_scale(t, 0.55f));
+                nc++;
+            }
+            if (e->sink > 0.0f) render_piece(g_mesh[e->shape], e->x, e->y - (1.0f - e->sink) * 0.3f, e->a, t, e->frost ? 1.0f : 0.0f, 0.0f, e->sink);
+        }
+    }
+    for (int i = 0; i < MAX_PIECES && nc < 16 && !replay; i++) {
         const Piece *p = &G.pieces[i];
         if (!p->used || p->shard) continue;
         const b2Vec2 c = b2Body_GetPosition(p->body);
@@ -879,7 +1005,7 @@ static void draw_world(void)
         nc++;
     }
     /* pieces */
-    for (int i = 0; i < MAX_PIECES; i++) {
+    for (int i = 0; i < MAX_PIECES && !replay; i++) {
         const Piece *p = &G.pieces[i];
         if (!p->used) continue;
         const b2Vec2 c = b2Body_GetPosition(p->body);
@@ -961,6 +1087,16 @@ static void draw_hud(void)
         SDL_snprintf(s, sizeof s, "next: %s", kShapeNames[G.next_shape]);
         render_text(s, 1840, 1000, 26, dim, 1, 0);
     }
+}
+
+static void draw_replay(void)
+{
+    const float a = clampf(G.t / 0.3f, 0, 1);
+    render_panel(0, 0, 1920, 92, 0, col(0, 0, 0, 0.85f * a));  /* letterbox */
+    render_panel(0, 988, 1920, 92, 0, col(0, 0, 0, 0.85f * a));
+    render_panel(84, 33, 24, 24, 12, col(1.0f, 0.25f, 0.3f, (0.55f + 0.45f * sinf(G.time * 5.0f)) * a));
+    render_text("REPLAY", 124, 24, 36, col(0.96f, 0.95f, 1.0f, a), -1, 0.3f);
+    if (!G.demo) render_text("OK skip", 1840, 1014, 26, col(0.75f, 0.72f, 0.85f, a), 1, 0);
 }
 
 static void draw_result(void)
@@ -1228,6 +1364,10 @@ bool game_button(GameButton b, bool down)
         break;
     case ST_COLLAPSE:
         break;
+    case ST_REPLAY:
+        if (G.demo && (b == GB_BACK || b == GB_MENU)) go_title();
+        else if (!G.demo && G.t > 0.3f && (b == GB_OK || b == GB_START || b == GB_BACK)) show_result();
+        break;
     case ST_RESULT:
         if (G.t < 0.8f) break;
         if (b == GB_OK || b == GB_START) {
@@ -1267,6 +1407,7 @@ void game_frame(float dt, int fb_w, int fb_h, float fps)
     case ST_HOWTO: draw_howto(); break;
     case ST_CREDITS: draw_credits(); break;
     case ST_AIM: case ST_SETTLE: case ST_COLLAPSE: draw_hud(); break;
+    case ST_REPLAY: draw_replay(); break;
     case ST_RESULT: draw_hud(); draw_result(); break;
     case ST_PAUSE: draw_hud(); draw_pause(); break;
     }

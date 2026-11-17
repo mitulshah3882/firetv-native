@@ -28,10 +28,11 @@ frame() {
 frame title 1200 screenshot-1.jpg   # the title: the menu, and the attract spire building on the right
 frame tall 1650 screenshot-2.jpg    # Player 4 aims an L at 6 m
 frame tall 1950 screenshot-3.jpg    # 7.3 m, a wedge hovering over its beam
-frame tall 4350 screenshot-4.jpg    # an event: slippery glass
+frame tall 4620 screenshot-4.jpg    # an event: slippery glass
 frame tall 2550 screenshot-5.jpg    # the collapse, shards in the lake
-frame tall 2850 screenshot-6.jpg    # who owes the pizza
-frame solo 1650 screenshot-7.jpg    # the Daily Spire
+frame tall 2880 screenshot-6.jpg    # the replay
+frame tall 3000 screenshot-7.jpg    # who owes the pizza
+frame solo 1200 screenshot-8.jpg    # the Daily Spire (a fixed day in shots mode)
 frame keyart 750 background-1920x1080.jpg
 frame logo 750 "logo.png"
 sips -z 720 1280 "$HERE/logo.png" --out "$HERE/app-icon-1280x720.png" >/dev/null && rm "$HERE/logo.png"

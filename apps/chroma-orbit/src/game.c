@@ -208,7 +208,7 @@ static void new_game(bool demo)
     G.nfx = 0;
     board_init(&G.b, 4, demo ? 7 : SDL_GetTicksNS());
     G.rot_vis = (float)G.b.rot;
-    audio_mood(0);
+    audio_world(0);
     audio_music(1);
     spawn();
 }
@@ -304,7 +304,7 @@ static void supernova_update(float dt)
         G.b.score += 2000LL * G.world;
         G.card_t = 2.4f;
         G.pairs_since_flare = 0;
-        audio_mood(G.world & 3);
+        audio_world(G.world);
     }
     if (t > 3.3f) {  /* play resumes as the world's title card fades */
         G.star_r = 1.0f;
@@ -386,6 +386,7 @@ static void update(float dt)
     G.mix = approach(G.mix, 1.0f, 1.5f, dt);
     if (G.mix > 0.995f) G.mix = 1.0f;
     G.energy_shown = approach(G.energy_shown, G.energy, 6.0f, dt);
+    audio_intensity(clampf(G.energy_shown / world_goal(), 0, 1));  /* the star's energy brings the band in */
     const bool title = (G.state == ST_TITLE || G.state == ST_HOWTO || G.state == ST_CREDITS) && (!G.keyart || G.logo);
     g_cx = approach(g_cx, title ? 1300.0f : 960.0f, 3.0f, dt);
     /* the planet turns smoothly toward the board's rotation (the short way round) */

@@ -1,16 +1,18 @@
 /*
  * Chroma Orbit's sound engine (see audio.h). Everything is synthesized in real time at 48 kHz.
  *
- *   - Struck glass (bells, chimes, the shatter, UI blips) is modal synthesis: each partial is a
- *     damped complex rotator, (re, im) multiplied by r*e^(i*w) every sample, so a partial costs four
- *     multiplies and its exponential decay is free. Glass-bell partial ratios are inharmonic
- *     (1, 2.32, 4.25, 6.63, 9.38); a short noise click gives the strike.
- *   - The glass harmonica (while the tower sways) and the dusk pad are sustained table-sine voices.
- *   - An 8-line feedback-delay-network reverb (Hadamard mixing) gives the open evening air.
- *   - Master: peak limiter then a soft clip; the output never reaches full scale.
+ *   - Each world is a song: a key, a tempo and a 4-chord loop. An 8th-note clock in the render loop
+ *     plays a pad (two crossfading layers of detuned sines), a plucked arpeggio of the chord, a
+ *     bass, and a soft kick and hats. The star's energy (audio_intensity) brings the parts in: the
+ *     pad and a quiet arpeggio from the start, the bass from a quarter full, the drums from half.
+ *   - Struck glass (the clear bells, chimes, UI blips) is modal synthesis: each partial is a damped
+ *     complex rotator, (re, im) multiplied by r*e^(i*w) every sample, so a partial costs four
+ *     multiplies and its decay is free. Bells and chain stabs are in the world's key.
+ *   - Danger (the stack near the rim) swells a detuned drone on the chord's root.
+ *   - An 8-line feedback-delay-network reverb; a peak limiter then a soft clip on the master.
  *
  * Threads: the game thread posts commands into a lock-free single-producer/single-consumer ring;
- * the audio callback drains it before rendering. Sway is an atomic.
+ * the audio callback drains it before rendering. Sway and intensity are atomics.
  *
  * SPDX-FileCopyrightText: 2026 Mitul Shah
  * SPDX-License-Identifier: MIT
@@ -79,10 +81,10 @@ static void ftz_restore(uint64_t r)
 }
 
 /* ---- commands --------------------------------------------------------------------------------- */
-enum { C_BELL, C_CHIME, C_SHATTER, C_UI, C_MOOD, C_MUSIC };
+enum { C_BELL, C_CHIME, C_SHATTER, C_UI, C_WORLD, C_MUSIC };
 typedef struct { int type, a; float x, y; } Cmd;
 static Cmd g_q[CMDQ];
-static SDL_AtomicInt g_qhead, g_qtail, g_sway_milli;
+static SDL_AtomicInt g_qhead, g_qtail, g_sway_milli, g_intensity_milli;
 
 static void post(Cmd c)
 {
@@ -158,13 +160,42 @@ static void strike(float f, const float *ratio, const float *amp, const float *t
 
 static const float kGlassRatio[5] = {1.0f, 2.32f, 4.25f, 6.63f, 9.38f};
 static const float kGlassAmp[5] = {1.0f, 0.5f, 0.32f, 0.18f, 0.1f};
-static const int kPent[5] = {0, 2, 4, 7, 9};
 
+/* ---- the songs ---------------------------------------------------------------------------------- */
+enum { Q_MAJ, Q_MIN, Q_MAJ7, Q_MIN7, Q_SUS2 };
+static const int kQuality[5][4] = {{0, 4, 7, 12}, {0, 3, 7, 12}, {0, 4, 7, 11}, {0, 3, 7, 10}, {0, 2, 7, 12}};
+typedef struct {
+    float bpm;
+    int key;           /* MIDI note of the tonic, around middle C: the bells' scale starts here */
+    bool minor;        /* minor or major pentatonic for the bells */
+    int root[4], q[4]; /* the 4-bar loop */
+    bool four_floor;   /* kick on every beat (else beats 1 and 3) */
+} Song;
+static const Song kSongs[5] = {
+    {92, 57, true, {57, 53, 48, 55}, {Q_MIN7, Q_MAJ7, Q_MAJ, Q_MAJ}, false},     /* Nebula: A minor */
+    {100, 62, false, {62, 59, 55, 57}, {Q_MAJ7, Q_MIN7, Q_MAJ7, Q_SUS2}, false}, /* Aurora: D major */
+    {104, 52, true, {52, 48, 55, 50}, {Q_MIN7, Q_MAJ7, Q_MAJ, Q_SUS2}, false},   /* Ocean: E minor */
+    {112, 60, true, {60, 56, 51, 58}, {Q_MIN, Q_MAJ7, Q_MAJ, Q_MAJ}, false},     /* Ember: C minor */
+    {120, 54, true, {54, 50, 57, 52}, {Q_MIN7, Q_MAJ7, Q_MAJ, Q_MAJ}, true},     /* Night City: F# minor */
+};
+static int g_song, g_bar, g_step8;  /* the current song, bar and 8th within the bar */
+static int g_chord[4], g_bass;      /* the current chord's voicing (around 55-70) and bass note */
+
+static int fold(int n, int lo, int hi)
+{
+    while (n < lo) n += 12;
+    while (n > hi) n -= 12;
+    return n;
+}
+
+static const int kPentMaj[5] = {0, 2, 4, 7, 9}, kPentMin[5] = {0, 3, 5, 7, 10};
 static float pent_midi(int step, int base)
 {
+    const Song *sg = &kSongs[g_song];
+    const int *pent = sg->minor ? kPentMin : kPentMaj;
     if (step < 0) step = 0;
     step %= 15;
-    return (float)(base + 12 * (step / 5) + kPent[step % 5]);
+    return (float)(fold(sg->key, base - 3, base + 8) + 12 * (step / 5) + pent[step % 5]);
 }
 
 static void bell(int step, float vel, float pan)
@@ -257,26 +288,81 @@ static inline float sine_ph(float ph)  /* ph in [0,1) */
     return g_sine[i] + (g_sine[i + 1] - g_sine[i]) * f;
 }
 
-static const int kChords[4][4] = {{48, 55, 64, 71}, {45, 52, 60, 67}, {41, 48, 57, 64}, {43, 50, 59, 64}};
 typedef struct { float ph[2], f[2], g, target; } PadTone;
 static PadTone g_pad[2][4];  /* two layers for chord crossfades */
-static int g_pad_layer, g_mood = -1;
+static int g_pad_layer;
 static float g_music = 1.0f, g_music_target = 1.0f;
 static float g_harm_ph[3], g_trem_ph, g_lfo_ph;
 
-static void set_mood(int m)
+/* The bar's chord: the pad crossfades to it, and the arpeggio and bass read it. */
+static void set_chord(int bar)
 {
-    m &= 3;
-    if (m == g_mood) return;
-    g_mood = m;
+    const Song *sg = &kSongs[g_song];
+    const int c = bar & 3, root = sg->root[c];
+    for (int i = 0; i < 4; i++) g_chord[i] = fold(root + kQuality[sg->q[c]][i], 55, 70);
+    for (int i = 1; i < 4; i++)  /* sort the voicing low to high */
+        for (int k = i; k > 0 && g_chord[k] < g_chord[k - 1]; k--) {
+            const int t = g_chord[k];
+            g_chord[k] = g_chord[k - 1];
+            g_chord[k - 1] = t;
+        }
+    g_bass = fold(root, 40, 51);
     g_pad_layer ^= 1;
     for (int i = 0; i < 4; i++) {
         PadTone *t = &g_pad[g_pad_layer][i];
-        const float f = mtof((float)kChords[m][i]);
+        const float f = mtof((float)g_chord[i]);
         t->f[0] = f * 0.9985f;
         t->f[1] = f * 1.0015f;
         t->target = 1.0f;
         g_pad[g_pad_layer ^ 1][i].target = 0.0f;
+    }
+}
+
+static void set_song(int song)
+{
+    g_song = ((song % 5) + 5) % 5;
+    g_bar = 0;
+    g_step8 = 0;  /* the next 8th (due at once) sets the first chord */
+}
+
+/* ---- the band: arpeggio, bass, kick, hats --------------------------------------------------------- */
+static float g_step_left;                 /* samples to the next 8th */
+static float g_int = 0.0f;                /* smoothed intensity 0..1 */
+static float g_kick_ph, g_kick_t = 1e9f;  /* the kick: a sine sweeping down; seconds since its hit */
+static float g_hat_env, g_hat_prev;
+static uint32_t g_hat_seed = 0x8badf00du;
+
+static void on_step(void)
+{
+    const Song *sg = &kSongs[g_song];
+    const int s8 = g_step8;
+    const float arp = (0.35f + 0.65f * clampf(g_int * 2.0f, 0, 1)) * g_music_target;
+    const float bass = clampf((g_int - 0.22f) * 3.0f, 0, 1) * g_music_target;
+    const float drums = clampf((g_int - 0.45f) * 3.0f, 0, 1) * g_music_target;
+    if (s8 == 0) set_chord(g_bar);
+    /* the arpeggio: up and down the chord, an octave above the pad */
+    static const int kArp[8] = {0, 1, 2, 3, 4, 3, 2, 1};
+    if (arp > 0.01f) {
+        const int k = kArp[s8];
+        const int midi = (k < 4 ? g_chord[k] : g_chord[0] + 12) + 12;
+        static const float r[4] = {1.0f, 2.0f, 3.0f, 4.01f}, a[4] = {1.0f, 0.35f, 0.15f, 0.06f};
+        static const float t[4] = {0.42f, 0.24f, 0.14f, 0.09f};
+        strike(mtof((float)midi), r, a, t, 4, 0.06f * arp, (s8 & 1) ? 0.35f : -0.35f, 0.04f, 0.4f, 0.0f);
+    }
+    /* the bass: beats 1 and 3, with a pickup into the next bar */
+    if (bass > 0.01f && (s8 == 0 || s8 == 4 || s8 == 7)) {
+        static const float r[3] = {1.0f, 2.0f, 3.0f}, a[3] = {1.0f, 0.5f, 0.22f}, t[3] = {0.55f, 0.3f, 0.16f};
+        const int midi = s8 == 7 ? g_bass + 7 : g_bass;
+        strike(mtof((float)midi), r, a, t, 3, (s8 == 7 ? 0.13f : 0.2f) * bass, 0.0f, 0.02f, 0.08f, 0.0f);
+    }
+    /* the kick and hats */
+    if (drums > 0.01f) {
+        if ((s8 & 1) == 0 && (sg->four_floor || s8 == 0 || s8 == 4)) g_kick_t = 0.0f, g_kick_ph = 0.0f;
+        if (s8 & 1) g_hat_env = 0.05f * drums;
+    }
+    if (++g_step8 == 8) {
+        g_step8 = 0;
+        g_bar++;
     }
 }
 
@@ -319,7 +405,7 @@ static void handle(const Cmd *c)
     case C_CHIME: chime(c->x, c->y); break;
     case C_SHATTER: shatter(c->x, c->y); break;
     case C_UI: ui(c->a, c->y); break;
-    case C_MOOD: set_mood(c->a); break;
+    case C_WORLD: set_song(c->a); g_step_left = 0; break;
     case C_MUSIC: g_music_target = c->a == 0 ? 0.0f : (c->a == 2 ? 0.35f : 1.0f); break;
     }
 }
@@ -337,6 +423,8 @@ static void render(float *out, int n)
     }
     SDL_SetAtomicInt(&g_qtail, t);
     const float sway_target = (float)SDL_GetAtomicInt(&g_sway_milli) * 0.001f;
+    const float int_target = (float)SDL_GetAtomicInt(&g_intensity_milli) * 0.001f;
+    const float spe = SRF * 60.0f / (kSongs[g_song].bpm * 2.0f);  /* samples per 8th */
 
     const float pad_inc = 1.0f / SRF;
     for (int s = 0; s < n; s++) {
@@ -364,6 +452,30 @@ static void render(float *out, int n)
             send += x * (v->gl + v->gr) * 0.5f * v->send;
             if (++v->age > v->life) v->on = false;
         }
+        /* the clock */
+        if (--g_step_left <= 0.0f) {
+            g_step_left += spe;
+            on_step();
+        }
+        g_int += (int_target - g_int) * (1.0f / (2.0f * SRF));
+        /* kick: 48 Hz with a fast drop from 140 Hz; hats: differenced noise */
+        if (g_kick_t < 0.4f) {
+            const float f = 48.0f + 92.0f * expf(-g_kick_t * 40.0f);
+            g_kick_ph += f / SRF;
+            if (g_kick_ph >= 1.0f) g_kick_ph -= 1.0f;
+            const float k = sine_ph(g_kick_ph) * expf(-g_kick_t * 6.5f) * 0.32f * g_music;
+            l += k;
+            r += k;
+            g_kick_t += 1.0f / SRF;
+        }
+        if (g_hat_env > 1e-4f) {
+            const float n = frand(&g_hat_seed), h = (n - g_hat_prev) * g_hat_env * g_music;
+            g_hat_prev = n;
+            l += h * 0.8f;
+            r += h;
+            send += h * 0.3f;
+            g_hat_env *= 0.9985f;
+        }
         /* pad */
         g_music += (g_music_target - g_music) * (1.0f / (1.5f * SRF));
         g_lfo_ph += 0.07f * pad_inc;
@@ -372,7 +484,7 @@ static void render(float *out, int n)
         for (int layer = 0; layer < 2; layer++)
             for (int i = 0; i < 4; i++) {
                 PadTone *pt = &g_pad[layer][i];
-                pt->g += (pt->target - pt->g) * (1.0f / (3.0f * SRF));
+                pt->g += (pt->target - pt->g) * (1.0f / (0.5f * SRF));
                 if (pt->g < 1e-4f && pt->target == 0.0f) continue;
                 for (int d = 0; d < 2; d++) {
                     pt->ph[d] += pt->f[d] * pad_inc;
@@ -387,8 +499,7 @@ static void render(float *out, int n)
         /* glass harmonica, swelling with the sway */
         g_sway += (sway_target - g_sway) * (sway_target > g_sway ? 1.0f / (0.25f * SRF) : 1.0f / (1.6f * SRF));
         if (g_sway > 0.01f) {
-            const int root = kChords[g_mood < 0 ? 0 : g_mood][0] + 36;
-            const float f0 = mtof((float)root), f1 = f0 * 1.5f, f2 = f0 * 2.0f;
+            const float f0 = mtof((float)g_bass) * 1.003f, f1 = f0 * 1.5f, f2 = f0 * 2.0f;  /* a drone on the root, a little sharp */
             g_harm_ph[0] += f0 * pad_inc; if (g_harm_ph[0] >= 1) g_harm_ph[0] -= 1;
             g_harm_ph[1] += f1 * pad_inc; if (g_harm_ph[1] >= 1) g_harm_ph[1] -= 1;
             g_harm_ph[2] += f2 * pad_inc; if (g_harm_ph[2] >= 1) g_harm_ph[2] -= 1;
@@ -438,7 +549,7 @@ bool audio_init(void)
 {
     if (g_stream) return true;
     for (int i = 0; i <= SINE_N; i++) g_sine[i] = sinf(TWO_PI * (float)i / SINE_N);
-    set_mood(0);
+    set_song(0);
     if (!SDL_WasInit(SDL_INIT_AUDIO) && !SDL_InitSubSystem(SDL_INIT_AUDIO)) {
         SDL_Log("chroma-orbit: no audio subsystem: %s", SDL_GetError());
         return false;
@@ -471,7 +582,8 @@ void audio_bell(int step, float vel, float pan) { post((Cmd){C_BELL, step, vel, 
 void audio_chime(float vel, float pan) { post((Cmd){C_CHIME, 0, vel, pan}); }
 void audio_shatter(float vel, float pan) { post((Cmd){C_SHATTER, 0, vel, pan}); }
 void audio_ui(UiSound s, float pan) { post((Cmd){C_UI, (int)s, 0, pan}); }
-void audio_mood(int chord) { post((Cmd){C_MOOD, chord, 0, 0}); }
+void audio_world(int world) { post((Cmd){C_WORLD, world, 0, 0}); }
+void audio_intensity(float x) { SDL_SetAtomicInt(&g_intensity_milli, (int)(clampf(x, 0, 1) * 1000.0f)); }
 void audio_music(int level) { post((Cmd){C_MUSIC, level, 0, 0}); }
 void audio_sway(float amount) { SDL_SetAtomicInt(&g_sway_milli, (int)(clampf(amount, 0, 1) * 1000.0f)); }
 
@@ -480,7 +592,7 @@ void audio_render_offline(float *out, int frames)
 {
     if (!g_sine[1]) {
         for (int i = 0; i <= SINE_N; i++) g_sine[i] = sinf(TWO_PI * (float)i / SINE_N);
-        set_mood(0);
+        set_song(0);
     }
     while (frames > 0) {
         const int n = frames < BLOCK ? frames : BLOCK;

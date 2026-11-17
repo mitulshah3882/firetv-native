@@ -18,6 +18,8 @@ _Last updated: 2026-11-17._
   - **Land Grab** (N64 card): the music.
   - **Hydra Harmonics** (new, last card in the arcade): a four-player N64 jam game about hydras
     eating music notes. Up and Down move, OK chomps. Its music and voices haven't been heard yet.
+  - **Chroma Orbit** (third card): each world now has its own song, and the bass and drums come in
+    as the star's energy fills. Play a world through to its supernova and listen to the build.
 - [ ] **Plug in a 4K stick** (developer mode on) and tell Claude. It runs every game and the GPU check
   on it. Only the HD stick has been tested so far.
 - [ ] **Gamepad, if you have one:** pair a Bluetooth gamepad with the stick and tell Claude. Nothing has

@@ -53,9 +53,16 @@ rules from the start.
   stays readable.
 
 ## Sound
-- Each world is a song of stems synthesized live; the ring depth of the stack picks how many stems
-  play. A clear is a chord stab; chains arpeggiate upward; the star's brightness is the master
-  filter.
+- Each world is a song, synthesized live (`src/audio.c`): a key, a tempo and a 4-chord loop.
+  Nebula, A minor, 92 BPM; Aurora, D major, 100; Ocean, E minor, 104; Ember, C minor, 112; Night
+  City, F# minor, 120, with the kick on every beat. An 8th-note clock plays a pad, a plucked
+  arpeggio of the chord, a bass, a soft kick and hats.
+- The star's energy is the intensity: the pad and a quiet arpeggio from the start, the arpeggio
+  louder as it fills, the bass from a quarter, the drums from half. A supernova starts the next
+  world's song from its first bar, back down to the pad.
+- A clear is a glass bell in the world's key; chains climb the scale. Danger swells a drone on the
+  chord's root. Offline check: `tools/audio-test.sh` (each song as the intensity climbs; peak, RMS,
+  a WAV).
 
 ## Pressure: solar flares
 Without pressure the rules are too forgiving: a one-move greedy AI that can reach any rotation never

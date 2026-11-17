@@ -13,6 +13,7 @@ _Last updated: 2026-11-17 (Prism Spire and Chroma Orbit polished, measured and g
   - Next: a playtest with people (round length, piece mix, event odds).
 - **Chroma Orbit (`apps/chroma-orbit`), the third original game: playable on the TV at 60 fps, in the arcade (third card).** A pair-dropper on a polar grid around a plasma star; you turn the planet. Rules `src/board.c` (+ `tools/rules-sim.c` balance runs), greedy AI attract mode, sky/corona at 640×360 + a sharp star quad (decision 64). GPU A/B: `?co=sky:0,cells:0,sparks:0,ui:0`; test scripts `?script=nova|over|sky|tour` (also `host-preview.sh shots <script>`).
   - 2026-11-17: checked on the TV with those scripts: worlds 1–8, the supernova (the star now swallows the rings, a white-out over the board, a title card for the new world) and the game over (the rings drain into the star). Each world has its own backdrop (nebula, aurora, ocean, embers, a neon skyline). The key art and logo are a still, full board. Store kit: `apps/chroma-orbit/store/`.
+  - Music (2026-11-17): a song per world (key, tempo, 4-chord loop: pad, arpeggio, bass, kick and hats), the parts brought in by the star's energy; bells in the world's key. `tools/audio-test.sh` renders each song offline (peaks ≤ 0.53); on the TV the stream keeps up at 59.6 fps. Not heard by a person yet.
   - Next: a playtest with people (fall speed, flare rate, world goal).
   - **Gravity Choir is ready for a Live App Test** (the user's step):
     - the Crescendo is on Menu (decision 57);

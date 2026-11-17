@@ -7,8 +7,9 @@
 #                                                             # renders PNGs to build/host-prism-spire/shots-<script>/
 #
 # Scripts: title (attract mode), play (the AI plays a 4-player party), collapse (the AI plays riskily),
-# solo (the AI plays the Daily Spire), howto, credits, keyart (the tower, no UI), logo (the store icon
-# frame: the tower and the name).
+# tall (the AI builds carefully), solo (the AI plays the Daily Spire), howto, credits, keyart (the
+# tower, no UI), logo (the store icon frame: the tower and the name). On the TV the same scripts come
+# from the launch URI: pkg://com.firetvnative.prismspire.main?script=play.
 #
 # SPDX-FileCopyrightText: 2026 Mitul Shah
 # SPDX-License-Identifier: MIT

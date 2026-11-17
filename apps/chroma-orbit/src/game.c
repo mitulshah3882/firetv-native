@@ -54,9 +54,10 @@ static struct {
     float t, time, phase_t, fall_acc;
     bool shots, demo, keyart;
     const char *script;
-    int nova_test;
+    int nova_test, nova_every;
     bool sky_test;
-    bool logo;          /* script "logo": the title layout with only the name (store icon) */      /* script "sky": each world's backdrop for a second, no board or UI */      /* script "nova": the star goes supernova every few pairs, to see every world */
+    bool logo;          /* script "logo": the title layout with only the name (store icon) */
+    float ai_skill;     /* the demo AI's skill (script "busy" plays worse, so the board fills up) */      /* script "sky": each world's backdrop for a second, no board or UI */      /* script "nova": the star goes supernova every few pairs, to see every world */
     Board b;
     int world, pairs_since_flare, menu_sel, pause_sel;
     float energy, energy_shown, rot_vis, star_r, flash, danger, mix;
@@ -184,7 +185,7 @@ static void spawn(void)
     G.phase = PH_FALL;
     G.fall_acc = 0;
     G.ai_planned = false;
-    if (G.nova_test && ++G.nova_test % 10 == 0) G.energy = world_goal();
+    if (G.nova_test && ++G.nova_test % G.nova_every == 0) G.energy = world_goal();
     if (!board_spawn(&G.b)) {
         if (G.demo && G.state != ST_PLAY) { new_game(true); return; }  /* the title's attract mode just starts over */
         G.state = ST_OVER;
@@ -317,7 +318,7 @@ static void ai_update(float dt)
 {
     if (G.phase != PH_FALL) return;
     if (!G.ai_planned) {
-        G.ai_move = ai_choose(&G.b, G.keyart ? 1.0f : 0.85f, &G.ai_seed);
+        G.ai_move = ai_choose(&G.b, G.keyart ? 1.0f : (G.ai_skill > 0 ? G.ai_skill : 0.85f), &G.ai_seed);
         if (G.ai_move.swap) board_swap(&G.b);
         G.ai_planned = true;
         G.ai_t = 0;
@@ -394,7 +395,7 @@ static void update(float dt)
     G.rot_vis += d * (1.0f - expf(-18.0f * dt));
     if (G.state == ST_PLAY || ((G.state == ST_TITLE || G.state == ST_HOWTO || G.state == ST_CREDITS) && G.demo)) {
         if (G.state != ST_PLAY && G.b.over) new_game(true);
-        play_update(dt);
+        if (!G.keyart || G.sky_test) play_update(dt);  /* key art and the logo are a still board */
     }
     /* solar wind */
     if (frand() < dt * 30.0f) {
@@ -583,6 +584,54 @@ static void draw_pause(void)
     }
 }
 
+/* A full, colourful board for still frames (key art, the store icon): the inner rings filled, a ragged
+ * outer edge, no cluster of four (so nothing would clear), the top left open for a falling pair, and
+ * the star near full energy. */
+static int cluster_size(const Board *b, int r0, int s0)
+{
+    uint8_t seen[RINGS][SECTORS] = {{0}};
+    int st[RINGS * SECTORS][2], top = 0, n = 0;
+    const uint8_t c = b->cell[r0][s0];
+    st[top][0] = r0; st[top][1] = s0; top++;
+    seen[r0][s0] = 1;
+    while (top) {
+        top--;
+        const int r = st[top][0], s = st[top][1];
+        n++;
+        const int nb[4][2] = {{r, (s + 1) % SECTORS}, {r, (s + SECTORS - 1) % SECTORS}, {r + 1, s}, {r - 1, s}};
+        for (int k = 0; k < 4; k++) {
+            const int nr = nb[k][0], ns = nb[k][1];
+            if (nr < 0 || nr >= RINGS || seen[nr][ns] || b->cell[nr][ns] != c) continue;
+            seen[nr][ns] = 1;
+            st[top][0] = nr; st[top][1] = ns; top++;
+        }
+    }
+    return n;
+}
+static void showcase_board(void)
+{
+    static const float fill[RINGS] = {1, 1, 1, 1, 0.9f, 0.6f, 0.25f, 0};
+    G.b.colors = 5;
+    memset(G.b.cell, 0, sizeof G.b.cell);
+    for (int r = 0; r < RINGS; r++)
+        for (int s = 0; s < SECTORS; s++) {
+            const int slot = ((s - G.b.rot) % SECTORS + SECTORS) % SECTORS;
+            if (r >= 4 && (slot <= 1 || slot >= SECTORS - 1)) continue;  /* room for the falling pair */
+            if (r > 0 && !G.b.cell[r - 1][s]) continue;                 /* everything rests on something */
+            if (frand() >= fill[r]) continue;
+            for (int tries = 0; tries < 12; tries++) {
+                G.b.cell[r][s] = (uint8_t)(1 + (int)(frand() * 5.0f) % 5);
+                if (cluster_size(&G.b, r, s) < 4) break;
+            }
+            if (cluster_size(&G.b, r, s) >= 4) G.b.cell[r][s] = 0;
+        }
+    G.b.pair[0] = 2;
+    G.b.pair[1] = 1;
+    G.b.pair_ring = RINGS - 1;
+    G.b.falling = true;
+    G.energy = G.energy_shown = world_goal() * 0.55f;
+}
+
 /* ---- API -------------------------------------------------------------------------------------- */
 static void go_title(void)
 {
@@ -604,12 +653,14 @@ bool game_init(const char *script, bool shots)
     go_title();
     if (script) {
         if (!strcmp(script, "play")) { G.state = ST_PLAY; new_game(true); }
+        else if (!strcmp(script, "busy")) { G.state = ST_PLAY; G.ai_skill = 0.4f; new_game(true); }
         else if (!strcmp(script, "howto")) G.state = ST_HOWTO;
         else if (!strcmp(script, "credits")) G.state = ST_CREDITS;
-        else if (!strcmp(script, "keyart")) G.keyart = true;
-        else if (!strcmp(script, "logo")) G.keyart = G.logo = true;
+        else if (!strcmp(script, "keyart")) { G.keyart = true; showcase_board(); }
+        else if (!strcmp(script, "logo")) { G.keyart = G.logo = true; showcase_board(); }
         else if (!strcmp(script, "sky")) { G.keyart = true; G.sky_test = true; }
-        else if (!strcmp(script, "nova")) { G.state = ST_PLAY; G.nova_test = 1; new_game(true); }
+        else if (!strcmp(script, "nova")) { G.state = ST_PLAY; G.nova_test = 1; G.nova_every = 10; new_game(true); }
+        else if (!strcmp(script, "tour")) { G.state = ST_PLAY; G.nova_test = 1; G.nova_every = 22; G.ai_skill = 0.4f; new_game(true); }
         else if (!strcmp(script, "over")) {
             /* a nearly full board with no clusters, then a pair that has no room: the game-over screen */
             G.state = ST_PLAY;
@@ -721,9 +772,9 @@ void game_frame(float dt, int fb_w, int fb_h, float fps)
     switch (G.state) {
     case ST_TITLE:
         if (G.logo) {
-            render_text("CHROMA", 480, 330, 150, col(0.95f, 0.95f, 1.0f, 1), 0, 1.0f);
-            render_text("ORBIT", 480, 480, 150, col(0.95f, 0.95f, 1.0f, 1), 0, 1.0f);
-            render_text("Turn the planet. Feed the star.", 480, 680, 40, col(1.0f, 0.82f, 0.6f, 1), 0, 0.3f);
+            render_text("CHROMA", 470, 300, 175, col(0.95f, 0.95f, 1.0f, 1), 0, 1.0f);
+            render_text("ORBIT", 470, 475, 175, col(0.95f, 0.95f, 1.0f, 1), 0, 1.0f);
+            render_text("Turn the planet. Feed the star.", 470, 700, 44, col(1.0f, 0.82f, 0.6f, 1), 0, 0.3f);
         } else if (!G.keyart) draw_title();
         break;
     case ST_HOWTO: draw_howto(); break;

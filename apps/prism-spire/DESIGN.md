@@ -7,11 +7,19 @@ challenge. Concept and market notes: `docs/research/original-game-concepts.md` (
 
 ## Rules
 - **A turn:** the current player's piece hovers above the tower. Left/Right move it, Up/Down rotate it
-  by 15°, OK drops it. The tower then settles: either everything comes to rest (next player), or a
-  piece falls off the plinth (the player who dropped loses the round).
+  by 15°, OK drops it: the piece glides down its beam to just above whatever is under it and is let
+  go there, so a careful drop is gentle. The tower then settles: either everything comes to rest (next
+  player), or a piece falls off the plinth (the player who dropped loses the round).
 - **Pieces:** convex glass prisms (bar, block, triangle, wedge, trapezoid, hexagon, plank) plus one
   two-part L. The next piece is shown in a corner. Every piece is extruded to the same depth, so the
   tower is a 2D physics problem drawn in 3D.
+- **The deal ramps:** the first five pieces of a round are friendly shapes; the triangle, the wedge and
+  the L come in after that, at full odds by the 13th piece.
+- **Balance, measured** (`host-preview.sh shots tall 18000 1`, the demo AI building carefully, about
+  seven 4-player rounds in 5 minutes; the `round over` log line): dropping from the hover height (2.4 m,
+  about 6 m/s at impact) with every shape from the start, rounds averaged 8.1 pieces and 3.1 m. The
+  ramp alone: 9.4 pieces, 4.1 m. The ramp plus the glide: 10.7 pieces, 4.9 m, the best round 17 pieces
+  and 7.8 m. A person aiming with the beam should do better than the AI; this wants a playtest.
 - **Events** (party and solo, from the 6th piece on, about one turn in four), announced on a banner
   before the drop:
   - **Wind:** a steady sideways push on the whole tower for the turn, shown by drifting streaks.

@@ -151,6 +151,8 @@ static struct {
     b2BodyId plinth, ground;
     Piece pieces[MAX_PIECES];
     int npieces_placed;     /* pieces dropped this round */
+    bool lowering;          /* OK was pressed: the piece glides down the beam before it is let go */
+    float release_y;
     /* the turn */
     bool solo, demo;        /* demo: the AI plays (attract mode and scripts) */
     bool keyart;            /* the attract tower with no UI (store art, icon, splash) */
@@ -344,6 +346,20 @@ static float shape_extent_down(int shape, float angle)
     return lo;
 }
 
+static void shape_extent_x(int shape, float angle, float *lo, float *hi)
+{
+    const Shape *s = &g_shapes[shape];
+    const float c = cosf(angle), sn = sinf(angle);
+    *lo = 1e9f;
+    *hi = -1e9f;
+    for (int k = 0; k < s->nparts; k++)
+        for (int v = 0; v < s->nverts[k]; v++) {
+            const float x = c * s->v[k][v][0] - sn * s->v[k][v][1];
+            if (x < *lo) *lo = x;
+            if (x > *hi) *hi = x;
+        }
+}
+
 static float tower_top(void)
 {
     float top = 0.0f;
@@ -392,14 +408,22 @@ static void fx_update(float dt)
 }
 
 /* ---- turns ------------------------------------------------------------------------------------ */
+/* The deal ramps: the first five pieces of a round are friendly shapes, then the tricky ones (the
+ * triangle, the wedge and the L) come in, at full odds by the 13th piece. Measured with the demo AI
+ * (host-preview.sh shots tall): rounds averaged 8 pieces with the tricky shapes from the start. */
 static int deal_shape(void)
 {
-    int total = 0;
-    for (int i = 0; i < SH_COUNT; i++) total += kShapeWeight[i];
+    const float ramp = clampf(((float)G.npieces_placed - 4.0f) / 8.0f, 0.0f, 1.0f);
+    int w[SH_COUNT], total = 0;
+    for (int i = 0; i < SH_COUNT; i++) {
+        const bool tricky = i == SH_TRI || i == SH_WEDGE || i == SH_ELL;
+        w[i] = tricky ? (int)((float)kShapeWeight[i] * ramp + 0.5f) : kShapeWeight[i];
+        total += w[i];
+    }
     int r = (int)(rng_u32(&G.deal) % (uint32_t)total);
     for (int i = 0; i < SH_COUNT; i++) {
-        if (r < kShapeWeight[i]) return i;
-        r -= kShapeWeight[i];
+        if (r < w[i]) return i;
+        r -= w[i];
     }
     return SH_BLOCK;
 }
@@ -417,6 +441,7 @@ static void toast(const char *s)
 
 static void begin_turn(void)
 {
+    G.lowering = false;
     G.state = ST_AIM;
     G.t = 0;
     G.hover_shape = G.next_shape;
@@ -427,6 +452,8 @@ static void begin_turn(void)
     G.ai_planned = false;
     /* stay roughly above the tower, nudged off the very top so it isn't a free pass */
     G.hover_x = clampf(G.hover_x * 0.6f, -2.5f, 2.5f);
+    /* the new piece appears a little above its hover height and floats down into place */
+    G.hover_y = fmaxf(G.top + HOVER_GAP - shape_extent_down(G.hover_shape, 0.0f), 2.2f) + 0.35f;
     /* events, from the sixth piece on */
     G.event = EV_NONE;
     if (G.npieces_placed >= 5 && rng_f(&G.deal) < 0.26f) {
@@ -473,6 +500,7 @@ static void drop_piece(void)
 {
     const float friction = G.event == EV_SLIPPERY ? 0.08f : 0.62f;
     const int i = piece_create(G.hover_shape, G.hover_x, G.hover_y, G.hover_a, current_tint(), G.cur, friction, false);
+    if (i >= 0) b2Body_SetLinearVelocity(G.pieces[i].body, (b2Vec2){0.0f, -1.2f});
     G.last_drop = i;
     G.npieces_placed++;
     G.state = ST_SETTLE;
@@ -483,6 +511,29 @@ static void drop_piece(void)
     audio_ui(UI_DROP, G.hover_x / 4.0f);
 }
 
+/* OK: the piece glides down the beam to just above whatever is under any part of it, and is let go
+ * there. It used to fall from its hover height, 2.4 m above the tower: a 6 m/s slam that toppled most
+ * towers by the 8th piece, however carefully they were built. */
+static void request_drop(void)
+{
+    if (G.lowering) return;
+    float lo, hi;
+    shape_extent_x(G.hover_shape, G.hover_a, &lo, &hi);
+    const float down = shape_extent_down(G.hover_shape, G.hover_a);
+    float land = -PLINTH_H;
+    for (int k = 0; k < 7; k++) {
+        const float x = G.hover_x + lo + 0.02f + (hi - lo - 0.04f) * (float)k / 6.0f;
+        b2RayResult hit = b2World_CastRayClosest(G.world, (b2Vec2){x, G.hover_y + down - 0.05f}, (b2Vec2){0.0f, -40.0f}, b2DefaultQueryFilter());
+        if (hit.hit && hit.point.y > land) land = hit.point.y;
+    }
+    G.release_y = land + 0.12f - down;
+    G.lowering = true;
+    if (G.release_y >= G.hover_y) {
+        G.lowering = false;
+        drop_piece();
+    }
+}
+
 static void next_player(void)
 {
     if (!G.solo) G.cur = (G.cur + 1) % G.nplayers;
@@ -491,6 +542,8 @@ static void next_player(void)
 
 static void start_collapse(void)
 {
+    SDL_Log("prism-spire: round over: %d pieces, %.2f m, %s, event %d", G.npieces_placed, G.best_round, G.solo ? "solo" : "party",
+            (int)G.event);
     G.state = ST_COLLAPSE;
     G.t = 0;
     G.loser = G.cur;
@@ -522,11 +575,13 @@ static void ai_plan(void)
     }
     const float mid = lo <= hi ? (lo + hi) * 0.5f : 0.0f;
     const bool risky = G.script && !strcmp(G.script, "collapse");
+    const bool careful = G.script && !strcmp(G.script, "tall");  /* builds high (store screenshots) */
     G.ai_x = mid + rng_range(&G.rng, -0.35f, 0.35f) + (risky ? rng_range(&G.rng, 0.4f, 1.2f) * (rng_f(&G.rng) < 0.5f ? -1.0f : 1.0f) : 0.0f);
+    if (careful) G.ai_x = mid * 0.6f + rng_range(&G.rng, -0.08f, 0.08f);
     G.ai_x = clampf(G.ai_x, -2.8f, 2.8f);
     G.ai_a = 0.0f;
-    if (G.hover_shape == SH_PILLAR && rng_f(&G.rng) < 0.6f) G.ai_a = (float)M_PI * 0.5f;
-    if ((G.hover_shape == SH_TRI || G.hover_shape == SH_WEDGE) && rng_f(&G.rng) < 0.3f) G.ai_a = ROT_STEP * 2;
+    if (G.hover_shape == SH_PILLAR && (careful || rng_f(&G.rng) < 0.6f)) G.ai_a = (float)M_PI * 0.5f;
+    if ((G.hover_shape == SH_TRI || G.hover_shape == SH_WEDGE) && !careful && rng_f(&G.rng) < 0.3f) G.ai_a = ROT_STEP * 2;
     G.ai_planned = true;
     G.ai_t = 0;
 }
@@ -538,7 +593,7 @@ static void ai_update(float dt)
     G.ai_t += dt;
     G.hover_x = approach(G.hover_x, G.ai_x, 2.5f, dt);
     G.hover_a = G.ai_a;
-    if (G.ai_t > 1.6f && fabsf(G.hover_x - G.ai_x) < 0.05f) drop_piece();
+    if (G.ai_t > 1.6f && fabsf(G.hover_x - G.ai_x) < 0.05f) request_drop();
 }
 
 /* ---- update ----------------------------------------------------------------------------------- */
@@ -657,6 +712,16 @@ static void settle_update(float dt)
 
 static void aim_update(float dt)
 {
+    if (G.lowering) {
+        G.hover_y -= 9.0f * dt;
+        G.hover_a_vis = G.hover_a;
+        if (G.hover_y <= G.release_y) {
+            G.hover_y = G.release_y;
+            G.lowering = false;
+            drop_piece();
+        }
+        return;
+    }
     const float target_y = G.top + HOVER_GAP - shape_extent_down(G.hover_shape, G.hover_a);
     G.hover_y = approach(G.hover_y, fmaxf(target_y, 2.2f), 4.0f, dt);
     if (G.demo) {
@@ -826,7 +891,7 @@ static void draw_world(void)
     /* the piece being placed, its drop guide and where it will land */
     if (aiming) {
         const Col tint = current_tint();
-        const float bob = sinf(G.time * 2.2f) * 0.04f;
+        const float bob = G.lowering ? 0.0f : sinf(G.time * 2.2f) * 0.04f;
         render_piece(g_mesh[G.hover_shape], G.hover_x, G.hover_y + bob, G.hover_a_vis, tint,
                      G.event == EV_SLIPPERY ? 1.0f : 0.0f, 0.22f, 1.0f);
         const float bottom = G.hover_y + shape_extent_down(G.hover_shape, G.hover_a);
@@ -1051,7 +1116,7 @@ bool game_init(const char *script, bool shots)
     audio_init();
     go_title();
     if (script) {
-        if (!strcmp(script, "play") || !strcmp(script, "collapse")) {
+        if (!strcmp(script, "play") || !strcmp(script, "collapse") || !strcmp(script, "tall")) {
             start_game(false);
             G.demo = true;
         } else if (!strcmp(script, "solo")) {
@@ -1122,9 +1187,10 @@ bool game_button(GameButton b, bool down)
             if (b == GB_BACK || b == GB_MENU) go_title();
             break;
         }
+        if (G.lowering) break;
         if (b == GB_UP) { G.hover_a += ROT_STEP; audio_ui(UI_ROTATE, G.hover_x / 4.0f); }
         else if (b == GB_DOWN) { G.hover_a -= ROT_STEP; audio_ui(UI_ROTATE, G.hover_x / 4.0f); }
-        else if (b == GB_OK) drop_piece();
+        else if (b == GB_OK) request_drop();
         else if (b == GB_BACK || b == GB_MENU || b == GB_START) {
             G.paused_from = G.state;
             G.state = ST_PAUSE;

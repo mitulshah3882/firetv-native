@@ -6,8 +6,11 @@
 #   apps/chroma-orbit/host-preview.sh shots <script> [every] [count]
 #                                                             # renders PNGs to build/host-chroma-orbit/shots-<script>/
 #
-# Scripts: title (attract mode), play (the AI plays), keyart (no UI), howto, credits, nova (a supernova
-# every 10 pairs: every world), over (the game-over screen), sky (each backdrop for a second), logo (the store icon frame). On the TV: pkg://<component>?script=nova.
+# Scripts: title (attract mode), play (the AI plays), busy (a weaker AI: a fuller board), keyart (a
+# still board), logo (the store icon frame), howto, credits, nova (a supernova every 10 pairs: every
+# world), over (the game-over screen), sky (each backdrop for a second), tour (the weaker AI
+# with a supernova every 22 pairs: every world with a fuller board). On the TV the same scripts
+# come from the launch URI: pkg://com.firetvnative.chromaorbit.main?script=nova.
 #
 # SPDX-FileCopyrightText: 2026 Mitul Shah
 # SPDX-License-Identifier: MIT

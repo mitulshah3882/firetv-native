@@ -8,6 +8,10 @@
 #   <game>  each recompiled game in build/n64 (helloworld, brew_volley, jam_landgrab, jam_hydraharmonics; skipped if
 #           not generated): its sound effects decoded through its own recompiled wav64 loader vs
 #           the source WAVs, and a headless run that must boot and draw a non-black frame
+#   chroma_rules         Chroma Orbit's rules (tests/originals): clusters, rings, chains, flares and
+#                        a balance band for the greedy AI
+#   <game>_audio         each original game's synthesizer rendered offline (its tools/audio-test.sh):
+#                        its own checks pass and nothing reaches full scale
 #
 #   tools/test.sh [-v]        (-v: measurements and logs)
 #
@@ -177,6 +181,27 @@ else
   skip jam_landgrab "no N64brew Game Jam 2024 checkout (tools/fetch-deps.sh n64jam2024)"
   skip jam_hydraharmonics "no N64brew Game Jam 2024 checkout (tools/fetch-deps.sh n64jam2024)"
 fi
+
+# ---- the original games: rules and synthesizers, no device ----
+mkdir -p "$B/originals"
+if cc -std=gnu11 -g -O1 -fsanitize=address,undefined -Wall -Wextra -I"$ROOT/tests" -I"$ROOT/apps/chroma-orbit/src" \
+     "$ROOT/tests/originals/runner.c" "$ROOT/tests/originals/test_chroma_board.c" \
+     "$ROOT/apps/chroma-orbit/src/board.c" "$ROOT/apps/chroma-orbit/src/ai.c" -o "$B/originals/originals_unit" \
+     >"$B/originals/build.log" 2>&1; then
+  if run_logged originals/unit.log "$B/originals/originals_unit" $VERBOSE; then pass chroma_rules; else fail chroma_rules "see the checks above"; fi
+else
+  sed 's/^/  | /' "$B/originals/build.log"
+  fail chroma_rules "build failed"
+fi
+synth() {  # <test name> <audio-test script>
+  local name=$1 script=$2 pk
+  if ! run_logged "originals/$name.log" "$script"; then fail "$name" "its audio test failed"; return; fi
+  pk=$(grep -o 'peak [0-9.]*' "$B/originals/$name.log" | awk '$2 > m {m = $2} END {print m + 0}')
+  if awk -v p="$pk" 'BEGIN {exit !(p > 0.95)}'; then fail "$name" "peak $pk"; else pass "$name"; fi
+}
+synth gravity_choir_audio "$ROOT/apps/gravity-choir/tools/audio-test.sh"
+synth prism_spire_audio "$ROOT/apps/prism-spire/tools/audio-test.sh"
+synth chroma_orbit_audio "$ROOT/apps/chroma-orbit/tools/audio-test.sh"
 
 echo "$npass passed, $nfail failed, $nskip skipped in $(( $(date +%s) - T0 )) s${failed[0]+ (failed: ${failed[*]})}"
 [[ $nfail -eq 0 ]]

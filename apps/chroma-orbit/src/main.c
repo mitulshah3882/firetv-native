@@ -76,8 +76,8 @@ static void on_pad_button(Uint8 button, bool down)
     case SDL_GAMEPAD_BUTTON_DPAD_UP: b = GB_UP; break;
     case SDL_GAMEPAD_BUTTON_DPAD_DOWN: b = GB_DOWN; break;
     case SDL_GAMEPAD_BUTTON_SOUTH: b = GB_OK; break;
-    case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: b = GB_UP; break;      /* rotate */
-    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: b = GB_DOWN; break;
+    case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: b = GB_UP; break;      /* hold */
+    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: b = GB_DOWN; break;   /* fall faster */
     case SDL_GAMEPAD_BUTTON_NORTH: case SDL_GAMEPAD_BUTTON_WEST: b = GB_MENU; break;
     case SDL_GAMEPAD_BUTTON_EAST: case SDL_GAMEPAD_BUTTON_BACK: b = GB_BACK; break;
     case SDL_GAMEPAD_BUTTON_START: b = GB_START; break;

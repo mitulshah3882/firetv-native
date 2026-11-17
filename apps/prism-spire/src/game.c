@@ -487,7 +487,8 @@ static void new_round(bool keep_scores)
         G.cur = 0;
         G.nplayers = 1;
     } else {
-        G.deal.s = (uint64_t)SDL_GetTicksNS() ^ 0x9E3779B97F4A7C15ull;
+        static uint64_t shot_rounds;  /* scripted shots: the same deals every run, so frames reproduce */
+        G.deal.s = G.shots ? 0x51ED5EEDull + 7919ull * ++shot_rounds : (uint64_t)SDL_GetTicksNS() ^ 0x9E3779B97F4A7C15ull;
     }
     G.next_shape = deal_shape();
     G.hover_x = 0;
@@ -816,10 +817,10 @@ static void attract_update(float dt)
                 int sh = deal_shape();
                 if (G.keyart)
                     while (sh == SH_TRI || sh == SH_WEDGE || sh == SH_ELL) sh = deal_shape();
-                const float spread = G.keyart ? 0.12f : 0.45f;
+                const float spread = G.keyart ? 0.12f : 0.22f;
                 const float x = clampf(mid * 0.7f + rng_range(&G.rng, -spread, spread), -2.6f, 2.6f);
                 const float a = (sh == SH_PILLAR && rng_f(&G.rng) < 0.5f) ? (float)M_PI * 0.5f : 0.0f;
-                const float y = G.top + (G.keyart ? 0.5f : 1.4f) - shape_extent_down(sh, a);
+                const float y = G.top + (G.keyart ? 0.5f : 0.8f) - shape_extent_down(sh, a);
                 piece_create(sh, x, y, a, kPlayerCol[rng_u32(&G.rng) % MAX_PLAYERS], 0, 0.62f, false);
                 G.npieces_placed++;
                 if (G.top > (G.keyart ? 14.0f : 9.0f)) phase = 1;
@@ -919,8 +920,10 @@ static void draw_hud(void)
     SDL_snprintf(s, sizeof s, "%.1f m", G.shown_top);
     render_text(s, 80, 56, 64, white, -1, 0.6f);
     if (G.solo) {
-        SDL_snprintf(s, sizeof s, "today's best %.1f m   all-time %.1f m", G.best_today, G.best_ever);
-        render_text(s, 82, 132, 26, dim, -1, 0);
+        if (G.best_ever > 0) {  /* nothing until there is a best to beat */
+            SDL_snprintf(s, sizeof s, "today's best %.1f m   all-time %.1f m", G.best_today, G.best_ever);
+            render_text(s, 82, 132, 26, dim, -1, 0);
+        }
         render_text("DAILY SPIRE", 1840, 60, 30, col(1.0f, 0.8f, 0.5f, 1), 1, 0.4f);
     } else {
         /* players: a chip each, with collapses so far */
@@ -937,25 +940,26 @@ static void draw_hud(void)
             }
         }
     }
-    /* whose turn, or the event */
+    /* whose turn and the event, under the height on the left: the top centre is where a tall tower's
+     * hovering piece is */
     if (G.state == ST_AIM) {
         const Col pc = current_tint();
+        float y = G.solo && G.best_ever > 0 ? 180.0f : 140.0f;
         if (!G.solo) {
             SDL_snprintf(s, sizeof s, "%s", kPlayerName[G.cur]);
-            draw_center(s, 160, 48, pc, 0.8f);
+            render_text(s, 82, y, 48, pc, -1, 0.8f);
+            y += 66;
         }
         if (G.event != EV_NONE) {
             if (G.event == EV_WIND) SDL_snprintf(s, sizeof s, "WIND %s", G.wind_dir > 0 ? ">>>" : "<<<");
             else SDL_snprintf(s, sizeof s, "%s", kEventName[G.event]);
-            draw_center(s, 220, 34, col(1.0f, 0.82f, 0.45f, 0.9f + 0.1f * sinf(G.time * 6)), 0.6f);
+            /* it arrives big and settles to its place */
+            const float pop = G.toast_t > 0 ? clampf((G.toast_t - 1.6f) / 1.0f, 0, 1) : 0.0f;
+            render_text(s, 82, y, 36 + 30 * pop, col(1.0f, 0.82f, 0.45f, 0.9f + 0.1f * sinf(G.time * 6)), -1, 0.6f + 0.4f * pop);
         }
         if (!G.demo) render_text("LEFT/RIGHT move     UP/DOWN rotate     OK drop", 960, 1000, 26, col_alpha(dim, 0.85f), 0, 0);
         SDL_snprintf(s, sizeof s, "next: %s", kShapeNames[G.next_shape]);
         render_text(s, 1840, 1000, 26, dim, 1, 0);
-    }
-    if (G.toast_t > 0 && G.state == ST_AIM) {
-        const float a = clampf(G.toast_t / 0.4f, 0, 1) * clampf((2.6f - G.toast_t) / 0.2f, 0, 1);
-        draw_center(G.toast, 420, 72, col(1.0f, 0.85f, 0.55f, a), a);
     }
 }
 
@@ -1008,12 +1012,14 @@ static void draw_title(void)
     items[1] = "DAILY SPIRE (solo)";
     items[2] = "HOW TO PLAY";
     items[3] = "CREDITS";
-    render_panel(600, 525, 720, 360, 30, col(0.05f, 0.03f, 0.1f, 0.45f * a));
+    /* the menu on the left; the spire builds on the right */
+    const float mx = 620.0f;
+    render_panel(mx - 360, 525, 720, 360, 30, col(0.05f, 0.03f, 0.1f, 0.45f * a));
     for (int i = 0; i < 4; i++) {
         const bool sel = i == G.menu_sel;
         const float y = 560 + i * 82;
-        if (sel) render_panel(960 - 330, y - 12, 660, 66, 20, col(1.0f, 0.75f, 0.45f, 0.18f + 0.06f * sinf(G.time * 4)));
-        render_text(items[i], 960, y, sel ? 40 : 34, sel ? col(1.0f, 0.93f, 0.8f, a) : col(0.78f, 0.75f, 0.9f, a * 0.85f), 0, sel ? 0.5f : 0);
+        if (sel) render_panel(mx - 330, y - 12, 660, 66, 20, col(1.0f, 0.75f, 0.45f, 0.18f + 0.06f * sinf(G.time * 4)));
+        render_text(items[i], mx, y, sel ? 40 : 34, sel ? col(1.0f, 0.93f, 0.8f, a) : col(0.78f, 0.75f, 0.9f, a * 0.85f), 0, sel ? 0.5f : 0);
     }
     render_text("UP/DOWN choose   LEFT/RIGHT players   OK start   BACK exit", 960, 1000, 24, col(0.72f, 0.7f, 0.85f, a * 0.8f), 0, 0);
 }

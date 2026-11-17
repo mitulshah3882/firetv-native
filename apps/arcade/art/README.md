@@ -6,6 +6,8 @@ Card art, cropped from screenshots Claude captured on the TV of the games runnin
 - `supertuxkart.png`: SuperTuxKart 1.5 (code GPL-3.0; game art CC-BY-SA 3.0/4.0, CC0 and GPL, © the SuperTuxKart team; Cornfield Crossing track), running natively on the TV
 - `landgrab.png`: Land Grab by Meeq (N64brew Game Jam 2024, MIT; fonts CC BY 3.0 / OFL), a render of the recompiled build (our host runner, the same code as on the TV)
 - `gravitychoir.png`: Gravity Choir, our original game (MIT), a render from its Mac host preview (the same code as on the TV)
+- `prismspire.png`: Prism Spire, our original party game (MIT), its key-art mode rendered by the Mac host preview (the same code as on the TV)
+- `chromaorbit.png`: Chroma Orbit, our original puzzle game (MIT), its key-art mode (a still board) rendered by the Mac host preview
 
 Extra moments (`<game>-2.png`, `-3.png`), which the selected card cross-fades through:
 - `gravitychoir-2.png`, `gravitychoir-3.png`: Gravity Choir's demo AI playing and the Crescendo, rendered by its Mac host preview
@@ -14,5 +16,5 @@ Extra moments (`<game>-2.png`, `-3.png`), which the selected card cross-fades th
 - `doom-2.png`: Freedoom: Phase 2's attract demo on the TV (artwork © the Freedoom project, BSD-3-Clause)
 - `quake-2.png`: LibreQuake's attract demo on the TV (artwork © the LibreQuake project, BSD-3-Clause)
 - `supertuxkart-2.png`: SuperTuxKart 1.5 racing on Volcano Island on the TV (game art CC-BY-SA 3.0/4.0, CC0 and GPL, © the SuperTuxKart team)
-- `prismspire.png`: Prism Spire, our original party game (MIT), its key-art mode rendered by the Mac host preview (the same code as on the TV)
-- `chromaorbit.png`: Chroma Orbit, our original puzzle game (MIT), its key-art mode rendered by the Mac host preview
+- `prismspire-2.png`, `prismspire-3.png`: Prism Spire's demo AI at 7.3 m and the collapse that ends the round (the `tall` script), rendered by its Mac host preview
+- `chromaorbit-2.png`, `chromaorbit-3.png`: Chroma Orbit in Night City and a supernova (the `tour` script), rendered by its Mac host preview

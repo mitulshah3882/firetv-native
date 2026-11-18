@@ -1,6 +1,6 @@
 /*
- * Shared state between the host ("HLE") implementations of libdragon: the SDL renderer, the N64
- * framebuffer texture, and N64 texture decoding.
+ * Shared state between the host ("HLE") implementations of libdragon: the video state, the GL
+ * renderer (gfx_gl.h), and N64 texture decoding.
  *
  * SPDX-FileCopyrightText: 2026 Mitul Shah
  * SPDX-License-Identifier: MIT
@@ -8,20 +8,21 @@
 #pragma once
 #include <SDL3/SDL.h>
 
+#include "gfx_gl.h"
 #include "n64rt.h"
 
 typedef struct {
-    SDL_Renderer *r;
-    SDL_Texture *fb;   /* the N64 framebuffer (render target), w x h */
-    int w, h;
+    SDL_Window *win;
+    int w, h;          /* the N64 framebuffer, in N64 pixels (gfx_fb_bind) */
+    int scale;         /* rendered at this multiple of the N64 resolution (N64_SCALE, default 1) */
 } HleVideo;
 extern HleVideo hle_video;
 
-/* A decoded N64 texture: an SDL texture plus the RGBA8 pixels (for combiner evaluation). */
+/* A decoded N64 texture: a GL texture plus the RGBA8 pixels (for combiner evaluation). */
 typedef struct {
     uint64_t key;      /* what the texture is: (kind << 32) | N64 address */
     uint32_t sig;      /* fingerprint of its contents */
-    SDL_Texture *tex;
+    GfxTex *tex;
     uint8_t *px;
     int w, h;
     uint32_t stamp;

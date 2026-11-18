@@ -13,6 +13,7 @@
 
 #include "test.h"
 #include "unit.h"
+#include "hle_internal.h"
 
 #define MAX_TESTS 64
 static struct { const char *name; test_fn fn; } g_tests[MAX_TESTS];
@@ -77,25 +78,43 @@ uint8_t *unit_rdram(void) {
     return rdram = n64rt_rdram();
 }
 
-/* The renderer HLE drawing goes to: a software renderer on a memory surface (no window). It is
- * created once: the HLE texture cache keeps textures that belong to it. */
+/* What HLE drawing goes to: the runtime's GL renderer in a hidden window, drawing into its N64
+ * framebuffer at the canvas size. Created once: the HLE texture cache keeps its textures. */
+static SDL_Surface *g_canvas;
 SDL_Surface *unit_canvas(void) {
-    static SDL_Surface *s;
-    static SDL_Renderer *r;
-    if (!r) {
-        s = SDL_CreateSurface(UNIT_CANVAS_W, UNIT_CANVAS_H, SDL_PIXELFORMAT_RGBA32);
-        r = s ? SDL_CreateSoftwareRenderer(s) : NULL;
-        if (!r) {
-            fprintf(stderr, "cannot create a software renderer: %s\n", SDL_GetError());
+    static SDL_Window *win;
+    if (!win) {
+        if (!SDL_WasInit(SDL_INIT_VIDEO) && !SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+            fprintf(stderr, "cannot start SDL video: %s\n", SDL_GetError());
             exit(2);
         }
-        hle_set_renderer(r);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+        win = SDL_CreateWindow("unit", 64, 64, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+        SDL_GLContext gl = win ? SDL_GL_CreateContext(win) : NULL;
+        if (!gl || !gfx_init(64, 64)) {
+            fprintf(stderr, "cannot create a GL context: %s\n", SDL_GetError());
+            exit(2);
+        }
+        hle_set_window(win);
+        g_canvas = SDL_CreateSurface(UNIT_CANVAS_W, UNIT_CANVAS_H, SDL_PIXELFORMAT_RGBA32);
     }
-    SDL_SetRenderTarget(r, NULL);
-    SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
-    SDL_RenderClear(r);
-    SDL_FlushRenderer(r);
-    return s;
+    hle_video.w = UNIT_CANVAS_W;
+    hle_video.h = UNIT_CANVAS_H;
+    gfx_fb_bind(UNIT_CANVAS_W, UNIT_CANVAS_H, 1);
+    gfx_fb_clear(0x000000FFu);
+    unit_canvas_sync();
+    return g_canvas;
+}
+
+void unit_canvas_sync(void) {
+    SDL_Surface *s = gfx_fb_read();
+    if (!s) return;
+    for (int y = 0; y < s->h && y < g_canvas->h; y++)
+        SDL_memcpy((uint8_t *)g_canvas->pixels + y * g_canvas->pitch, (uint8_t *)s->pixels + y * s->pitch, (size_t)s->w * 4);
+    SDL_DestroySurface(s);
 }
 
 int main(int argc, char **argv) {

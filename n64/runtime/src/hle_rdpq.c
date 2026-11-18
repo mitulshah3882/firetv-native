@@ -11,10 +11,10 @@
  * the colour combiner, the blender, the other-modes word, the constant colours, the render-mode
  * stack, the scissor and the tile descriptors.
  *
- * Drawing goes through the SDL renderer. A rectangle has no per-pixel input besides its texture,
- * so the combiner (1 or 2 cycles), alpha compare, and the blender terms that don't read the
- * framebuffer are evaluated exactly, per texel, into a cached "baked" texture. What does read the
- * framebuffer maps onto SDL blend modes: P*A + MEM*(1-A) is alpha blending, P*A + MEM additive.
+ * Drawing goes through gfx_gl.c. A rectangle has no per-pixel input besides its texture, so the
+ * combiner (1 or 2 cycles), alpha compare, and the blender terms that don't read the framebuffer
+ * are evaluated exactly, per texel, into a cached "baked" texture. What does read the framebuffer
+ * maps onto the blend modes: P*A + MEM*(1-A) is alpha blending, P*A + MEM additive.
  * Texture loads (rdpq_sprite_upload, rdpq_tex_upload) bind a decoded texture to a tile; texture
  * rectangles then sample it with the tile's wrap/mirror/clamp settings.
  *
@@ -127,7 +127,7 @@ static HleTex *decode_texture(uint8_t *rdram, uint64_t key, int fmt, int w, int 
     }
     if (!slot) slot = lru;
     if (slot->tex) {
-        SDL_DestroyTexture(slot->tex);
+        gfx_tex_free(slot->tex);
         SDL_free(slot->px);
     }
     const int bpp = 4 << (fmt & 3); /* TEX_FORMAT_BITDEPTH */
@@ -167,10 +167,7 @@ static HleTex *decode_texture(uint8_t *rdram, uint64_t key, int fmt, int w, int 
             }
         }
     }
-    SDL_Texture *t = SDL_CreateTexture(hle_video.r, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, w, h);
-    SDL_UpdateTexture(t, NULL, px, w * 4);
-    SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
-    SDL_SetTextureScaleMode(t, SDL_SCALEMODE_NEAREST);
+    GfxTex *t = gfx_tex_new(w, h, px);
     *slot = (HleTex){key, sig, t, px, w, h, ++g_tex_clock};
     n64rt_log("texture %08X: %dx%d fmt %d%s", (uint32_t)key, w, h, fmt, layer >= 0 ? " (font layer)" : "");
     return slot;
@@ -328,31 +325,31 @@ static DrawState draw_state(void) {
     return s;
 }
 
-/* How a draw maps onto the SDL renderer. */
+/* How a draw maps onto the renderer. */
 typedef struct {
-    SDL_BlendMode mode;
+    int mode;              /* GFX_BLEND_* */
     uint8_t alpha_mod;     /* constant source alpha (FOG alpha as the blend factor) */
     bool skip;             /* the result is the framebuffer itself */
 } Output;
 
 static Output output_for(const DrawState *s) {
-    Output o = {SDL_BLENDMODE_NONE, 255, false};
+    Output o = {GFX_BLEND_NONE, 255, false};
     if (s->cycle == CYC_COPY) {
-        if (s->ac) o.mode = SDL_BLENDMODE_BLEND;
+        if (s->ac) o.mode = GFX_BLEND_BLEND;
         return o;
     }
     if (s->cycle == CYC_FILL || !s->blend_on) {
-        if (s->ac) o.mode = SDL_BLENDMODE_BLEND;
+        if (s->ac) o.mode = GFX_BLEND_BLEND;
         return o;
     }
     if (s->m == BL_MEM || s->p == BL_MEM) {
         if (s->m == BL_MEM && s->p == BL_MEM) { o.skip = true; return o; }
-        o.mode = (s->b == 2) ? SDL_BLENDMODE_ADD : (s->b == 3 && s->m == BL_MEM) ? SDL_BLENDMODE_NONE : SDL_BLENDMODE_BLEND;
+        o.mode = (s->b == 2) ? GFX_BLEND_ADD : (s->b == 3 && s->m == BL_MEM) ? GFX_BLEND_NONE : GFX_BLEND_BLEND;
         if (s->a == 1) o.alpha_mod = (uint8_t)s->fog_c.v[3];
-        if (s->ac && o.mode == SDL_BLENDMODE_NONE) o.mode = SDL_BLENDMODE_BLEND;
+        if (s->ac && o.mode == GFX_BLEND_NONE) o.mode = GFX_BLEND_BLEND;
         return o;
     }
-    if (s->ac) o.mode = SDL_BLENDMODE_BLEND;   /* no framebuffer read: opaque (alpha compare cuts) */
+    if (s->ac) o.mode = GFX_BLEND_BLEND;   /* no framebuffer read: opaque (alpha compare cuts) */
     return o;
 }
 
@@ -366,7 +363,7 @@ static int blend_color_in(int sel, int ch, const C4 *in, const DrawState *s) {
 }
 
 /* One texel (or the constant colour of an untextured rectangle) through combiner, alpha compare
- * and the framebuffer-independent part of the blender. Returns the colour to hand to SDL. */
+ * and the framebuffer-independent part of the blender. Returns the colour to hand to the renderer. */
 static C4 shade_texel(const DrawState *s, const Output *o, const C4 *tex) {
     if (s->cycle == CYC_COPY) {
         C4 r = *tex;
@@ -388,7 +385,7 @@ static C4 shade_texel(const DrawState *s, const Output *o, const C4 *tex) {
     const int a = s->a == 0 ? comb.v[3] : s->a == 1 ? 255 /* via alpha_mod */ : 0;
     if (s->m == BL_MEM) {                       /* P*A + MEM*B */
         for (int ch = 0; ch < 3; ch++) r.v[ch] = blend_color_in(s->p, ch, &comb, s);
-        if (o->mode == SDL_BLENDMODE_NONE) {    /* B = ZERO: P*A */
+        if (o->mode == GFX_BLEND_NONE) {        /* B = ZERO: P*A */
             const int aa = s->a == 1 ? s->fog_c.v[3] : a;
             for (int ch = 0; ch < 3; ch++) r.v[ch] = r.v[ch] * aa / 255;
             r.v[3] = 255;
@@ -426,14 +423,14 @@ typedef struct {
     const HleTex *src;
     uint32_t src_sig, h;
     uint8_t hash[64];
-    SDL_Texture *tex;
+    GfxTex *tex;
     uint32_t stamp;
 } Baked;
 #define BAKE_CACHE 160
 static Baked g_bake[BAKE_CACHE];
 static uint32_t g_bake_clock;
 
-static SDL_Texture *bake(const HleTex *t, const DrawState *s, const Output *o) {
+static GfxTex *bake(const HleTex *t, const DrawState *s, const Output *o) {
     /* Key: everything the per-texel result depends on. Constant colours only count when used. */
     uint8_t key[64];
     SDL_memset(key, 0, sizeof key);
@@ -461,7 +458,7 @@ static SDL_Texture *bake(const HleTex *t, const DrawState *s, const Output *o) {
         if (!b->tex) { lru = b; break; }
         if (b->stamp < lru->stamp) lru = b;
     }
-    if (lru->tex) SDL_DestroyTexture(lru->tex);
+    if (lru->tex) gfx_tex_free(lru->tex);
     uint8_t *px = (uint8_t *)SDL_malloc((size_t)t->w * t->h * 4);
     for (int i = 0; i < t->w * t->h; i++) {
         const uint8_t *p = t->px + i * 4;
@@ -469,8 +466,7 @@ static SDL_Texture *bake(const HleTex *t, const DrawState *s, const Output *o) {
         const C4 r = shade_texel(s, o, &in);
         for (int ch = 0; ch < 4; ch++) px[i * 4 + ch] = (uint8_t)r.v[ch];
     }
-    SDL_Texture *tex = SDL_CreateTexture(hle_video.r, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, t->w, t->h);
-    SDL_UpdateTexture(tex, NULL, px, t->w * 4);
+    GfxTex *tex = gfx_tex_new(t->w, t->h, px);
     SDL_free(px);
     *lru = (Baked){t, t->sig, h, {0}, tex, ++g_bake_clock};
     SDL_memcpy(lru->hash, key, sizeof key);
@@ -482,31 +478,33 @@ static SDL_Texture *bake(const HleTex *t, const DrawState *s, const Output *o) {
  * ============================================================================================== */
 static bool linear_filter(void) { return ((R.m.som >> 44) & 3) >= 2 && ((R.m.som >> 52) & 3) != CYC_COPY; }
 
-/* The SDL texture that draws `t` with the current render mode (combiner baked in), set up with its
- * blend mode, filtering and alpha; NULL when the mode draws nothing. */
-static SDL_Texture *mode_texture(const HleTex *t, bool scaled) {
+/* How to draw `t` with the current render mode: the texture (combiner baked in), blend mode,
+ * filtering and modulation. False when the mode draws nothing. */
+typedef struct {
+    GfxTex *tex;
+    int blend;
+    bool linear;
+    uint32_t mod;
+} DrawSpec;
+static bool mode_texture(const HleTex *t, bool scaled, DrawSpec *d) {
     const DrawState s = draw_state();
-    if (s.cycle == CYC_FILL) return NULL;
+    if (s.cycle == CYC_FILL) return false;
     const Output o = output_for(&s);
-    if (o.skip) return NULL;
+    if (o.skip) return false;
     const bool plain = is_plain(&s);
-    SDL_Texture *tex = plain ? t->tex : bake(t, &s, &o);
-    SDL_BlendMode mode = o.mode;
-    if (plain) mode = (s.cycle != CYC_COPY && s.blend_on) ? SDL_BLENDMODE_BLEND : SDL_BLENDMODE_NONE;
-    SDL_SetTextureBlendMode(tex, mode);
-    SDL_SetTextureScaleMode(tex, (linear_filter() && scaled) ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
-    SDL_SetTextureColorMod(tex, 255, 255, 255);
-    SDL_SetTextureAlphaMod(tex, o.alpha_mod);
-    return tex;
+    d->tex = plain ? t->tex : bake(t, &s, &o);
+    d->blend = plain ? ((s.cycle != CYC_COPY && s.blend_on) ? GFX_BLEND_BLEND : GFX_BLEND_NONE) : o.mode;
+    d->linear = linear_filter() && scaled;
+    d->mod = 0xFFFFFF00u | o.alpha_mod;
+    return d->tex != NULL;
 }
 
 /* Draws (part of) a texture with the current render mode. */
-static void draw_tex(const HleTex *t, const SDL_FRect *src, const SDL_FRect *dst, SDL_FlipMode flip, double angle, const SDL_FPoint *center) {
+static void draw_tex(const HleTex *t, const SDL_FRect *src, const SDL_FRect *dst, int flip, float angle, const SDL_FPoint *center) {
     const bool scaled = SDL_fabsf(src->w - dst->w) > 0.01f || SDL_fabsf(src->h - dst->h) > 0.01f || angle != 0;
-    SDL_Texture *tex = mode_texture(t, scaled);
-    if (!tex) return;
-    if (angle != 0 || flip != SDL_FLIP_NONE) SDL_RenderTextureRotated(hle_video.r, tex, src, dst, angle, center, flip);
-    else SDL_RenderTexture(hle_video.r, tex, src, dst);
+    DrawSpec d;
+    if (!mode_texture(t, scaled, &d)) return;
+    gfx_quad(d.tex, src, dst, flip, angle, center, d.blend, d.linear, d.mod);
 }
 
 /* For HLE code that draws on behalf of libdragon (font glyphs): draw with a given 1-cycle
@@ -528,7 +526,7 @@ void hle_draw_combined(const HleTex *t, const SDL_FRect *src, const SDL_FRect *d
     R.m.blend = blend;
     R.prim = prim;
     R.env = env;
-    draw_tex(t, src, dst, SDL_FLIP_NONE, 0, NULL);
+    draw_tex(t, src, dst, 0, 0, NULL);
     R.m = m;
     R.prim = p;
     R.env = e;
@@ -539,7 +537,7 @@ static void fill_rect(float x0, float y0, float x1, float y1) {
     const SDL_FRect rc = {x0, y0, x1 - x0, y1 - y0};
     const DrawState s = draw_state();
     C4 c;
-    SDL_BlendMode mode = SDL_BLENDMODE_NONE;
+    int mode = GFX_BLEND_NONE;
     uint8_t amod = 255;
     if (s.cycle == CYC_FILL) {
         c = unpack(R.fill);
@@ -553,11 +551,9 @@ static void fill_rect(float x0, float y0, float x1, float y1) {
         c = shade_texel(&s, &o, &zero);
         mode = o.mode;
         amod = o.alpha_mod;
-        if (c.v[3] == 0 && mode != SDL_BLENDMODE_NONE && s.ac) return; /* failed alpha compare */
+        if (c.v[3] == 0 && mode != GFX_BLEND_NONE && s.ac) return; /* failed alpha compare */
     }
-    SDL_SetRenderDrawBlendMode(hle_video.r, mode);
-    SDL_SetRenderDrawColor(hle_video.r, (uint8_t)c.v[0], (uint8_t)c.v[1], (uint8_t)c.v[2], (uint8_t)(c.v[3] * amod / 255));
-    SDL_RenderFillRect(hle_video.r, &rc);
+    gfx_fill(&rc, mode, (uint32_t)c.v[0] << 24 | (uint32_t)c.v[1] << 16 | (uint32_t)c.v[2] << 8 | (uint32_t)(c.v[3] * amod / 255));
 }
 
 /* TEXTURE_RECTANGLE: screen rect in 10.2, s/t at the top-left in 10.5, steps in 5.10. */
@@ -601,7 +597,7 @@ static void texture_rect(uint8_t *rdram, recomp_context *ctx, const uint32_t *w)
             if (lu1 <= lu0 || lv1 <= lv0) continue;
             const SDL_FRect src = {lu0 + (float)tl->s_org, lv0 + (float)tl->t_org, lu1 - lu0, lv1 - lv0};
             const SDL_FRect dst = {SDL_min(sx0, sx1), SDL_min(sy0, sy1), SDL_fabsf(sx1 - sx0), SDL_fabsf(sy1 - sy0)};
-            draw_tex(t, &src, &dst, (SDL_FlipMode)((fx ? SDL_FLIP_HORIZONTAL : 0) | (fy ? SDL_FLIP_VERTICAL : 0)), 0, NULL);
+            draw_tex(t, &src, &dst, (fx ? GFX_FLIP_H : 0) | (fy ? GFX_FLIP_V : 0), 0, NULL);
         }
     }
 }
@@ -629,8 +625,7 @@ static void blit(const HleTex *t, float x, float y, const uint32_t *p) {
     const SDL_FRect src = {(float)s0, (float)t0, w ? (float)w : (float)t->w - s0, h ? (float)h : (float)t->h - t0};
     const SDL_FRect dst = {x - cx * sx, y - cy * sy, src.w * sx, src.h * sy};
     const SDL_FPoint c = {cx * sx, cy * sy};
-    draw_tex(t, &src, &dst, (SDL_FlipMode)((flip_x ? SDL_FLIP_HORIZONTAL : 0) | (flip_y ? SDL_FLIP_VERTICAL : 0)),
-             -theta * 180.0 / SDL_PI_D, &c);
+    draw_tex(t, &src, &dst, (flip_x ? GFX_FLIP_H : 0) | (flip_y ? GFX_FLIP_V : 0), (float)(-theta * 180.0 / SDL_PI_D), &c);
 }
 
 /* A triangle from rdpq_triangle, as OP_TRIANGLE packs it: flags (1 = textured, 2 = shaded), tile,
@@ -643,15 +638,14 @@ static void triangle(uint8_t *rdram, recomp_context *ctx, const uint32_t *a) {
     const Tile *tl = &R.tile[a[1] & 7];
     const HleTex *t = textured ? tile_texture(rdram, ctx, tl) : NULL;
     if (textured && !t) return;
-    SDL_Texture *tex = NULL;
+    DrawSpec d = {NULL, GFX_BLEND_NONE, false, 0xFFFFFFFFu};
     if (t) {
-        tex = mode_texture(t, true);
-        if (!tex) return;
-        SDL_SetTextureScaleMode(tex, linear_filter() ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
+        if (!mode_texture(t, true, &d)) return;
+        d.linear = linear_filter();
     } else {
         const DrawState st = draw_state();
         if (st.cycle == CYC_FILL) return;
-        SDL_SetRenderDrawBlendMode(hle_video.r, st.blend_on ? SDL_BLENDMODE_BLEND : SDL_BLENDMODE_NONE);
+        d.blend = st.blend_on ? GFX_BLEND_BLEND : GFX_BLEND_NONE;
     }
     const float ssc = SDL_powf(2.0f, (float)-tl->s_scale), tsc = SDL_powf(2.0f, (float)-tl->t_scale);
     SDL_Vertex v[3];
@@ -668,7 +662,7 @@ static void triangle(uint8_t *rdram, recomp_context *ctx, const uint32_t *a) {
             v[i].tex_coord = (SDL_FPoint){0, 0};
         }
     }
-    SDL_RenderGeometry(hle_video.r, tex, v, 3, NULL, 0);
+    gfx_geometry(d.tex, v, 3, d.blend, d.linear);
 }
 
 /* ================================================================================================
@@ -795,7 +789,7 @@ static void exec(uint8_t *rdram, recomp_context *ctx, const Op *op) {
             const int x0 = (int)((a[0] >> 12) & 0xFFF) / 4, y0 = (int)(a[0] & 0xFFF) / 4;
             const int x1 = (int)((a[1] >> 12) & 0xFFF) / 4, y1 = (int)(a[1] & 0xFFF) / 4;
             const SDL_Rect rc = {x0, y0, SDL_max(0, x1 - x0), SDL_max(0, y1 - y0)};
-            SDL_SetRenderClipRect(hle_video.r, (x0 <= 0 && y0 <= 0 && x1 >= hle_video.w && y1 >= hle_video.h) ? NULL : &rc);
+            gfx_scissor((x0 <= 0 && y0 <= 0 && x1 >= hle_video.w && y1 >= hle_video.h) ? NULL : &rc);
         } break;
         case OP_FILL_RECT:
             fill_rect((float)((a[1] >> 12) & 0xFFF) / 4, (float)(a[1] & 0xFFF) / 4, (float)((a[0] >> 12) & 0xFFF) / 4, (float)(a[0] & 0xFFF) / 4);
@@ -878,7 +872,7 @@ static void emit(uint8_t *rdram, recomp_context *ctx, const Op *op) {
 
 #define EMIT(...) do { const Op op_ = {__VA_ARGS__}; emit(rdram, ctx, &op_); } while (0)
 
-void hle_rdpq_frame_begin(void) { SDL_SetRenderClipRect(hle_video.r, NULL); }
+void hle_rdpq_frame_begin(void) { gfx_scissor(NULL); }
 
 /* ================================================================================================
  * The leaves: render mode

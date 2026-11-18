@@ -4,7 +4,7 @@ Things only you can do: your accounts, your ears, your hardware, your call. Clau
 current while it works. A one-line answer in chat is enough for any decision. Finished items move to
 **Done** at the bottom with the date.
 
-_Last updated: 2026-11-17._
+_Last updated: 2026-11-18._
 
 > **Pushing:** Claude keeps pushing finished work to GitHub under your OK of 2026-11-15 ("feel free to
 > push"). Say so if you'd rather it hold commits locally.
@@ -53,13 +53,7 @@ _Last updated: 2026-11-17._
 - [ ] **Case study for your website:** want Claude to write it from the journal now, or wait until
   the first store submission?
 
-## On the Mac
-- [ ] **Free 1.5 GB of old debug files.** Claude isn't allowed to run a wildcard delete, so either run
-  this from the repo or tell Claude to go ahead. The Mac is down to 12 GB free.
-  ```bash
-  rm -rf apps/*/build/debug/.build-id/*
-  ```
-
 ## Done
+- 2026-11-18: **Mac cleanup.** Claude deleted 2.9 GB of old debug symbols and Debug builds from the project, and 1.3 GB of its own scratch files.
 - 2026-11-16: **Open source or private?** Open source in this repo.
 - 2026-11-16: **The next big project:** original games, Prism Spire then Chroma Orbit.

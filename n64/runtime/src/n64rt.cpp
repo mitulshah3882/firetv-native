@@ -39,6 +39,8 @@ static int g_exit_code;
 static uint32_t g_scratch_top;
 static uint32_t g_cop0[32];
 static uint64_t g_start_ns;
+static bool g_virtual;
+static uint64_t g_virt_ns;
 
 struct FuncAt {
     uint32_t vram;
@@ -131,6 +133,7 @@ extern "C" bool n64rt_init(const char* image_path, uint32_t vram) {
     std::sort(g_funcs.begin(), g_funcs.end(), [](const FuncAt& a, const FuncAt& b) { return a.vram < b.vram; });
     g_scratch_top = 0x80000000u + N64RT_RDRAM_SIZE;
     g_start_ns = SDL_GetTicksNS();
+    g_virtual = SDL_getenv("N64_SHOT") != nullptr;
     n64rt_log("loaded %s: %zu bytes at %08X, %zu functions", image_path, size, vram, g_funcs.size());
     return true;
 }
@@ -158,7 +161,8 @@ extern "C" void n64rt_set_boot_globals(uint32_t memsize_sym, uint32_t tvtype_sym
     if (memsize_sym) n64_w32(g_rdram, memsize_sym, N64RT_RDRAM_SIZE - 0x80000u);
     if (tvtype_sym) n64_w32(g_rdram, tvtype_sym, 1);  // NTSC
     if (entropy_sym) {
-        n64_w32(g_rdram, entropy_sym, 0x2545F491u ^ (uint32_t)SDL_GetTicksNS());
+        /* headless screenshot runs (N64_SHOT) seed it the same every time, so frame N reproduces */
+        n64_w32(g_rdram, entropy_sym, 0x2545F491u ^ (SDL_getenv("N64_SHOT") ? 0u : (uint32_t)SDL_GetTicksNS()));
         n64_w32(g_rdram, entropy_sym + 4, 0x9E3779B9u);
     }
 }
@@ -237,10 +241,19 @@ extern "C" void cop0_status_write(recomp_context* ctx, gpr value) {
 
 extern "C" gpr cop0_status_read(recomp_context* ctx) { return (gpr)(int32_t)ctx->status_reg; }
 
+/* The program's clock. Headless screenshot runs (N64_SHOT) use a virtual one: 1/60 s per presented
+ * frame (n64rt_virtual_frame), plus 2 us per read so a loop that waits on it still moves. Frame N
+ * then reproduces exactly, however fast the host renders. */
+extern "C" uint64_t n64rt_now_ns(void) {
+    if (g_virtual) return g_virt_ns += 2000;
+    return SDL_GetTicksNS() - g_start_ns;
+}
+extern "C" void n64rt_virtual_frame(uint64_t frames) { g_virt_ns = frames * 16666667ull; }
+
 extern "C" gpr cop0_read(recomp_context* ctx, int reg) {
     switch (reg) {
         case 9: {  // Count: half the 93.75 MHz CPU clock
-            const uint64_t ns = SDL_GetTicksNS() - g_start_ns;
+            const uint64_t ns = n64rt_now_ns();
             return (gpr)(int32_t)(uint32_t)(ns * 46875ull / 1000000ull);
         }
         case 12: return cop0_status_read(ctx);

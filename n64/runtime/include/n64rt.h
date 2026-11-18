@@ -35,6 +35,9 @@ bool n64rt_load_rom(const char* path);
 const uint8_t* n64rt_rom(size_t* size);
 /* Calls a recompiled function from HLE code with up to 4 arguments; returns v0. */
 uint64_t n64rt_call(recomp_context* ctx, recomp_func_t* f, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
+/* The program's clock in ns (virtual in headless screenshot runs); the frame count drives it there. */
+uint64_t n64rt_now_ns(void);
+void n64rt_virtual_frame(uint64_t frames);
 /* A scratch allocator at the top of RDRAM for HLE-owned N64-visible objects. */
 uint32_t n64rt_alloc(uint32_t size, uint32_t align);
 

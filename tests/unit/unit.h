@@ -15,12 +15,14 @@ extern "C" {
 
 /* n64rt's real RDRAM reservation (n64rt_init on a blank image). */
 uint8_t *unit_rdram(void);
-/* The RGBA32 surface HLE drawing renders into, cleared to opaque black. */
+/* The RGBA32 surface HLE drawing renders into (through unit_canvas_sync), cleared to opaque black. */
 #define UNIT_CANVAS_W 128
 #define UNIT_CANVAS_H 64
 SDL_Surface *unit_canvas(void);
 /* From hle_libdragon.c. */
-void hle_set_renderer(SDL_Renderer *r);
+void hle_set_window(SDL_Window *win);
+/* Copies what HLE drawing has drawn so far into the surface unit_canvas() returned. */
+void unit_canvas_sync(void);
 
 #ifdef __cplusplus
 }

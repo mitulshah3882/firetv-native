@@ -46,6 +46,7 @@ static uint8_t outline_texel(int x, int y) {
 }
 
 TEST(font_mono_layer_bit_order) {
+    (void)unit_canvas();  /* the renderer: decoded textures are uploaded too */
     uint8_t *rdram = unit_rdram();
     recomp_context ctx = {0};
     const uint32_t sprite = 0x80100000u;
@@ -105,7 +106,7 @@ static int render_font(uint8_t *rdram, int type, uint32_t base, uint8_t (*texel)
     ctx.r6 = xb;
     ctx.r7 = yb;
     n64_rdpq_font_render_paragraph(rdram, &ctx);
-    SDL_FlushRenderer(hle_video.r);
+    unit_canvas_sync();
     return (int)(int32_t)ctx.r2;
 }
 

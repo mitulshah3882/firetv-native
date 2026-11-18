@@ -40,7 +40,9 @@ static void install_crash_handler(void) {}
 #include "n64_image.h"
 #include "n64rt.h"
 
-void hle_set_renderer(SDL_Renderer *r);
+#include "gfx_gl.h"
+
+void hle_set_window(SDL_Window *win);
 
 int main(int argc, char **argv) {
     (void)argc;
@@ -51,14 +53,29 @@ int main(int argc, char **argv) {
         return 1;
     }
     const bool shot = SDL_getenv("N64_SHOT") != NULL;
-    SDL_Window *win = SDL_CreateWindow(N64_IMAGE_NAME " (recompiled N64)", 1280, 720, shot ? 0 : SDL_WINDOW_RESIZABLE);
-    SDL_Renderer *r = SDL_CreateRenderer(win, NULL);
-    if (!win || !r) {
-        SDL_Log("n64: window/renderer failed: %s", SDL_GetError());
+#if defined(VEGA_PACKAGE_ID)
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_Window *win = SDL_CreateWindow(N64_IMAGE_NAME, 1920, 1080, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN);
+#else
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+    /* Screenshot runs keep the window hidden and present into an offscreen 1280x720 "screen". */
+    SDL_Window *win = SDL_CreateWindow(N64_IMAGE_NAME " (recompiled N64)", 1280, 720,
+                                       SDL_WINDOW_OPENGL | (shot ? SDL_WINDOW_HIDDEN : SDL_WINDOW_RESIZABLE));
+#endif
+    SDL_GLContext gl = win ? SDL_GL_CreateContext(win) : NULL;
+    if (!win || !gl) {
+        SDL_Log("n64: window/GL context failed: %s", SDL_GetError());
         return 1;
     }
-    SDL_SetRenderVSync(r, shot ? 0 : 1);
-    hle_set_renderer(r);
+    SDL_GL_MakeCurrent(win, gl);
+    SDL_GL_SetSwapInterval(shot ? 0 : 1);  /* a hidden window can block forever waiting for vsync */
+    if (!gfx_init(shot ? 1280 : 0, shot ? 720 : 0)) return 1;
+    hle_set_window(win);
 
     char path[512];
     const char *base = SDL_getenv("N64_ASSETS");

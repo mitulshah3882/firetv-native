@@ -121,9 +121,10 @@ Open-source project: run games **natively** (C/C++, OpenGL ES) on Amazon **Vega 
 - Phase 2 (N64): the toolchain is at `~/n64-toolchain` (`export N64_INST=$HOME/n64-toolchain`). libdragon is installed there, and its examples are built in `third_party/_src/libdragon-*/examples/*/*.elf`.
 - **N64 workflow** (details in `n64/README.md`):
   - `tools/n64-recomp.sh n64/recomp/<name>.toml`
-  - then `n64/host-run.sh <name> [--shot N]` on the Mac
+  - then `n64/host-run.sh <name> [--shot N]` on the Mac (`--shot` runs are deterministic: a virtual clock and a fixed seed, so frame N reproduces; a hidden GL window)
   - then `tools/vega.sh build|install apps/n64-<name>`
   - New hardware-facing libdragon calls go in `n64/runtime/src/hle_libdragon.c` (rdpq leaves and RDP state: `hle_rdpq.c`); matching `stub` rules go in `n64/recomp/libdragon.hle`.
+  - Drawing goes through `n64/runtime/src/gfx_gl.c` (decision 67), never SDL_Renderer; `N64_SCALE=k` renders at k× the N64 resolution. Keep draws batched: the layer uploads a frame's vertices once.
   - N64brew Jam 2024 minigames: `tools/fetch-deps.sh n64jam2024` (sparse checkout; never run blob-hungry git commands in it; a `!` pattern keeps a file out), `tools/n64-jam24.sh landgrab|hydraharmonics [mallard]`, then recomp `n64/recomp/jam_<name>.toml`. Per-game remote patches: `n64/jam24/patches/<game>.patch`; asset swaps (e.g. a free font for a commercial one): `n64/jam24/overrides/<game>.mk`; remote icons: `n64/jam24/assets-remote/make-icons.py`.
   - HLE rule names match by prefix: a game's own `audio_*` functions got stubbed with libdragon's. Check `stub:` lines in the first host run of a new game and add `keep` rules (`n64/recomp/libdragon.hle`). Debug input: `N64_PAD_SCRIPT`, `N64_SHOTS=<dir>,<every>`; remote mapping: `N64_REMOTE_MAP`.
 - **Debug recompiled code on the Mac first:**

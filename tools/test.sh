@@ -73,6 +73,7 @@ bg c++ -std=c++20 "${UFLAGS[@]}" -w -c "$RT/n64rt.cpp" -o "$U/n64rt.o"
 bg cc -std=gnu11 "${UFLAGS[@]}" -Wall -c "$RT/hle_libdragon.c" -o "$U/hle_libdragon.o"
 bg cc -std=gnu11 "${UFLAGS[@]}" -Wall -c "$RT/hle_rdpq.c" -o "$U/hle_rdpq.o"
 bg cc -std=gnu11 "${UFLAGS[@]}" -Wall -c "$RT/hle_rspq.c" -o "$U/hle_rspq.o"
+bg cc -std=gnu11 "${UFLAGS[@]}" -Wall -c "$RT/gfx_gl.c" -o "$U/gfx_gl.o"
 bg cc -std=gnu11 -O2 -w -I"$CODEC" -I"$CODEC/vadpcm" -c "$CODEC/libvadpcm.c" -o "$U/libvadpcm.o"
 for t in main test_vadpcm test_font test_memory test_dmult fixture_stubs; do
   f="$ROOT/tests/unit/$t.c"; [[ $t == fixture_stubs ]] && f="$FIX/stubs.c"
@@ -130,13 +131,13 @@ game() {
     [[ -f "$o" && "$o" -nt "$f" && "$o" -nt "$B/include/recomp.h" ]] || bg cc -std=gnu11 -O2 -DNDEBUG -w "${GINC[@]}" -c "$f" -o "$o"
   done
   bg c++ -std=c++20 -O2 -DNDEBUG "${GINC[@]}" -c "$RT/n64rt.cpp" -o "$O/n64rt.o"
-  for s in hle_libdragon hle_rdpq hle_rspq hle_audio n64_main; do bg cc -std=gnu11 -O2 -Wall "${GINC[@]}" -c "$RT/$s.c" -o "$O/$s.o"; done
+  for s in hle_libdragon hle_rdpq hle_rspq hle_audio gfx_gl n64_main; do bg cc -std=gnu11 -O2 -Wall "${GINC[@]}" -c "$RT/$s.c" -o "$O/$s.o"; done
   # game_check's wav mode needs the program's wav64 loader (helloworld has none).
   bg cc -std=gnu11 -O2 -Wall "${GINC[@]}" -I"$RT" ${1:+-DGAME_CHECK_WAV} -c "$ROOT/tests/n64/game_check.c" -o "$O/game_check.o"
   if ! wait_all; then fail "$name" "build failed"; return; fi
   # Link order as in host-run.sh: the recompiled objects first (on Mach-O the first of two weak
   # definitions wins; decision 51).
-  local runtime=("$O/n64rt.o" "$O/hle_libdragon.o" "$O/hle_rdpq.o" "$O/hle_rspq.o")
+  local runtime=("$O/n64rt.o" "$O/hle_libdragon.o" "$O/hle_rdpq.o" "$O/hle_rspq.o" "$O/gfx_gl.o")
   if ! c++ "$O"/obj/*.o "${runtime[@]}" "$O/hle_audio.o" "$O/n64_main.o" $SDL_LIBS -o "$O/$name" ||
      ! c++ "$O"/obj/*.o "${runtime[@]}" "$O/game_check.o" $SDL_LIBS -o "$O/game_check"; then
     fail "$name" "link failed"; return
@@ -148,7 +149,8 @@ game() {
   # Headless run: boots, plays, saves frame <frames> and exits; nothing fatal on the way.
   rm -f "$O/shot.png"
   local errs
-  if ! run_logged "n64/$name/run.log" env SDL_VIDEO_DRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIO_DRIVER=dummy \
+  # (video: a hidden window with a GL context, as n64_main.c makes for N64_SHOT; the dummy driver has no GL)
+  if ! run_logged "n64/$name/run.log" env SDL_AUDIO_DRIVER=dummy \
        N64_ASSETS="$GEN/" N64_SHOT="$O/shot.png" N64_SHOT_FRAMES="$frames" "$O/$name"; then
     ok=0; why="${why:+$why, }headless run exited non-zero"
   elif errs=$(grep -E 'FATAL|ASSERTION|VADPCM needs|unsupported VADPCM|not a wav64' "$B/n64/$name/run.log" | head -3) &&

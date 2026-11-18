@@ -8,8 +8,8 @@
  * stack slots, floats passed as raw bits in integer registers, struct returns through a hidden
  * pointer in a0, results in v0 (f0 for floats).
  *
- * Graphics: the program draws into an SDL texture at the N64 resolution; rdpq_detach_show() scales
- * it to the TV at 4:3. The RDP command layer (render modes, rectangles, textures, rspq blocks)
+ * Graphics: the program draws into an offscreen framebuffer at the N64 resolution (times N64_SCALE)
+ * through gfx_gl.c; rdpq_detach_show() scales it to the TV at 4:3. The RDP command layer (render modes, rectangles, textures, rspq blocks)
  * is in hle_rdpq.c; this file has the display, text glyphs, input, timers and cartridge access.
  *
  * SPDX-FileCopyrightText: 2026 Mitul Shah
@@ -43,8 +43,10 @@ static struct {
     float fps;
 } G;
 
-void hle_set_renderer(SDL_Renderer *r) {
-    hle_video.r = r;
+void hle_set_window(SDL_Window *win) {
+    hle_video.win = win;
+    const char *k = SDL_getenv("N64_SCALE");
+    hle_video.scale = k ? SDL_clamp(SDL_atoi(k), 1, 8) : 1;
     G.shot_path = SDL_getenv("N64_SHOT");
     const char *n = SDL_getenv("N64_SHOT_FRAMES");
     G.shot_frames = n ? SDL_atoi(n) : 60;
@@ -62,12 +64,9 @@ uint32_t n64rt_sym_rdpq_inited;
  * Display
  * ============================================================================================== */
 static void ensure_fb(int w, int h) {
-    if (hle_video.fb && hle_video.w == w && hle_video.h == h) return;
-    if (hle_video.fb) SDL_DestroyTexture(hle_video.fb);
     hle_video.w = w;
     hle_video.h = h;
-    hle_video.fb = SDL_CreateTexture(hle_video.r, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, w, h);
-    SDL_SetTextureScaleMode(hle_video.fb, SDL_SCALEMODE_LINEAR);
+    gfx_fb_bind(w, h, hle_video.scale);
 }
 
 /* void display_init(resolution_t res, ...): res arrives by value, width/height packed in a0. */
@@ -112,21 +111,20 @@ void n64_rdpq_init(uint8_t *rdram, recomp_context *ctx) {
 void n64_rdpq_attach(uint8_t *rdram, recomp_context *ctx) {
     (void)rdram;
     (void)ctx;
-    SDL_SetRenderTarget(hle_video.r, hle_video.fb);
+    if (!hle_video.w) ensure_fb(320, 240);
+    gfx_fb_bind(hle_video.w, hle_video.h, hle_video.scale);
     hle_rdpq_frame_begin();
 }
 
 void n64_rdpq_attach_clear(uint8_t *rdram, recomp_context *ctx) {
     n64_rdpq_attach(rdram, ctx);
-    SDL_SetRenderDrawColor(hle_video.r, 0, 0, 0, 255);
-    SDL_RenderClear(hle_video.r);
+    gfx_fb_clear(0x000000FFu);
 }
 
 /* void __rdpq_clear(const color_t *color) */
 void n64___rdpq_clear(uint8_t *rdram, recomp_context *ctx) {
     const uint32_t c = n64_r32(rdram, (uint32_t)ctx->r4);
-    SDL_SetRenderDrawColor(hle_video.r, c >> 24, (c >> 16) & 0xFF, (c >> 8) & 0xFF, 0xFF);
-    SDL_RenderClear(hle_video.r);
+    gfx_fb_clear(c | 0xFFu);
 }
 /* ================================================================================================
  * Text: libdragon lays out the paragraph (recompiled); we draw the glyphs.
@@ -179,12 +177,7 @@ void n64_rdpq_font_render_paragraph(uint8_t *rdram, recomp_context *ctx) {
             if (pass == 0 && (col & 0xFF) == 0) continue;
             HleTex *ht = hle_sprite_texture(rdram, ctx, sprite, layer, type != 4);
             if (!ht) continue;
-            SDL_Texture *tex = ht->tex;
-            SDL_SetTextureColorMod(tex, col >> 24, (col >> 16) & 0xFF, (col >> 8) & 0xFF);
-            SDL_SetTextureAlphaMod(tex, col & 0xFF);
-            SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
-            SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_NEAREST);
-            SDL_RenderTexture(hle_video.r, tex, &src, &dst);
+            gfx_quad(ht->tex, &src, &dst, 0, 0, NULL, GFX_BLEND_BLEND, false, col);
         }
     }
     n64_ret32(ctx, (uint32_t)n);
@@ -206,22 +199,41 @@ static void back_pressed(void) {
     g_back_ns = now;
 }
 
-static void draw_back_hint(SDL_Renderer *r, int ow, int oh) {
+/* "Press BACK again to exit" in SDL's 8x8 debug font, rendered once (by SDL's software renderer
+ * into a surface) and kept as a texture. */
+static GfxTex *back_hint_texture(int *w, int *h) {
+    static const char text[] = "Press BACK again to exit";
+    static GfxTex *t;
+    *w = (int)(sizeof text - 1) * 8;
+    *h = 8;
+    if (t) return t;
+    SDL_Surface *s = SDL_CreateSurface(*w, *h, SDL_PIXELFORMAT_RGBA32);
+    SDL_Renderer *r = s ? SDL_CreateSoftwareRenderer(s) : NULL;
+    if (!r) return NULL;
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 0);
+    SDL_RenderClear(r);
+    SDL_SetRenderDrawColor(r, 255, 255, 255, 255);
+    SDL_RenderDebugText(r, 0, 0, text);
+    SDL_RenderPresent(r);
+    t = gfx_tex_new(s->w, s->h, (const uint8_t *)s->pixels);
+    SDL_DestroyRenderer(r);
+    SDL_DestroySurface(s);
+    return t;
+}
+
+static void draw_back_hint(int ow, int oh) {
     if (!g_back_ns) return;
     const uint64_t age = SDL_GetTicksNS() - g_back_ns;
     if (age >= BACK_WINDOW_NS) { g_back_ns = 0; return; }
     const float fade = age > BACK_WINDOW_NS - 400000000ull ? (float)(BACK_WINDOW_NS - age) / 4e8f : 1.0f;
-    static const char text[] = "Press BACK again to exit";
+    int tw0, th0;
+    GfxTex *t = back_hint_texture(&tw0, &th0);
     const float scale = oh / 270.0f;  /* SDL's 8x8 debug font at about 32 px on a 1080p canvas */
-    const float tw = (sizeof text - 1) * 8.0f * scale, th = 8.0f * scale;
+    const float tw = tw0 * scale, th = th0 * scale;
     const SDL_FRect box = {(ow - tw) / 2 - th, oh - th * 4.5f, tw + 2 * th, th * 2.2f};
-    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(r, 0, 0, 0, (Uint8)(190 * fade));
-    SDL_RenderFillRect(r, &box);
-    SDL_SetRenderScale(r, scale, scale);
-    SDL_SetRenderDrawColor(r, 255, 255, 255, (Uint8)(255 * fade));
-    SDL_RenderDebugText(r, (box.x + th) / scale, (box.y + th * 0.6f) / scale, text);
-    SDL_SetRenderScale(r, 1.0f, 1.0f);
+    gfx_fill(&box, GFX_BLEND_BLEND, (uint32_t)(190 * fade));
+    const SDL_FRect dst = {box.x + th, box.y + th * 0.6f, tw, th};
+    if (t) gfx_quad(t, NULL, &dst, 0, 0, NULL, GFX_BLEND_BLEND, false, 0xFFFFFF00u | (uint32_t)(255 * fade));
 }
 
 static void handle_events(void) {
@@ -246,22 +258,17 @@ static void handle_events(void) {
 }
 
 static void present(void) {
-    SDL_Renderer *r = hle_video.r;
-    SDL_SetRenderTarget(r, NULL);
-    SDL_SetRenderClipRect(r, NULL);
-    SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
-    SDL_RenderClear(r);
     int ow = 0, oh = 0;
-    SDL_GetCurrentRenderOutputSize(r, &ow, &oh);
-    float dh = (float)oh, dw = dh * 4.0f / 3.0f;
-    if (dw > ow) { dw = (float)ow; dh = dw * 3.0f / 4.0f; }
-    const SDL_FRect dst = {(ow - dw) / 2, (oh - dh) / 2, dw, dh};
-    SDL_SetTextureBlendMode(hle_video.fb, SDL_BLENDMODE_NONE);
-    SDL_RenderTexture(r, hle_video.fb, NULL, &dst);
-    draw_back_hint(r, ow, oh);
+    gfx_screen_begin(&ow, &oh);  /* the window, cleared, with the frame letterboxed at 4:3 */
+    draw_back_hint(ow, oh);
     if (G.shot_path && (int)G.frames + 1 >= G.shot_frames) {
-        SDL_Surface *s = SDL_RenderReadPixels(r, NULL);
+        SDL_Surface *s = gfx_screen_read();
         if (s && SDL_SavePNG(s, G.shot_path)) n64rt_log("wrote %s", G.shot_path);
+        int draws, verts, uploads;
+        gfx_stats(&draws, &verts, &uploads);
+        const int nf = SDL_max(1, G.stat_frames);
+        n64rt_log("last %d frames, per frame: %d draw calls, %d vertices, %.1f texture uploads", nf, draws / nf, verts / nf,
+                  (float)uploads / (float)nf);
         SDL_DestroySurface(s);
         n64rt_exit(0);
     }
@@ -277,13 +284,14 @@ static void present(void) {
         if (G.frames % (uint64_t)every == 0) {
             char path[512];
             SDL_snprintf(path, sizeof path, "%s/frame%05d.png", dir, (int)G.frames);
-            SDL_Surface *s = SDL_RenderReadPixels(r, NULL);
+            SDL_Surface *s = gfx_screen_read();
             if (s) SDL_SavePNG(s, path);
             SDL_DestroySurface(s);
         }
     }
-    SDL_RenderPresent(r);
+    gfx_screen_end(hle_video.win);
     ++G.frames;
+    n64rt_virtual_frame(G.frames);
     ++G.stat_frames;
     const uint64_t now = SDL_GetTicksNS();
     if (G.last_show_ns) {
@@ -294,12 +302,16 @@ static void present(void) {
     if (!G.stat_t0) G.stat_t0 = now;
     if (now - G.stat_t0 > 10000000000ull) {
         G.fps = (float)(G.stat_frames / ((now - G.stat_t0) / 1e9));
-        n64rt_log("%.1f fps", G.fps);
+        int draws, verts, uploads;
+        gfx_stats(&draws, &verts, &uploads);
+        const int nf = SDL_max(1, G.stat_frames);
+        n64rt_log("%.1f fps (per frame: %d draw calls, %d vertices, %.1f texture uploads)", G.fps, draws / nf, verts / nf,
+                  (float)uploads / (float)nf);
         G.stat_t0 = now;
         G.stat_frames = 0;
     }
     handle_events();
-    SDL_SetRenderTarget(r, hle_video.fb);
+    if (hle_video.w) gfx_fb_bind(hle_video.w, hle_video.h, hle_video.scale);
     /* Debug aid: N64_WATCH=<addr> logs 5 floats at that N64 address every 10 frames. */
     static uint32_t watch = 1;
     if (watch == 1) { const char *w = SDL_getenv("N64_WATCH"); watch = w ? (uint32_t)SDL_strtoul(w, NULL, 16) : 0; }
@@ -633,7 +645,7 @@ void n64_joypad_get_direction(uint8_t *rdram, recomp_context *ctx) {
 void n64_timer_init(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
 void n64_timer_ticks(uint8_t *rdram, recomp_context *ctx) {
     (void)rdram;
-    ctx->r2 = (SDL_GetTicksNS() - G.t0_ns) * 46875ull / 1000000ull; /* long long in v0 */
+    ctx->r2 = n64rt_now_ns() * 46875ull / 1000000ull; /* long long in v0 (virtual in screenshot runs) */
 }
 
 /* ================================================================================================

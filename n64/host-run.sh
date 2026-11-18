@@ -33,6 +33,7 @@ cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_libdragon.c" -
 cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_audio.c" -o "$OUT/obj/hle_audio.o"
 cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_rdpq.c" -o "$OUT/obj/hle_rdpq.o"
 cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_rspq.c" -o "$OUT/obj/hle_rspq.o"
+cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/gfx_gl.c" -o "$OUT/obj/gfx_gl.o"
 cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/n64_main.c" -o "$OUT/obj/main.o"
 # shellcheck disable=SC2086
 c++ "$OUT"/obj/*.o $LIBS -o "$OUT/$NAME"
@@ -41,7 +42,8 @@ cp "$GEN/$NAME.bin" "$OUT/"
 
 cd "$OUT"
 if [[ "${2:-}" == "--shot" ]]; then
-  SDL_VIDEO_DRIVER=dummy SDL_RENDER_DRIVER=software N64_ASSETS="$OUT/" N64_SHOT="$ROOT/build/n64/$NAME-host.png" \
+  # A hidden window with a GL context (the dummy video driver has no GL); see n64_main.c.
+  N64_ASSETS="$OUT/" N64_SHOT="$ROOT/build/n64/$NAME-host.png" \
     N64_SHOT_FRAMES="${3:-30}" "./$NAME"
 else
   N64_ASSETS="$OUT/" "./$NAME"

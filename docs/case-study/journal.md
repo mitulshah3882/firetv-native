@@ -699,3 +699,15 @@ Most N64brew Jam 2024 games draw 3D with tiny3d, a library that sends its work t
 - **Sounds.** Sword Strike's two WAVs aren't fetched: the Wilhelm scream (murky provenance) and its fight music (no documented source). A small script synthesizes our own under the same names: a sliding square-wave yelp and an 8-bar chiptune loop.
 
 Sword Strike now plays on the Mac on its sand-coloured clear, with the platforms, all four fighters and the music; the backdrop cube waits for phase 2. The regression suite runs it headless along with everything else: 11 checks.
+
+## 2026-11-18: N64 3D, phase 1: a renderer of our own
+
+To draw 3D, the N64 runtime needs a depth buffer, shaders and a framebuffer it can render at a multiple of the N64 resolution. SDL_Renderer, which drew the three shipped N64 games, has none of those. Phase 1 replaced it with a small GL layer of our own (`gfx_gl.c`) without changing what anything looks like.
+
+- **Same semantics, fewer features.** The HLE code used a handful of SDL calls: textured quads with flips, rotation and a tint, filled rectangles, triangles, a scissor, and three blend modes. The layer provides exactly those, matching SDL's blend equations, and its geometry wraps textures outside [0, 1] as SDL's does (Hydra Harmonics' stage floor depends on it). The 2D logic above it, which bakes the RDP's colour combiner into textures on the CPU, didn't change.
+- **Proving it.** The old renderer's frames were the reference, but two runs of the same game didn't produce the same frame: the games read time from the CPU's Count register and seed their randomness from the clock. Screenshot runs now use a virtual clock (1/60 s per frame, plus a little per read so wait loops still move) and a fixed seed, so frame N is the same moment every time. Ten frames from five programs, compared pixel by pixel: eight match within 5/255 (the upscale's rounding); Hydra Harmonics' scaled legend icons differ at a few edge texels, where nearest-neighbour sampling rounds differently. The unit tests that check font glyphs pixel by pixel now read them back from the GL framebuffer.
+- **The trap.** On the stick, Hydra Harmonics fell from 60 to 21 fps. The layer flushed a batch every time the texture changed, and each flush uploaded its vertices into a freshly allocated GL buffer: hundreds of small allocations a frame, which the stick's driver handles slowly. (Prism Spire's "orphan your buffers" lesson, decision 63, assumed a few uploads a frame.) Now draws are recorded as segments and the frame's vertices go up in one upload, as SDL's renderer does: 60 fps again, with about 670 draw calls a frame.
+
+On the TV, Hydra Harmonics, Land Grab and Brew Volley run at 60 fps, and the "Press BACK again to exit" hint, now a texture rendered once by SDL's software renderer, still shows. The framebuffer has a depth buffer and a scale factor waiting for phase 2.
+
+While this was running, the user asked about disk space: 2.9 GB of old debug symbols and Debug builds went from the project, and 1.3 GB of scratch files.

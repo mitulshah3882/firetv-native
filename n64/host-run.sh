@@ -19,6 +19,8 @@ SDL="$ROOT/build/host-sdl3/install"
 mkdir -p "$OUT/obj"
 LIBS=$(sed -n 's/^Libs: //p' "$SDL/lib/pkgconfig/sdl3.pc" | sed "s#\${libdir}#$SDL/lib#")
 INC=(-I"$ROOT/build/n64/include" -I"$GEN" -I"$ROOT/n64/runtime/include" -I"$SDL/include")
+T3D_RSP=$(ls -d "$ROOT"/third_party/_src/tiny3d-*/src/t3d/rsp 2>/dev/null | head -1)  # rsp_tiny3d.h for hle_t3d.c
+[[ -n "$T3D_RSP" ]] && INC+=(-I"$T3D_RSP")
 # Generated code: big, so compile in parallel; NDEBUG drops N64Recomp's per-instruction asserts.
 pids=()
 for f in "$GEN"/funcs_*.c "$GEN"/ignored_stubs.c; do
@@ -34,6 +36,7 @@ cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_audio.c" -o "$
 cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_rdpq.c" -o "$OUT/obj/hle_rdpq.o"
 cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_rspq.c" -o "$OUT/obj/hle_rspq.o"
 cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/gfx_gl.c" -o "$OUT/obj/gfx_gl.o"
+cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_t3d.c" -o "$OUT/obj/hle_t3d.o"
 cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/n64_main.c" -o "$OUT/obj/main.o"
 # shellcheck disable=SC2086
 c++ "$OUT"/obj/*.o $LIBS -o "$OUT/$NAME"

@@ -58,3 +58,26 @@ SDL_Surface *gfx_fb_read(void);
 void gfx_flush(void);
 /* Draw calls, vertices and texture uploads since the last call (for the fps log). */
 void gfx_stats(int *draws, int *verts, int *uploads);
+
+/* ---- 3D (tiny3d, hle_t3d.c): triangles in clip space, into the N64 framebuffer --------------------- */
+typedef struct {
+    float x, y, z, w;  /* clip space */
+    float u, v;        /* texture coordinates, normalised */
+    uint8_t c[4];      /* shade colour */
+} GfxVert3D;
+/* A program whose fragment shader body computes `o` from v_uv, v_col (the shade), u_tex, u_prim,
+ * u_env, u_prim_lod and u_athresh. Returns its handle, or -1. */
+int gfx_prog3d(const char *fs_body);
+typedef struct {
+    int prog;
+    GfxTex *tex;              /* NULL: none */
+    bool linear, wrap;
+    int blend;                /* GFX_BLEND_* */
+    bool ztest, zwrite;
+    float prim[4], env[4], prim_lod, athresh;
+    int vx, vy, vw, vh;       /* the viewport, N64 pixels */
+    bool sc_on;               /* the scissor, N64 pixels */
+    SDL_Rect sc;
+} Gfx3DState;
+void gfx_draw3d(const Gfx3DState *st, const GfxVert3D *v, int n);
+void gfx_fb_clear_depth(void);

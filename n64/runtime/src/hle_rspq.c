@@ -50,7 +50,7 @@ void hle_rspq_boot(uint8_t *rdram) { tap_arm(rdram); }
 /* The words in [g_tap, rspq_cur_pointer): usually one command (each inline write calls the tap at
  * once). rspq_write_begin/end check before writing, so a command written that way waits for the
  * next tap call and can arrive together with the following one. */
-void hle_rspq_drain(uint8_t *rdram) {
+void hle_rspq_drain(uint8_t *rdram, recomp_context *ctx) {
     if (!g_tap) return;
     const uint32_t cur = n64_r32(rdram, n64rt_sym_rspq_cur_pointer);
     if (cur <= g_tap || cur > g_tap + TAP_BYTES) {
@@ -73,7 +73,18 @@ void hle_rspq_drain(uint8_t *rdram) {
     }
     o->count++;
     g_cmds++;
-    /* Phase 2 hands the words to the overlay's host microcode here (hle_t3d.c). */
+    if (o->kind == OV_TINY3D) {
+        /* usually one command; split the rare batch by tiny3d's command sizes (in words) */
+        static const int size[16] = {2, 6, 2, 2, 3, 4, 2, 1, 4, 1, 1, 2, 2, 1, 1, 1};
+        uint32_t w[64];
+        int nw = SDL_min(words, 64);
+        for (int i = 0; i < nw; i++) w[i] = n64_r32(rdram, g_tap + (uint32_t)i * 4);
+        for (int i = 0; i < nw;) {
+            const int len = SDL_min(size[(w[i] >> 24) & 0xF], nw - i);
+            hle_rdpq_t3d_op(rdram, ctx, w + i, len);
+            i += len;
+        }
+    }
     n64_w32(rdram, n64rt_sym_rspq_cur_pointer, g_tap);
 }
 
@@ -90,7 +101,7 @@ void hle_rspq_frame(void) {
 /* void rspq_next_buffer(void): the tap */
 void n64_rspq_next_buffer(uint8_t *rdram, recomp_context *ctx) {
     (void)ctx;
-    hle_rspq_drain(rdram);
+    hle_rspq_drain(rdram, ctx);
 }
 
 /* void rspq_init(void): the program's own call (re-)aims the tap */
@@ -99,8 +110,8 @@ void n64_rspq_init(uint8_t *rdram, recomp_context *ctx) {
     tap_arm(rdram);
 }
 
-void n64_rspq_flush(uint8_t *rdram, recomp_context *ctx) { (void)ctx; hle_rspq_drain(rdram); }
-void n64_rspq_wait(uint8_t *rdram, recomp_context *ctx) { (void)ctx; hle_rspq_drain(rdram); }
+void n64_rspq_flush(uint8_t *rdram, recomp_context *ctx) { (void)ctx; hle_rspq_drain(rdram, ctx); }
+void n64_rspq_wait(uint8_t *rdram, recomp_context *ctx) { (void)ctx; hle_rspq_drain(rdram, ctx); }
 
 static uint32_t overlay_add(uint8_t *rdram, uint32_t ucode, int id) {
     char name[32] = "";

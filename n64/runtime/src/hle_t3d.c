@@ -1,0 +1,304 @@
+/*
+ * A host model of tiny3d's RSP microcode (rsp_tiny3d), behind the rspq tap (hle_rspq.c).
+ * See docs/research/tiny3d-hle.md, section 3.3.
+ *
+ * tiny3d's C code stays recompiled; it encodes commands for its microcode, and this file does what
+ * the microcode would: a matrix stack (in host memory, indexed like the one tiny3d keeps in RDRAM),
+ * the projection, per-vertex transform and lighting on the CPU into a vertex cache addressed by its
+ * DMEM offsets (as tiny3d encodes them), culling, and triangle assembly. Triangles are handed to
+ * hle_rdpq.c in clip space and drawn with the current RDP render mode (combiner, blender, depth).
+ *
+ * The microcode's DMEM addresses come from tiny3d's generated rsp_tiny3d.h (built with libt3d.a);
+ * without it the commands are only counted.
+ *
+ * Not modelled yet: point lights, fog, vertex effects, depth offset, alpha-to-tile, IMEM patches.
+ *
+ * SPDX-FileCopyrightText: 2026 Mitul Shah
+ * SPDX-License-Identifier: MIT
+ */
+#include <math.h>
+
+#include "hle_internal.h"
+
+#if __has_include("rsp_tiny3d.h")
+#include "rsp_tiny3d.h"
+#define T3D_HAVE 1
+#define DMEM(sym) ((uint32_t)(sym) & 0xFFFu)
+#else
+#define T3D_HAVE 0
+#endif
+
+#define VERT_OUTPUT_SIZE 36
+#define CACHE 128
+#define STACK 64
+
+typedef struct {
+    float clip[4];
+    uint8_t c[4];
+    float s, t;       /* texels */
+} CVert;
+
+static struct {
+    float proj[16];   /* column-major: m[col * 4 + row] */
+    float stack[STACK][16];
+    int sp;           /* the stack pointer in bytes, relative to where tiny3d's started */
+    float mv[16], mvp[16], nrm[9];
+    CVert v[CACHE];
+    uint8_t ambient[4];
+    struct { uint8_t c[4]; float dir[3]; } light[8];
+    int nlights;
+    float exposure;
+    int cull;         /* 0 cull back, 1 cull front, 2 none */
+    bool unlit;
+    uint32_t seg[16];
+    int vx, vy, vw, vh;  /* the viewport, N64 pixels */
+    GfxVert3D *tri;      /* pending triangles */
+    int ntri, cap;
+    bool logged;
+} T = {.exposure = 1.0f, .cull = 2};
+
+/* ---- maths ---------------------------------------------------------------------------------------- */
+static void mat_mul(float *out, const float *a, const float *b) {  /* out = a * b */
+    float r[16];
+    for (int c = 0; c < 4; c++)
+        for (int row = 0; row < 4; row++)
+            r[c * 4 + row] = a[0 * 4 + row] * b[c * 4 + 0] + a[1 * 4 + row] * b[c * 4 + 1] + a[2 * 4 + row] * b[c * 4 + 2] +
+                             a[3 * 4 + row] * b[c * 4 + 3];
+    SDL_memcpy(out, r, sizeof r);
+}
+
+static uint32_t resolve(uint32_t addr) {
+    const uint32_t seg = (addr >> 24) & 0xF;
+    if (seg) addr = T.seg[seg] + (addr & 0xFFFFFF);
+    return (addr & 0x1FFFFFFFu) | 0x80000000u;
+}
+
+/* T3DMat4FP: per column, four s16 integer parts then four u16 fractions (16.16). */
+static void load_mat(uint8_t *rdram, uint32_t addr, float *m) {
+    addr = resolve(addr);
+    for (int c = 0; c < 4; c++)
+        for (int r = 0; r < 4; r++) {
+            const uint32_t i = n64_r16(rdram, addr + (uint32_t)(c * 16 + r * 2));
+            const uint32_t f = n64_r16(rdram, addr + (uint32_t)(c * 16 + 8 + r * 2));
+            m[c * 4 + r] = (float)(int32_t)(i << 16 | f) / 65536.0f;
+        }
+}
+
+static void update_mv(const float *m) {
+    SDL_memcpy(T.mv, m, sizeof T.mv);
+    mat_mul(T.mvp, T.proj, T.mv);
+    /* the normal matrix: the model-view's columns, normalised (uniform scale assumed, as tiny3d does) */
+    for (int c = 0; c < 3; c++) {
+        const float x = m[c * 4], y = m[c * 4 + 1], z = m[c * 4 + 2], l = sqrtf(x * x + y * y + z * z);
+        const float k = l > 1e-9f ? 1.0f / l : 0.0f;
+        T.nrm[c * 3] = x * k;
+        T.nrm[c * 3 + 1] = y * k;
+        T.nrm[c * 3 + 2] = z * k;
+    }
+}
+
+/* ---- commands ------------------------------------------------------------------------------------- */
+static void matrix_stack(uint8_t *rdram, uint32_t w0, uint32_t addr) {
+    const int advance = (int16_t)((w0 >> 8) & 0xFFFF);
+    T.sp += advance;
+    if (w0 & 2) return;  /* only move the stack pointer */
+    const int idx = SDL_clamp(T.sp / 64, 0, STACK - 1);
+    float m[16];
+    if (advance < 0) SDL_memcpy(m, T.stack[idx], sizeof m);  /* pop: back to what's on the stack */
+    else load_mat(rdram, addr, m);
+    if (w0 & 1) mat_mul(m, T.stack[SDL_clamp(idx - 1, 0, STACK - 1)], m);
+    SDL_memcpy(T.stack[idx], m, sizeof m);
+    update_mv(m);
+}
+
+static void screen_size(const uint32_t *w) {
+    const int guard = SDL_max(1, (int)(w[0] & 0xF));
+    const float norm_w = (float)(w[3] & 0xFFFF) / 65535.0f;
+    const float sx = (float)(int16_t)(w[2] >> 16) + (float)(w[4] >> 16) / 65536.0f;
+    const float sy = (float)(int16_t)(w[2] & 0xFFFF) + (float)(w[4] & 0xFFFF) / 65536.0f;
+    const float k = norm_w * 4.0f * (float)guard;
+    if (k <= 0) return;
+    const int width = (int)lroundf(sx / k), height = (int)lroundf(-sy / k);
+    const int ox2 = (int32_t)w[1] >> 17, oy2 = (int16_t)((w[1] >> 1) & 0xFFFF);
+    T.vw = width;
+    T.vh = height;
+    T.vx = (ox2 - width) / 2;
+    T.vy = (oy2 - height) / 2;
+}
+
+static void vert_load(uint8_t *rdram, const uint32_t *w) {
+#if T3D_HAVE
+    const int count = (int)(w[0] & 0xFFFF) / 16;
+    const uint32_t src = resolve(w[1]);
+    const int slot0 = (int)((w[2] & 0xFFFF) - DMEM(RSP_T3D_VERT_BUFFER)) / VERT_OUTPUT_SIZE;
+    for (int i = 0; i < count; i++) {
+        const int slot = slot0 + i;
+        if (slot < 0 || slot >= CACHE) continue;
+        const uint32_t p = src + (uint32_t)(i / 2) * 32, b = (i & 1) ? 8u : 0u;
+        const float x = (float)(int16_t)n64_r16(rdram, p + b), y = (float)(int16_t)n64_r16(rdram, p + b + 2);
+        const float z = (float)(int16_t)n64_r16(rdram, p + b + 4);
+        const uint16_t nq = n64_r16(rdram, p + b + 6);
+        const uint32_t rgba = n64_r32(rdram, p + 16 + ((i & 1) ? 4u : 0u));
+        const uint32_t st = n64_r32(rdram, p + 24 + ((i & 1) ? 4u : 0u));
+        CVert *o = &T.v[slot];
+        for (int r = 0; r < 4; r++) o->clip[r] = T.mvp[r] * x + T.mvp[4 + r] * y + T.mvp[8 + r] * z + T.mvp[12 + r];
+        float lc[3] = {1, 1, 1};
+        if (!T.unlit) {
+            /* 5.6.5 normal, into view space */
+            const float nx0 = (float)((int16_t)(nq & 0xF800) >> 11) / 15.5f, ny0 = (float)((int16_t)((nq << 5) & 0xFC00) >> 10) / 31.5f;
+            const float nz0 = (float)((int16_t)((nq << 11) & 0xF800) >> 11) / 15.5f;
+            float n[3];
+            for (int r = 0; r < 3; r++) n[r] = T.nrm[r] * nx0 + T.nrm[3 + r] * ny0 + T.nrm[6 + r] * nz0;
+            for (int ch = 0; ch < 3; ch++) lc[ch] = (float)T.ambient[ch] / 255.0f;
+            for (int l = 0; l < T.nlights; l++) {
+                const float d = n[0] * T.light[l].dir[0] + n[1] * T.light[l].dir[1] + n[2] * T.light[l].dir[2];
+                if (d <= 0) continue;
+                for (int ch = 0; ch < 3; ch++) lc[ch] += d * (float)T.light[l].c[ch] / 255.0f;
+            }
+        }
+        for (int ch = 0; ch < 3; ch++) {
+            const float v = (float)((rgba >> (24 - ch * 8)) & 255) * SDL_min(lc[ch], 1.0f) * T.exposure;
+            o->c[ch] = (uint8_t)SDL_clamp(v + 0.5f, 0.0f, 255.0f);
+        }
+        o->c[3] = (uint8_t)rgba;
+        o->s = (float)(int16_t)(st >> 16) / 32.0f;
+        o->t = (float)(int16_t)(st & 0xFFFF) / 32.0f;
+    }
+#else
+    (void)rdram;
+    (void)w;
+#endif
+}
+
+static int slot_of(uint32_t dmem) {
+#if T3D_HAVE
+    const int s = (int)((dmem & 0x3FFF) - DMEM(RSP_T3D_VERT_BUFFER)) / VERT_OUTPUT_SIZE;
+    return (s >= 0 && s < CACHE) ? s : -1;
+#else
+    (void)dmem;
+    return -1;
+#endif
+}
+
+static void push_vert(const CVert *c) {
+    GfxVert3D *o = &T.tri[T.ntri++];
+    o->x = c->clip[0];
+    o->y = c->clip[1];
+    o->w = c->clip[3];
+    /* No depth clipping (the N64 has no far plane): z is clamped to the depth range instead. */
+    if (c->clip[3] > 1e-6f) o->z = SDL_clamp(c->clip[2] / c->clip[3], -1.0f, 1.0f) * c->clip[3];
+    else o->z = -c->clip[3];  /* behind the eye: GL clips the triangle there */
+    o->u = c->s;
+    o->v = c->t;
+    SDL_memcpy(o->c, c->c, 4);
+}
+
+static void tri(int a, int b, int c) {
+    if (a < 0 || b < 0 || c < 0) return;
+    const CVert *va = &T.v[a], *vb = &T.v[b], *vc = &T.v[c];
+    if (T.cull != 2 && va->clip[3] > 0 && vb->clip[3] > 0 && vc->clip[3] > 0) {
+        const float ax = va->clip[0] / va->clip[3], ay = va->clip[1] / va->clip[3];
+        const float bx = vb->clip[0] / vb->clip[3], by = vb->clip[1] / vb->clip[3];
+        const float cx = vc->clip[0] / vc->clip[3], cy = vc->clip[1] / vc->clip[3];
+        const float area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);  /* > 0: counter-clockwise (front) */
+        if ((T.cull == 0 && area <= 0) || (T.cull == 1 && area >= 0)) return;
+    }
+    if (T.ntri + 3 > T.cap) {
+        T.cap = SDL_max(T.cap * 2, 3072);
+        T.tri = (GfxVert3D *)SDL_realloc(T.tri, sizeof(GfxVert3D) * (size_t)T.cap);
+    }
+    push_vert(va);
+    push_vert(vb);
+    push_vert(vc);
+}
+
+void hle_t3d_flush(uint8_t *rdram, recomp_context *ctx) {
+    if (!T.ntri) return;
+    const int vw = T.vw > 0 ? T.vw : hle_video.w, vh = T.vh > 0 ? T.vh : hle_video.h;
+    hle_rdpq_draw3d(rdram, ctx, T.tri, T.ntri, T.vw > 0 ? T.vx : 0, T.vh > 0 ? T.vy : 0, vw, vh);
+    T.ntri = 0;
+}
+
+void hle_t3d_exec(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n) {
+    if (n < 1) return;
+    const int cmd = (int)((w[0] >> 24) & 0xF);
+    switch (cmd) {
+        case 0x0: tri(slot_of(w[0]), slot_of(w[1] >> 16), slot_of(w[1])); break;  /* TRI_DRAW */
+        case 0x1: hle_t3d_flush(rdram, ctx); if (n >= 6) screen_size(w); break;  /* SCREEN_SIZE */
+        case 0x2: if (n >= 2) matrix_stack(rdram, w[0], w[1]); break;              /* MATRIX_STACK */
+        case 0x3:                                                                    /* SET_WORD */
+#if T3D_HAVE
+            if (n >= 2) {
+                const uint32_t addr = w[0] & 0x7FFF, v = w[1];
+                if (addr == DMEM(RSP_T3D_ACTIVE_LIGHT_SIZE)) T.nlights = SDL_min((int)((v >> 8) & 0xFF) / 16, 7);
+                else if (addr == DMEM(RSP_T3D_COLOR_EXPOSURE)) T.exposure = (float)(int16_t)v / 128.0f;
+                else if (addr >= DMEM(RSP_T3D_SEGMENT_TABLE) && addr < DMEM(RSP_T3D_SEGMENT_TABLE) + 64)
+                    T.seg[((addr - DMEM(RSP_T3D_SEGMENT_TABLE)) / 4) & 15] = v;
+            }
+#endif
+            break;
+        case 0x4: if (n >= 3) vert_load(rdram, w); break;                            /* VERT_LOAD */
+        case 0x5:                                                                    /* LIGHT_SET */
+#if T3D_HAVE
+            if (n >= 4) {
+                const uint32_t addr = w[0] & 0xFFFF;
+                if (addr == DMEM(RSP_T3D_COLOR_AMBIENT)) {
+                    for (int i = 0; i < 4; i++) T.ambient[i] = (uint8_t)(w[1] >> (24 - i * 8));
+                } else {
+                    const int i = (int)(addr - DMEM(RSP_T3D_LIGHT_DIR_COLOR)) / 16;
+                    if (i >= 0 && i < 8) {
+                        for (int k = 0; k < 4; k++) T.light[i].c[k] = (uint8_t)(w[1] >> (24 - k * 8));
+                        T.light[i].dir[0] = (float)(int8_t)(w[2] >> 24) / 127.0f;
+                        T.light[i].dir[1] = (float)(int8_t)(w[2] >> 16) / 127.0f;
+                        T.light[i].dir[2] = (float)(int8_t)(w[2] >> 8) / 127.0f;
+                    }
+                }
+            }
+#endif
+            break;
+        case 0x6:                                                                    /* DRAWFLAGS */
+            if (n >= 2) {
+                T.cull = (int)(w[0] & 3);
+                T.unlit = (w[1] >> 24) & 1;  /* T3D_FLAG_NO_LIGHT */
+            }
+            break;
+        case 0x7: hle_t3d_flush(rdram, ctx); load_mat(rdram, w[0] & 0xFFFFFF, T.proj); mat_mul(T.mvp, T.proj, T.mv); break;
+        case 0xB:                                                                    /* TRI_STRIP */
+            if (n >= 2) {
+                const uint32_t src = resolve(w[0] & 0xFFFFFF);
+                const int count = (int)((w[1] & 0xFFFF) + 1) / 2;
+                int start = 0, prev[2] = {-1, -1}, k = 0;
+                for (int i = 0; i < count; i++) {
+                    const uint16_t ix = n64_r16(rdram, src + (uint32_t)i * 2);
+                    if ((ix & 0x8000) || i == 0) { start = i; k = 0; }
+                    const int s = slot_of(ix);
+                    if (k >= 2) {
+                        if ((i - start) & 1) tri(prev[1], prev[0], s);
+                        else tri(prev[0], prev[1], s);
+                    }
+                    prev[0] = prev[1];
+                    prev[1] = s;
+                    k++;
+                    if (ix & 0x4000) break;
+                }
+            }
+            break;
+        case 0xC:                                                                    /* TRI_SEQ */
+            if (n >= 2) {
+                const bool quad = (w[1] >> 16) != 0;
+                const uint32_t end = w[1] & 0xFFFF, step = (quad ? 4 : 3) * VERT_OUTPUT_SIZE;
+                for (uint32_t a = w[0] & 0xFFFF; a + step <= end + 0; a += step) {
+                    const int s0 = slot_of(a), s1 = slot_of(a + 36), s2 = slot_of(a + 72);
+                    tri(s0, s1, s2);
+                    if (quad) tri(s0, s2, slot_of(a + 108));
+                }
+            }
+            break;
+        default:  /* 0x8 PATCH, 0x9 FOG_STATE, 0xA TRI_SYNC: not modelled yet */
+            break;
+    }
+    if (!T.logged && cmd == 0x0) {
+        T.logged = true;
+        n64rt_log("t3d: drawing (host microcode%s)", T3D_HAVE ? "" : ": NO rsp_tiny3d.h, nothing drawn");
+    }
+}

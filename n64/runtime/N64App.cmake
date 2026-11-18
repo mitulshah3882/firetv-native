@@ -40,10 +40,17 @@ function(n64_add_recomp_app target)
   vega_app_license(N64RECOMP-LICENSE.txt "${N64RT_REPO}/third_party/_src/N64Recomp-598ce20/LICENSE")
 
   vega_add_sdl3_app(${target} PACKAGE_ID "${arg_PACKAGE_ID}"
-    SOURCES "${rt}/n64_main.c" "${rt}/hle_libdragon.c" "${rt}/hle_rdpq.c" "${rt}/hle_rspq.c" "${rt}/hle_audio.c" "${rt}/gfx_gl.c" "${rt}/n64rt.cpp"
+    SOURCES "${rt}/n64_main.c" "${rt}/hle_libdragon.c" "${rt}/hle_rdpq.c" "${rt}/hle_rspq.c" "${rt}/hle_audio.c" "${rt}/gfx_gl.c" "${rt}/hle_t3d.c" "${rt}/n64rt.cpp"
     ASSETS_DIR "${pkgroot}")
   target_sources(${target} PRIVATE ${gen_sources})
   target_include_directories(${target} PRIVATE "${N64RT_REPO}/build/n64/include" "${gen}" "${N64RT_REPO}/n64/runtime/include")
+  # tiny3d's generated microcode addresses (rsp_tiny3d.h, written when libt3d.a is built): hle_t3d.c
+  file(GLOB _t3d_rsp "${N64RT_REPO}/third_party/_src/tiny3d-*/src/t3d/rsp/rsp_tiny3d.h")
+  if(_t3d_rsp)
+    list(GET _t3d_rsp 0 _t3d_rsp)
+    get_filename_component(_t3d_rsp "${_t3d_rsp}" DIRECTORY)
+    target_include_directories(${target} PRIVATE "${_t3d_rsp}")
+  endif()
   # Generated code: N64Recomp's per-instruction asserts off, warnings off (it's machine output).
   set_source_files_properties(${gen_sources} PROPERTIES COMPILE_OPTIONS "-w;-O2" COMPILE_DEFINITIONS "NDEBUG")
   set_source_files_properties("${rt}/n64rt.cpp" PROPERTIES COMPILE_OPTIONS "-std=c++20")

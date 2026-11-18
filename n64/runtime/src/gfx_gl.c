@@ -68,6 +68,10 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_COMPILE_STATUS 0x8B81
 #define GL_LINK_STATUS 0x8B82
 
+#define GL_DEPTH_TEST_ 0x0B71
+#define GL_LEQUAL 0x0203
+#define GL_LESS 0x0201
+
 #define GL_FUNCS(X)                                                                                   \
     X(void, glGenTextures, (GLsizei n, GLuint *t))                                                    \
     X(void, glDeleteTextures, (GLsizei n, const GLuint *t))                                           \
@@ -119,7 +123,10 @@ typedef ptrdiff_t GLsizeiptr;
                                     const void *off))                                                 \
     X(void, glEnableVertexAttribArray, (GLuint i))                                                    \
     X(void, glDrawArrays, (GLenum mode, GLint first, GLsizei n))                                      \
-    X(void, glReadPixels, (GLint x, GLint y, GLsizei w, GLsizei h, GLenum fmt, GLenum type, void *px))
+    X(void, glReadPixels, (GLint x, GLint y, GLsizei w, GLsizei h, GLenum fmt, GLenum type, void *px)) \
+    X(void, glDepthFunc, (GLenum f))                                                                  \
+    X(void, glDepthMask, (GLboolean m))                                                               \
+    X(void, glUniform1f, (GLint loc, GLfloat v))
 
 #define X(ret, name, args) static ret(*name) args;
 GL_FUNCS(X)
@@ -579,3 +586,119 @@ void gfx_stats(int *draws, int *verts, int *uploads) {
     *uploads = S.st_uploads;
     S.st_draws = S.st_verts = S.st_uploads = 0;
 }
+
+/* ---- 3D ----------------------------------------------------------------------------------------- */
+static const char *kVS3D =
+    "layout(location=0) in vec4 a_clip;\n"
+    "layout(location=1) in vec2 a_uv;\n"
+    "layout(location=2) in vec4 a_col;\n"
+    "out vec2 v_uv;\n"
+    "out vec4 v_col;\n"
+    "void main() { gl_Position = a_clip; v_uv = a_uv; v_col = a_col; }\n";
+
+#define MAX_PROGS3D 64
+static struct {
+    GLuint vao, vbo;
+    struct { GLuint p; GLint tex, prim, env, prim_lod, athresh; } prog[MAX_PROGS3D];
+    int nprog;
+} D;
+
+int gfx_prog3d(const char *fs_body) {
+    if (!S.ok || D.nprog == MAX_PROGS3D) return -1;
+    char *fs = NULL;
+    SDL_asprintf(&fs,
+                 "in vec2 v_uv;\nin vec4 v_col;\nuniform sampler2D u_tex;\nuniform vec4 u_prim, u_env;\n"
+                 "uniform float u_prim_lod, u_athresh;\nout vec4 o;\nvoid main() {\n%s\n}\n", fs_body);
+    const GLuint vs = compile(GL_VERTEX_SHADER, kVS3D), f = compile(GL_FRAGMENT_SHADER, fs);
+    SDL_free(fs);
+    if (!vs || !f) return -1;
+    const GLuint p = glCreateProgram();
+    glAttachShader(p, vs);
+    glAttachShader(p, f);
+    glLinkProgram(p);
+    glDeleteShader(vs);
+    glDeleteShader(f);
+    GLint ok = 0;
+    glGetProgramiv(p, GL_LINK_STATUS, &ok);
+    if (!ok) return -1;
+    const int i = D.nprog++;
+    D.prog[i].p = p;
+    D.prog[i].tex = glGetUniformLocation(p, "u_tex");
+    D.prog[i].prim = glGetUniformLocation(p, "u_prim");
+    D.prog[i].env = glGetUniformLocation(p, "u_env");
+    D.prog[i].prim_lod = glGetUniformLocation(p, "u_prim_lod");
+    D.prog[i].athresh = glGetUniformLocation(p, "u_athresh");
+    return i;
+}
+
+void gfx_fb_clear_depth(void) {
+    gfx_flush();
+    glDisable(GL_SCISSOR_TEST);
+    glDepthMask(GL_TRUE);
+    glClearDepthf(1.0f);
+    glClear(GL_DEPTH_BUFFER_BIT);
+}
+
+/* Draws at once (after the pending 2D draws): tiny3d submits a few large batches a frame. */
+void gfx_draw3d(const Gfx3DState *st, const GfxVert3D *v, int n) {
+    if (n <= 0 || st->prog < 0 || !S.on_fb) return;
+    gfx_flush();
+    if (!D.vao) {
+        glGenVertexArrays(1, &D.vao);
+        glBindVertexArray(D.vao);
+        glGenBuffers(1, &D.vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, D.vbo);
+        glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(GfxVert3D), (const void *)offsetof(GfxVert3D, x));
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GfxVert3D), (const void *)offsetof(GfxVert3D, u));
+        glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GfxVert3D), (const void *)offsetof(GfxVert3D, c));
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glEnableVertexAttribArray(2);
+    }
+    glBindVertexArray(D.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, D.vbo);
+    const int k = S.fb_scale;
+    glViewport(st->vx * k, (S.fb_h - st->vy - st->vh) * k, st->vw * k, st->vh * k);
+    if (st->sc_on) {
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(st->sc.x * k, (S.fb_h - st->sc.y - st->sc.h) * k, st->sc.w * k, st->sc.h * k);
+    }
+    const typeof(D.prog[0]) *pr = &D.prog[st->prog];
+    glUseProgram(pr->p);
+    glUniform1i(pr->tex, 0);
+    glUniform4f(pr->prim, st->prim[0], st->prim[1], st->prim[2], st->prim[3]);
+    glUniform4f(pr->env, st->env[0], st->env[1], st->env[2], st->env[3]);
+    glUniform1f(pr->prim_lod, st->prim_lod);
+    glUniform1f(pr->athresh, st->athresh);
+    GfxTex *t = st->tex ? st->tex : &S.white;
+    glBindTexture(GL_TEXTURE_2D, t->id);
+    if (t->linear != st->linear) {
+        t->linear = st->linear;
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, st->linear ? GL_LINEAR : GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, st->linear ? GL_LINEAR : GL_NEAREST);
+    }
+    if (t->wrap != st->wrap) {
+        t->wrap = st->wrap;
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, st->wrap ? GL_REPEAT : GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, st->wrap ? GL_REPEAT : GL_CLAMP_TO_EDGE);
+    }
+    apply_blend(st->blend);
+    if (st->ztest || st->zwrite) {
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(st->ztest ? GL_LEQUAL : 0x0207 /* GL_ALWAYS */);
+        glDepthMask(st->zwrite ? GL_TRUE : GL_FALSE);
+    }
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(sizeof(GfxVert3D) * (size_t)n), v, GL_STREAM_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, n);
+    S.st_draws++;
+    S.st_verts += n;
+    /* back to the 2D state */
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_SCISSOR_TEST);
+    glUseProgram(S.prog);
+    glBindVertexArray(S.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, S.vbo);
+    glViewport(0, 0, S.vw, S.vh);
+}
+

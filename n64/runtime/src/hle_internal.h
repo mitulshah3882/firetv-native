@@ -47,5 +47,12 @@ void hle_rdpq_frame_begin(void);
 /* The rspq tap (hle_rspq.c): aim libdragon's inline queue writes at a scratch area, decode what
  * is there (before anything that must stay in program order), and a per-frame summary. */
 void hle_rspq_boot(uint8_t *rdram);
-void hle_rspq_drain(uint8_t *rdram);
+/* tiny3d (hle_t3d.c, behind the rspq tap): a command is recorded into the current rspq block or run;
+ * pending triangles are drawn before any other RDP change. hle_rdpq_draw3d draws them with the
+ * current render mode. */
+void hle_rdpq_t3d_op(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n);
+void hle_t3d_exec(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n);
+void hle_t3d_flush(uint8_t *rdram, recomp_context *ctx);
+void hle_rdpq_draw3d(uint8_t *rdram, recomp_context *ctx, GfxVert3D *v, int n, int vx, int vy, int vw, int vh);
+void hle_rspq_drain(uint8_t *rdram, recomp_context *ctx);
 void hle_rspq_frame(void);

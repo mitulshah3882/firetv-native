@@ -70,6 +70,8 @@ static struct {
     uint16_t tlut[256];                   /* palette loaded with rdpq_tex_upload_tlut */
     bool tlut_loaded;
     uint32_t frame;
+    bool sc_on;                           /* the scissor (also for 3D draws) */
+    SDL_Rect sc;
 } R;
 
 /* ================================================================================================
@@ -671,7 +673,7 @@ static void triangle(uint8_t *rdram, recomp_context *ctx, const uint32_t *a) {
 enum {
     OP_RESET_MODE, OP_FIXUP, OP_PUSH, OP_POP, OP_WRITE8, OP_FILL_COLOR32, OP_SCISSOR, OP_FILL_RECT,
     OP_TEX_RECT, OP_TILE_SPRITE, OP_TILE_SURFACE, OP_TLUT, OP_SPRITE_BLIT, OP_TEX_BLIT, OP_CHANGE_SOM,
-    OP_TILE_SURFACE_SUB, OP_TILE_REUSE, OP_TRIANGLE,
+    OP_TILE_SURFACE_SUB, OP_TILE_REUSE, OP_TRIANGLE, OP_T3D,
 };
 typedef struct {
     uint8_t code;
@@ -734,6 +736,11 @@ static void load_sprite_tlut(uint8_t *rdram, recomp_context *ctx, uint32_t sprit
 
 static void exec(uint8_t *rdram, recomp_context *ctx, const Op *op) {
     const uint32_t *a = op->a;
+    if (op->code == OP_T3D) {  /* a tiny3d command (hle_t3d.c): a[0] = word count, then the words */
+        hle_t3d_exec(rdram, ctx, a + 1, (int)a[0]);
+        return;
+    }
+    hle_t3d_flush(rdram, ctx);  /* its pending triangles use the render mode before this change */
     switch (op->code) {
         case OP_RESET_MODE:
             R.m.cc = (uint64_t)(a[0] & 0x00FFFFFF) << 32 | a[1];
@@ -789,7 +796,9 @@ static void exec(uint8_t *rdram, recomp_context *ctx, const Op *op) {
             const int x0 = (int)((a[0] >> 12) & 0xFFF) / 4, y0 = (int)(a[0] & 0xFFF) / 4;
             const int x1 = (int)((a[1] >> 12) & 0xFFF) / 4, y1 = (int)(a[1] & 0xFFF) / 4;
             const SDL_Rect rc = {x0, y0, SDL_max(0, x1 - x0), SDL_max(0, y1 - y0)};
-            gfx_scissor((x0 <= 0 && y0 <= 0 && x1 >= hle_video.w && y1 >= hle_video.h) ? NULL : &rc);
+            R.sc_on = !(x0 <= 0 && y0 <= 0 && x1 >= hle_video.w && y1 >= hle_video.h);
+            R.sc = rc;
+            gfx_scissor(R.sc_on ? &rc : NULL);
         } break;
         case OP_FILL_RECT:
             fill_rect((float)((a[1] >> 12) & 0xFFF) / 4, (float)(a[1] & 0xFFF) / 4, (float)((a[0] >> 12) & 0xFFF) / 4, (float)(a[0] & 0xFFF) / 4);
@@ -872,7 +881,10 @@ static void emit(uint8_t *rdram, recomp_context *ctx, const Op *op) {
 
 #define EMIT(...) do { const Op op_ = {__VA_ARGS__}; emit(rdram, ctx, &op_); } while (0)
 
-void hle_rdpq_frame_begin(void) { gfx_scissor(NULL); }
+void hle_rdpq_frame_begin(void) {
+    R.sc_on = false;
+    gfx_scissor(NULL);
+}
 
 /* ================================================================================================
  * The leaves: render mode
@@ -1023,7 +1035,7 @@ void n64_rdpq_tex_multi_end(uint8_t *rdram, recomp_context *ctx) { (void)rdram; 
  * ============================================================================================== */
 void n64_rspq_block_begin_reuse(uint8_t *rdram, recomp_context *ctx) {
     (void)ctx;
-    hle_rspq_drain(rdram);
+    hle_rspq_drain(rdram, ctx);
     for (int i = 0; i < (int)SDL_arraysize(g_blocks); i++) {
         if (!g_blocks[i].used) {
             g_blocks[i].used = true;
@@ -1036,7 +1048,7 @@ void n64_rspq_block_begin_reuse(uint8_t *rdram, recomp_context *ctx) {
 }
 void n64_rspq_block_begin(uint8_t *rdram, recomp_context *ctx) { n64_rspq_block_begin_reuse(rdram, ctx); }
 void n64_rspq_block_end(uint8_t *rdram, recomp_context *ctx) {
-    hle_rspq_drain(rdram);
+    hle_rspq_drain(rdram, ctx);
     n64_ret32(ctx, g_recording ? 0x80000000u | (uint32_t)g_recording : 0); /* opaque handle */
     g_recording = 0;
 }
@@ -1046,7 +1058,7 @@ static Block *block_of(uint32_t h) {
     return (idx >= 0 && idx < (int)SDL_arraysize(g_blocks) && g_blocks[idx].used) ? &g_blocks[idx] : NULL;
 }
 void n64_rspq_block_run(uint8_t *rdram, recomp_context *ctx) {
-    hle_rspq_drain(rdram);
+    hle_rspq_drain(rdram, ctx);
     const Block *b = block_of((uint32_t)ctx->r4);
     if (!b) return;
     for (int i = 0; i < b->n; ++i) {
@@ -1059,3 +1071,119 @@ void n64_rspq_block_free(uint8_t *rdram, recomp_context *ctx) {
     Block *b = block_of((uint32_t)ctx->r4);
     if (b) { b->used = false; b->n = 0; }
 }
+
+/* ================================================================================================
+ * 3D (hle_t3d.c): tiny3d commands as ops, and triangles drawn with the current render mode
+ * ============================================================================================== */
+void hle_rdpq_t3d_op(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n) {
+    Op op = {OP_T3D, {0}};
+    if (n > 17) n = 17;
+    op.a[0] = (uint32_t)n;
+    for (int i = 0; i < n; i++) op.a[1 + i] = w[i];
+    emit(rdram, ctx, &op);
+}
+
+/* The colour combiner as GLSL: (A - B) * C + D per cycle, for RGB and alpha. */
+static const char *cc_rgb(int pos, int sel) {
+    static const char *common[6] = {"comb.rgb", "tex.rgb", "tex.rgb", "u_prim.rgb", "v_col.rgb", "u_env.rgb"};
+    if (sel < 6) return common[sel];
+    switch (pos) {
+        case 0: return sel == 6 ? "vec3(1.0)" : sel == 7 ? "vec3(0.5)" : "vec3(0.0)";  /* 7: noise */
+        case 2: {
+            static const char *mul[16] = {"", "", "", "", "", "", "vec3(0.0)", "vec3(comb.a)", "vec3(tex.a)", "vec3(tex.a)",
+                                          "vec3(u_prim.a)", "vec3(v_col.a)", "vec3(u_env.a)", "vec3(0.0)", "vec3(u_prim_lod)", "vec3(0.0)"};
+            return sel < 16 ? mul[sel] : "vec3(0.0)";
+        }
+        case 3: return sel == 6 ? "vec3(1.0)" : "vec3(0.0)";
+        default: return "vec3(0.0)";
+    }
+}
+static const char *cc_alpha(int pos, int sel) {
+    static const char *common[8] = {"comb.a", "tex.a", "tex.a", "u_prim.a", "v_col.a", "u_env.a", "1.0", "0.0"};
+    if (pos == 2) {
+        static const char *mul[8] = {"0.0", "tex.a", "tex.a", "u_prim.a", "v_col.a", "u_env.a", "u_prim_lod", "0.0"};
+        return mul[sel & 7];
+    }
+    return common[sel & 7];
+}
+
+typedef struct { uint64_t cc; bool two; bool ac; int prog; } Prog3D;
+static Prog3D g_prog3d[64];
+static int g_nprog3d;
+
+static int program_for(const DrawState *s) {
+    const bool ac = s->ac == 1;
+    for (int i = 0; i < g_nprog3d; i++)
+        if (g_prog3d[i].cc == R.m.cc && g_prog3d[i].two == (s->ncycles == 2) && g_prog3d[i].ac == ac) return g_prog3d[i].prog;
+    char body[2048];
+    int len = SDL_snprintf(body, sizeof body, "vec4 tex = texture(u_tex, v_uv);\nvec4 comb = vec4(0.0);\n");
+    for (int c = 0; c < s->ncycles; c++) {
+        const Cycle *k = &s->cc[c];
+        len += SDL_snprintf(body + len, sizeof body - (size_t)len,
+                            "comb = vec4((%s - %s) * %s + %s, (%s - %s) * %s + %s);\ncomb = clamp(comb, 0.0, 1.0);\n",
+                            cc_rgb(0, k->ra), cc_rgb(1, k->rb), cc_rgb(2, k->rc), cc_rgb(3, k->rd), cc_alpha(0, k->aa),
+                            cc_alpha(1, k->ab), cc_alpha(2, k->ac), cc_alpha(3, k->ad));
+    }
+    SDL_snprintf(body + len, sizeof body - (size_t)len, "%so = comb;\n", ac ? "if (comb.a < u_athresh) discard;\n" : "");
+    const int prog = gfx_prog3d(body);
+    if (prog < 0) n64rt_log("rdpq: 3D combiner %016llX didn't compile", (unsigned long long)R.m.cc);
+    if (g_nprog3d < (int)SDL_arraysize(g_prog3d)) g_prog3d[g_nprog3d++] = (Prog3D){R.m.cc, s->ncycles == 2, ac, prog};
+    return prog;
+}
+
+static bool cc_reads_tex(const DrawState *s) {
+    for (int c = 0; c < s->ncycles; c++) {
+        const Cycle *k = &s->cc[c];
+        if (k->ra == 1 || k->ra == 2 || k->rb == 1 || k->rb == 2 || k->rc == 1 || k->rc == 2 || k->rc == 8 || k->rc == 9 ||
+            k->rd == 1 || k->rd == 2 || k->aa == 1 || k->aa == 2 || k->ab == 1 || k->ab == 2 || k->ac == 1 || k->ac == 2 ||
+            k->ad == 1 || k->ad == 2)
+            return true;
+    }
+    return false;
+}
+
+/* Triangles in clip space (u, v in texels of tile 0), drawn with the current render mode into the
+ * viewport (N64 pixels). */
+void hle_rdpq_draw3d(uint8_t *rdram, recomp_context *ctx, GfxVert3D *v, int n, int vx, int vy, int vw, int vh) {
+    const DrawState s = draw_state();
+    if (s.cycle == CYC_FILL || s.cycle == CYC_COPY) return;
+    const Output o = output_for(&s);
+    if (o.skip) return;
+    Gfx3DState st;
+    SDL_zero(st);
+    st.prog = program_for(&s);
+    if (st.prog < 0) return;
+    if (cc_reads_tex(&s)) {
+        const Tile *tl = &R.tile[0];
+        const HleTex *t = tile_texture(rdram, ctx, tl);
+        if (t) {
+            st.tex = t->tex;
+            st.wrap = tl->s_wrap || tl->t_wrap;
+            const float ssc = SDL_powf(2.0f, (float)-tl->s_scale), tsc = SDL_powf(2.0f, (float)-tl->t_scale);
+            const float tw = (float)(tl->sub_w ? tl->sub_w : t->w), th = (float)(tl->sub_h ? tl->sub_h : t->h);
+            for (int i = 0; i < n; i++) {
+                v[i].u = (v[i].u * ssc - tl->s_shift) / tw;
+                v[i].v = (v[i].v * tsc - tl->t_shift) / th;
+            }
+        }
+    }
+    st.linear = linear_filter();
+    st.blend = o.mode;
+    st.ztest = (R.m.som >> 4) & 1;   /* SOM_Z_COMPARE */
+    st.zwrite = (R.m.som >> 5) & 1;  /* SOM_Z_WRITE */
+    const C4 p = unpack(R.prim), e = unpack(R.env);
+    for (int i = 0; i < 4; i++) {
+        st.prim[i] = (float)p.v[i] / 255.0f;
+        st.env[i] = (float)e.v[i] / 255.0f;
+    }
+    st.prim_lod = (float)R.prim_lod / 255.0f;
+    st.athresh = (float)s.ac_threshold / 255.0f;
+    st.vx = vx;
+    st.vy = vy;
+    st.vw = vw;
+    st.vh = vh;
+    st.sc_on = R.sc_on;
+    st.sc = R.sc;
+    gfx_draw3d(&st, v, n);
+}
+

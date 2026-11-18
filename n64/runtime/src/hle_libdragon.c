@@ -109,8 +109,7 @@ void n64_rdpq_init(uint8_t *rdram, recomp_context *ctx) {
 }
 
 void n64_rdpq_attach(uint8_t *rdram, recomp_context *ctx) {
-    (void)rdram;
-    (void)ctx;
+    hle_t3d_flush(rdram, ctx);
     if (!hle_video.w) ensure_fb(320, 240);
     gfx_fb_bind(hle_video.w, hle_video.h, hle_video.scale);
     hle_rdpq_frame_begin();
@@ -124,7 +123,16 @@ void n64_rdpq_attach_clear(uint8_t *rdram, recomp_context *ctx) {
 /* void __rdpq_clear(const color_t *color) */
 void n64___rdpq_clear(uint8_t *rdram, recomp_context *ctx) {
     const uint32_t c = n64_r32(rdram, (uint32_t)ctx->r4);
+    hle_rspq_drain(rdram, ctx);
+    hle_t3d_flush(rdram, ctx);
     gfx_fb_clear(c | 0xFFu);
+}
+
+/* void __rdpq_clear_z(const uint16_t *z) (behind rdpq_clear_z): clears the depth buffer */
+void n64___rdpq_clear_z(uint8_t *rdram, recomp_context *ctx) {
+    hle_rspq_drain(rdram, ctx);
+    hle_t3d_flush(rdram, ctx);
+    gfx_fb_clear_depth();
 }
 /* ================================================================================================
  * Text: libdragon lays out the paragraph (recompiled); we draw the glyphs.
@@ -324,7 +332,8 @@ static void present(void) {
 
 void n64_rdpq_detach_show(uint8_t *rdram, recomp_context *ctx) {
     (void)ctx;
-    hle_rspq_drain(rdram);
+    hle_rspq_drain(rdram, ctx);
+    hle_t3d_flush(rdram, ctx);
     hle_rspq_frame();
     present();
 }

@@ -12,6 +12,7 @@
  * without it the commands are only counted.
  *
  * Not modelled yet: point lights, fog, vertex effects, depth offset, alpha-to-tile, IMEM patches.
+ * tinypx, tiny3d's particle microcode, is modelled at the end of this file.
  *
  * SPDX-FileCopyrightText: 2026 Mitul Shah
  * SPDX-License-Identifier: MIT
@@ -355,5 +356,172 @@ void hle_t3d_exec(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n)
     if (!T.logged && cmd == 0x0) {
         T.logged = true;
         n64rt_log("t3d: drawing (host microcode%s)", T3D_HAVE ? "" : ": NO rsp_tiny3d.h, nothing drawn");
+    }
+}
+
+/* ==== tinypx (rsp_tinypx): tiny3d's particles ======================================================
+ * A draw command carries a buffer of particles, two per record (TPXParticleS8: s8 positions, 16 bytes;
+ * TPXParticleS16: s16 positions, 24 bytes). The microcode projects each with its own MVP (tiny3d's
+ * projection times tinypx's matrix stack, taken from tiny3d by SYNC_T3D) and writes three RDP
+ * commands per particle: a PRIM colour, a PRIM depth and a rectangle (textured: tile 0, one 8x8
+ * texel cell of the sprite, offset per particle for animation). Here each becomes a quad in the
+ * same clip space as tiny3d's triangles, with its colour as the vertex colour and its depth constant,
+ * drawn in one batch with the current render mode (src/t3d/rsp/tpxLoops.rspl in tiny3d). */
+#if __has_include("rsp_tinypx.h")
+#include "rsp_tinypx.h"
+#define TPX_HAVE 1
+#else
+#define TPX_HAVE 0
+#endif
+
+static struct {
+    float proj[16], mvp[16];
+    float stack[STACK][16];
+    int sp;           /* bytes, relative to where tinypx's stack started */
+    float normw;      /* W normalisation (tiny3d's, from SYNC_T3D) */
+    float scale[2];   /* PARTICLE_SCALE, 0..1 */
+    int base;         /* BASE_SIZE */
+    int16_t tex_off;  /* TEX_OFFSET: quarter cells */
+    uint16_t tiles;   /* TILE_COUNT: cells before the animation mirrors */
+    GfxVert3D *quad;
+    int cap;
+    int logged;
+} P = {.normw = 1, .scale = {1, 1}, .base = 128, .tiles = 128};
+
+static void tpx_matrix(uint8_t *rdram, uint32_t w0, uint32_t addr) {
+    const int advance = (int16_t)((w0 >> 8) & 0xFFFF);
+    P.sp += advance;
+    if (w0 & 2) return;  /* only move the stack pointer */
+    const int idx = SDL_clamp(P.sp / 64, 0, STACK - 1);
+    float m[16];
+    if (advance < 0) SDL_memcpy(m, P.stack[idx], sizeof m);
+    else load_mat(rdram, addr & 0xFFFFFF, m);  /* tinypx has no segments: a physical address */
+    if (w0 & 1) mat_mul(m, P.stack[SDL_clamp(idx - 1, 0, STACK - 1)], m);
+    SDL_memcpy(P.stack[idx], m, sizeof m);
+    mat_mul(P.mvp, P.proj, m);
+}
+
+/* A quad of 6 vertices (two triangles) around a particle: NDC centre and half extents, its colour,
+ * and its texture cell (u0, v0, side) in texels before the tile's shift. */
+static void tpx_quad(const float *ndc, float hx, float hy, const uint8_t *c, float u0, float v0, float cell, int *nv) {
+    if (*nv + 6 > P.cap) {
+        P.cap = SDL_max(P.cap * 2, 1536);
+        P.quad = (GfxVert3D *)SDL_realloc(P.quad, sizeof(GfxVert3D) * (size_t)P.cap);
+    }
+    const float xs[4] = {ndc[0] - hx, ndc[0] + hx, ndc[0] + hx, ndc[0] - hx};
+    const float ys[4] = {ndc[1] + hy, ndc[1] + hy, ndc[1] - hy, ndc[1] - hy};  /* the top first */
+    const float us[4] = {u0, u0 + cell, u0 + cell, u0}, vs[4] = {v0, v0, v0 + cell, v0 + cell};
+    static const int corner[6] = {0, 1, 2, 0, 2, 3};
+    for (int i = 0; i < 6; i++) {
+        GfxVert3D *o = &P.quad[(*nv)++];
+        const int k = corner[i];
+        o->x = xs[k];
+        o->y = ys[k];
+        o->z = ndc[2];
+        o->w = 1.0f;
+        o->u = us[k];
+        o->v = vs[k];
+        SDL_memcpy(o->c, c, 4);
+    }
+}
+
+/* DRAW_COLOR / DRAW_TEXTURE: w0 = byte count of the buffer, w1 = its address (bit 31: 16-bit positions). */
+static void tpx_draw(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, bool tex) {
+    const bool s16 = (w[1] & 0x80000000u) != 0;
+    const uint32_t bytes = w[0] & 0xFFFF, src = (w[1] & 0xFFFFFF) | 0x80000000u, stride = s16 ? 24u : 16u;
+    const int vx = T.vw > 0 ? T.vx : 0, vy = T.vh > 0 ? T.vy : 0;
+    const int vw = T.vw > 0 ? T.vw : hle_video.w, vh = T.vh > 0 ? T.vh : hle_video.h;
+    if (vw <= 0 || vh <= 0) return;
+    /* the animation's cells: offsets wrap at twice TILE_COUNT cells, mirrored in the second half (16-bit lanes) */
+    const int16_t mask = (int16_t)(uint16_t)(2u * P.tiles * 256u - 1u), cmp = (int16_t)(uint16_t)(P.tiles * 256u - 1u);
+    hle_t3d_flush(rdram, ctx);  /* tiny3d's pending triangles come first */
+    int nv = 0;
+    for (uint32_t off = 0; off + stride <= bytes; off += stride) {
+        const uint32_t rec = src + off;
+        for (int k = 0; k < 2; k++) {
+            float pos[3];
+            int size_word;  /* the size as the microcode's w lane: s8 size << 8 (| texture offset, 16-bit) */
+            int8_t toff;
+            uint8_t c[4];
+            if (s16) {
+                const uint32_t q = rec + (uint32_t)k * 8;
+                for (int i = 0; i < 3; i++) pos[i] = (float)(int16_t)n64_r16(rdram, q + (uint32_t)i * 2);
+                size_word = (int16_t)n64_r16(rdram, q + 6);
+                toff = (int8_t)n64_r8(rdram, q + 7);
+                for (int i = 0; i < 4; i++) c[i] = n64_r8(rdram, rec + 16 + (uint32_t)(k * 4 + i));
+            } else {
+                const uint32_t q = rec + (uint32_t)k * 4;
+                for (int i = 0; i < 3; i++) pos[i] = (float)(int8_t)n64_r8(rdram, q + (uint32_t)i);
+                size_word = (int8_t)n64_r8(rdram, q + 3) * 256;
+                for (int i = 0; i < 4; i++) c[i] = n64_r8(rdram, rec + 8 + (uint32_t)(k * 4 + i));
+                toff = (int8_t)c[3];  /* textured: the alpha channel is the cell offset */
+            }
+            float clip[4];
+            for (int r = 0; r < 4; r++) clip[r] = P.mvp[r] * pos[0] + P.mvp[4 + r] * pos[1] + P.mvp[8 + r] * pos[2] + P.mvp[12 + r];
+            /* only Z is clip-tested (X/Y are clamped to the scissor) */
+            if (!(clip[3] > 0) || clip[2] > clip[3] || clip[2] < -clip[3]) continue;
+            /* the size: base size / (2 w'), w' = w normalised, as an integer, times size/128 (10.2 pixels) */
+            const float persp = SDL_floorf((float)P.base * 0.5f / (clip[3] * P.normw));
+            const float hx = SDL_truncf((float)size_word / 32768.0f * P.scale[0] * persp) / 4.0f;
+            const float hy = SDL_truncf((float)size_word / 32768.0f * P.scale[1] * persp) / 4.0f;
+            if (hx <= 0 || hy <= 0) continue;
+            const float ndc[3] = {clip[0] / clip[3], clip[1] / clip[3], clip[2] / clip[3]};
+            float u0 = 0, v0 = 0;
+            if (tex) {
+                int16_t total = (int16_t)(((int)toff + P.tex_off) * 8);
+                total = (int16_t)(total & mask);
+                if (cmp >= total) {
+                    u0 = (float)total / 32.0f;
+                } else {  /* the mirrored half runs backwards */
+                    u0 = (float)(int16_t)(mask + 1 - 256 - total + (int)P.tiles * 256) / 32.0f;
+                    v0 = (float)(int16_t)(256 + (int)P.tiles * 256) / 32.0f;
+                }
+            }
+            if (!P.logged) {
+                P.logged = 1;
+                n64rt_log("tpx: drawing particles (host microcode); first: size %d at w %.1f -> %.1f x %.1f px", size_word >> 8,
+                          clip[3], hx * 2, hy * 2);
+            }
+            tpx_quad(ndc, hx * 2.0f / (float)vw, hy * 2.0f / (float)vh, c, u0, v0, 8.0f, &nv);
+        }
+    }
+    if (nv) hle_rdpq_draw_particles(rdram, ctx, P.quad, nv, vx, vy, vw, vh);
+}
+
+void hle_tpx_exec(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n) {
+    if (n < 1) return;
+    const int cmd = (int)((w[0] >> 24) & 0xF);
+    switch (cmd) {
+        case 0x0:  /* SYNC_T3D: tiny3d's projection and MVP, and its model-view onto our stack */
+            SDL_memcpy(P.proj, T.proj, sizeof P.proj);
+            SDL_memcpy(P.mvp, T.mvp, sizeof P.mvp);
+            SDL_memcpy(P.stack[SDL_clamp(P.sp / 64, 0, STACK - 1)], T.mv, sizeof T.mv);
+            if (n >= 3 && (w[2] & 0xFFFF)) P.normw = (float)(w[2] & 0xFFFF) / 65535.0f;
+            break;
+        case 0x2: if (n >= 2) tpx_matrix(rdram, w[0], w[1]); break;  /* MATRIX_STACK */
+        case 0x3:                                                     /* SET_DMEM */
+#if TPX_HAVE
+            if (n >= 2) {
+                const uint32_t addr = w[0] & 0x7FFF, v = w[1];
+                const bool u16 = (w[0] & 0x8000) != 0;
+                if (addr == ((uint32_t)RSP_TPX_PARTICLE_SCALE & 0xFFF) && !u16) {
+                    P.scale[0] = (float)(v >> 16) / 32768.0f;
+                    P.scale[1] = (float)(v & 0xFFFF) / 32768.0f;
+                } else if (addr == ((uint32_t)RSP_TPX_BASE_SIZE & 0xFFF)) {
+                    P.base = (int)(v & 0xFFFF);
+                } else if (addr == ((uint32_t)RSP_TPX_TEX_OFFSET & 0xFFF)) {
+                    if (u16) P.tex_off = (int16_t)v;
+                    else { P.tex_off = (int16_t)(v >> 16); P.tiles = (uint16_t)v; }
+                } else if (addr == ((uint32_t)RSP_TPX_TILE_COUNT & 0xFFF) && u16) {
+                    P.tiles = (uint16_t)v;
+                }
+            }
+#endif
+            break;
+        case 0x1:  /* DRAW_COLOR */
+        case 0x4:  /* DRAW_TEXTURE */
+            if (n >= 2) tpx_draw(rdram, ctx, w, cmd == 0x4);
+            break;
+        default: break;
     }
 }

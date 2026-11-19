@@ -394,6 +394,29 @@ static void present(void) {
         n64rt_log("watch %08X: %08X %08X %08X %08X | %g %g", watch, n64_r32(rd, watch), n64_r32(rd, watch + 4),
                   n64_r32(rd, watch + 8), n64_r32(rd, watch + 12), bits_f(n64_r32(rd, watch)), bits_f(n64_r32(rd, watch + 4)));
     }
+    /* Debug aid: N64_POKE=<frame>:<addr>:<value>[,...] writes a 32-bit word (hex address and value) at that
+     * frame, e.g. a game's "next scene" variable to jump to a later level. */
+    static int npoke = -1;
+    static struct { uint32_t frame, addr, value; } pokes[8];
+    if (npoke < 0) {
+        npoke = 0;
+        const char *p = SDL_getenv("N64_POKE");
+        while (p && *p && npoke < 8) {
+            char *e;
+            pokes[npoke].frame = (uint32_t)SDL_strtoul(p, &e, 10);
+            if (*e != ':') break;
+            pokes[npoke].addr = (uint32_t)SDL_strtoul(e + 1, &e, 16);
+            if (*e != ':') break;
+            pokes[npoke].value = (uint32_t)SDL_strtoul(e + 1, &e, 16);
+            ++npoke;
+            p = *e == ',' ? e + 1 : NULL;
+        }
+    }
+    for (int i = 0; i < npoke; i++) {
+        if (pokes[i].frame != G.frames) continue;
+        n64_w32(n64rt_rdram(), pokes[i].addr, pokes[i].value);
+        n64rt_log("poke %08X = %08X (frame %u)", pokes[i].addr, pokes[i].value, (unsigned)G.frames);
+    }
 }
 
 void n64_rdpq_detach_show(uint8_t *rdram, recomp_context *ctx) {
@@ -1034,6 +1057,7 @@ void n64_debug_assert_func(uint8_t *rdram, recomp_context *ctx) { n64_debug_asse
  * Asset decompression. libdragon's fast decoders are hand-written assembly that races the PI DMA
  * (polling hardware DMA-progress registers), so we decode on the host instead.
  * int decompress_lz4_full_inplace(const uint8_t *in, size_t cmp_size, uint8_t *out, size_t out_max)
+ * int decompress_aplib_full_inplace(same): level 2 (Shrinkler, level 3, isn't here yet)
  * ============================================================================================== */
 static int lz4_block(const uint8_t *in, int insize, uint8_t *out, int outmax) {
     int ip = 0, op = 0;
@@ -1057,13 +1081,76 @@ static int lz4_block(const uint8_t *in, int insize, uint8_t *out, int outmax) {
     return op;
 }
 
-void n64_decompress_lz4_full_inplace(uint8_t *rdram, recomp_context *ctx) {
+/* aPLib (compression level 2), as libdragon's compress/aplib_dec.c decodes it: a literal byte, then
+ * a bit stream of literals and three kinds of match, ending with a zero 7-bit offset. */
+typedef struct { const uint8_t *in; int n, ip, shift; uint8_t cc; bool bad; } ApIn;
+static uint8_t ap_byte(ApIn *s) {
+    if (s->ip >= s->n) { s->bad = true; return 0; }
+    return s->in[s->ip++];
+}
+static int ap_bit(ApIn *s) {
+    if (s->shift < 0) { s->shift = 7; s->cc = ap_byte(s); }
+    return (s->cc >> s->shift--) & 1;
+}
+static int ap_gamma(ApIn *s) {
+    int v = 1;
+    do v = (v << 1) | ap_bit(s);
+    while (ap_bit(s) && !s->bad);
+    return v;
+}
+static int aplib_block(const uint8_t *in, int insize, uint8_t *out, int outmax) {
+    ApIn s = { in, insize, 0, -1, 0, false };
+    if (outmax < 1) return -1;
+    int op = 0, nlit = 3, off = -1, len;
+    out[op++] = ap_byte(&s);
+    while (!s.bad) {
+        if (!ap_bit(&s)) {  /* 0: literal */
+            if (op >= outmax) return -1;
+            out[op++] = ap_byte(&s);
+            nlit = 3;
+            continue;
+        }
+        if (!ap_bit(&s)) {  /* 10: 8+n bit offset, or the last offset again */
+            const int hi = ap_gamma(&s) - nlit;
+            if (hi >= 0) {
+                off = hi << 8 | ap_byte(&s);
+                len = ap_gamma(&s);
+                if (off < 128 || off >= 32000) len += 2;
+                else if (off >= 1280) len += 1;
+            } else {
+                len = ap_gamma(&s);
+            }
+        } else if (!ap_bit(&s)) {  /* 110: 7 bit offset, 1 bit length; offset 0 ends the stream */
+            const uint8_t cmd = ap_byte(&s);
+            if (!cmd) return s.bad ? -1 : op;
+            off = cmd >> 1;
+            len = (cmd & 1) + 2;
+        } else {  /* 111: one byte from up to 15 back, or a zero */
+            int o = 0;
+            for (int k = 0; k < 4; ++k) o = o << 1 | ap_bit(&s);
+            if (op >= outmax || o > op) return -1;
+            out[op] = o ? out[op - o] : 0;
+            ++op;
+            nlit = 3;
+            continue;
+        }
+        if (off <= 0 || off > op || op + len > outmax) return -1;
+        for (int k = 0; k < len; ++k, ++op) out[op] = out[op - off];  /* may overlap: byte by byte */
+        nlit = 2;
+    }
+    return -1;
+}
+
+/* Both run on copies: in-place decompression overlaps input and output in RDRAM. */
+static void decompress_full(uint8_t *rdram, recomp_context *ctx, int (*block)(const uint8_t *, int, uint8_t *, int)) {
     const uint32_t in = (uint32_t)ctx->r4, cmp = (uint32_t)ctx->r5, out = (uint32_t)ctx->r6, max = (uint32_t)ctx->r7;
-    uint8_t *src = (uint8_t *)SDL_malloc(cmp), *dst = (uint8_t *)SDL_malloc(max ? max : 1);
+    uint8_t *src = (uint8_t *)SDL_malloc(cmp ? cmp : 1), *dst = (uint8_t *)SDL_malloc(max ? max : 1);
     for (uint32_t i = 0; i < cmp; ++i) src[i] = n64_r8(rdram, in + i);
-    const int n = lz4_block(src, (int)cmp, dst, (int)max);
+    const int n = block(src, (int)cmp, dst, (int)max);
     for (int i = 0; i < n; ++i) n64_w8(rdram, out + (uint32_t)i, dst[i]);
     SDL_free(src);
     SDL_free(dst);
     n64_ret32(ctx, (uint32_t)n);
 }
+void n64_decompress_lz4_full_inplace(uint8_t *rdram, recomp_context *ctx) { decompress_full(rdram, ctx, lz4_block); }
+void n64_decompress_aplib_full_inplace(uint8_t *rdram, recomp_context *ctx) { decompress_full(rdram, ctx, aplib_block); }

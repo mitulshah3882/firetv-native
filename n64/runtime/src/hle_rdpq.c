@@ -743,6 +743,37 @@ static void load_sprite_tlut(uint8_t *rdram, recomp_context *ctx, uint32_t sprit
 static Block *block_of(uint32_t h);
 static uint32_t g_ph[7];  /* rspq block placeholders 0-6: the blocks they stand for */
 
+/* A Z-buffer word (3-bit exponent, 11-bit mantissa, 2-bit dz) as the 18-bit depth it encodes, 0..1:
+ * the scale of gfx_gl.c's depth, since the RDP's depth is (z/w + 1) / 2 of that range too. */
+static float z_decode(uint16_t v) {
+    static const uint32_t base[8] = {0x00000, 0x20000, 0x30000, 0x38000, 0x3C000, 0x3E000, 0x3F000, 0x3F800};
+    static const int shift[8] = {6, 5, 4, 3, 2, 1, 0, 0};
+    const int e = v >> 13;
+    return (float)(base[e] + (((uint32_t)v >> 2 & 0x7FF) << shift[e])) / (float)0x3FFFF;
+}
+
+/* A 16-bit texture copied into the depth buffer (drawn while it is the colour image): Cathode Quest
+ * clears depth to a Bayer pattern near the far plane, so distant geometry dissolves instead of
+ * popping at the far clip. The texels become depth, one per pixel as in copy mode. */
+static void depth_rect(uint8_t *rdram, const uint32_t *w) {
+    const int x1 = (int)((w[0] >> 12) & 0xFFF) / 4, y1 = (int)(w[0] & 0xFFF) / 4;
+    const int x0 = (int)((w[1] >> 12) & 0xFFF) / 4, y0 = (int)(w[1] & 0xFFF) / 4;
+    const Tile *tl = &R.tile[(w[1] >> 24) & 7];
+    const int s0 = (int16_t)(w[2] >> 16) / 32, t0 = (int16_t)(w[2] & 0xFFFF) / 32;
+    if (tl->kind != 2 || tl->fmt != 2 /* FMT_RGBA16 */ || tl->w <= 0 || tl->h <= 0 || tl->w * tl->h > 65536) {
+        gfx_fb_clear_depth();
+        return;
+    }
+    float *d = (float *)SDL_malloc(sizeof(float) * (size_t)(tl->w * tl->h));
+    if (!d) return;
+    for (int y = 0; y < tl->h; y++)
+        for (int x = 0; x < tl->w; x++)
+            d[y * tl->w + x] = z_decode(n64_r16(rdram, tl->addr + (uint32_t)(y * tl->stride + x * 2)));
+    /* copy mode's rectangles include their last column and row */
+    gfx_fb_depth_pattern(d, tl->w, tl->h, x0, y0, x1 + 1, y1 + 1, x0 - s0, y0 - t0);
+    SDL_free(d);
+}
+
 static void exec(uint8_t *rdram, recomp_context *ctx, const Op *op) {
     const uint32_t *a = op->a;
     if (op->code == OP_RUN_BLOCK) {  /* a block or queue, by reference (or a placeholder 0-6) */
@@ -758,8 +789,9 @@ static void exec(uint8_t *rdram, recomp_context *ctx, const Op *op) {
         if (a[0] < 7) g_ph[a[0]] = a[1];
         return;
     }
-    if (op->code == OP_T3D) {  /* a tiny3d command (hle_t3d.c): a[0] = word count, then the words */
-        hle_t3d_exec(rdram, ctx, a + 1, (int)a[0]);
+    if (op->code == OP_T3D) {  /* a tiny3d/tinypx command (hle_t3d.c): a[0] = word count | 0x100 for tinypx, then the words */
+        if (a[0] & 0x100) hle_tpx_exec(rdram, ctx, a + 1, (int)(a[0] & 0xFF));
+        else hle_t3d_exec(rdram, ctx, a + 1, (int)(a[0] & 0xFF));
         return;
     }
     if (op->code == OP_CALL) {  /* a callback the RSP would call on reaching this point: func, arg */
@@ -769,6 +801,10 @@ static void exec(uint8_t *rdram, recomp_context *ctx, const Op *op) {
         return;
     }
     hle_t3d_flush(rdram, ctx);  /* its pending triangles use the render mode before this change */
+    if (R.to_depth && op->code == OP_TEX_RECT) {
+        depth_rect(rdram, a);
+        return;
+    }
     if (R.to_depth && (op->code == OP_FILL_RECT || op->code == OP_TEX_RECT || op->code == OP_TRIANGLE ||
                        op->code == OP_SPRITE_BLIT || op->code == OP_TEX_BLIT))
         return;  /* drawing into the depth buffer as colour: see OP_COLOR_IMAGE */
@@ -1214,17 +1250,21 @@ void hle_rdpq_glyph(uint8_t *rdram, recomp_context *ctx, const uint32_t a[10]) {
     SDL_memcpy(op.a, a, 10 * sizeof(uint32_t));
     emit(rdram, ctx, &op);
 }
-void hle_rdpq_t3d_op(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n) {
+void hle_rdpq_t3d_op(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n, bool tpx) {
     Op op = {OP_T3D, {0}};
     if (n > 17) n = 17;
-    op.a[0] = (uint32_t)n;
+    op.a[0] = (uint32_t)n | (tpx ? 0x100u : 0u);
     for (int i = 0; i < n; i++) op.a[1 + i] = w[i];
     emit(rdram, ctx, &op);
 }
 
-/* The colour combiner as GLSL: (A - B) * C + D per cycle, for RGB and alpha. */
+/* The colour combiner as GLSL: (A - B) * C + D per cycle, for RGB and alpha. For particles
+ * (g_prim_vtx) PRIM is per rectangle and arrives as the vertex colour; rectangles have no shade. */
+static bool g_prim_vtx;
 static const char *cc_rgb(int pos, int sel) {
     static const char *common[6] = {"comb.rgb", "tex.rgb", "tex1.rgb", "u_prim.rgb", "v_col.rgb", "u_env.rgb"};
+    if (g_prim_vtx && (sel == 3 || sel == 4 || (pos == 2 && (sel == 10 || sel == 11))))
+        return sel == 3 ? "v_col.rgb" : sel == 10 ? "vec3(v_col.a)" : "vec3(0.0)";
     if (sel < 6) return common[sel];
     switch (pos) {
         case 0: return sel == 6 ? "vec3(1.0)" : sel == 7 ? "vec3(0.5)" : "vec3(0.0)";  /* 7: noise */
@@ -1239,6 +1279,7 @@ static const char *cc_rgb(int pos, int sel) {
 }
 static const char *cc_alpha(int pos, int sel) {
     static const char *common[8] = {"comb.a", "tex.a", "tex1.a", "u_prim.a", "v_col.a", "u_env.a", "1.0", "0.0"};
+    if (g_prim_vtx && ((sel & 7) == 3 || (sel & 7) == 4)) return (sel & 7) == 3 ? "v_col.a" : "0.0";
     if (pos == 2) {
         static const char *mul[8] = {"0.0", "tex.a", "tex1.a", "u_prim.a", "v_col.a", "u_env.a", "u_prim_lod", "0.0"};
         return mul[sel & 7];
@@ -1246,14 +1287,15 @@ static const char *cc_alpha(int pos, int sel) {
     return common[sel & 7];
 }
 
-typedef struct { uint64_t cc; bool two; bool ac; int prog; } Prog3D;
+typedef struct { uint64_t cc; bool two; bool ac; bool pv; int prog; } Prog3D;
 static Prog3D g_prog3d[64];
 static int g_nprog3d;
 
 static int program_for(const DrawState *s) {
     const bool ac = s->ac == 1;
     for (int i = 0; i < g_nprog3d; i++)
-        if (g_prog3d[i].cc == R.m.cc && g_prog3d[i].two == (s->ncycles == 2) && g_prog3d[i].ac == ac) return g_prog3d[i].prog;
+        if (g_prog3d[i].cc == R.m.cc && g_prog3d[i].two == (s->ncycles == 2) && g_prog3d[i].ac == ac && g_prog3d[i].pv == g_prim_vtx)
+            return g_prog3d[i].prog;
     char body[2048];
     int len = SDL_snprintf(body, sizeof body, "vec4 tex = texture(u_tex, v_uv);\nvec4 tex1 = texture(u_tex1, v_uv * u_t1.xy + u_t1.zw);\n"
                                               "vec4 comb = vec4(0.0);\n");
@@ -1267,7 +1309,7 @@ static int program_for(const DrawState *s) {
     SDL_snprintf(body + len, sizeof body - (size_t)len, "%so = comb;\n", ac ? "if (comb.a < u_athresh) discard;\n" : "");
     const int prog = gfx_prog3d(body);
     if (prog < 0) n64rt_log("rdpq: 3D combiner %016llX didn't compile", (unsigned long long)R.m.cc);
-    if (g_nprog3d < (int)SDL_arraysize(g_prog3d)) g_prog3d[g_nprog3d++] = (Prog3D){R.m.cc, s->ncycles == 2, ac, prog};
+    if (g_nprog3d < (int)SDL_arraysize(g_prog3d)) g_prog3d[g_nprog3d++] = (Prog3D){R.m.cc, s->ncycles == 2, ac, g_prim_vtx, prog};
     return prog;
 }
 
@@ -1303,6 +1345,7 @@ void hle_rdpq_draw3d(uint8_t *rdram, recomp_context *ctx, GfxVert3D *v, int n, i
         if (t) {
             st.tex = t->tex;
             st.wrap = tl->s_wrap || tl->t_wrap;
+            st.mirror = (uint8_t)((tl->s_mirror ? 1 : 0) | (tl->t_mirror ? 2 : 0));
             ssc = SDL_powf(2.0f, (float)-tl->s_scale);
             tsc = SDL_powf(2.0f, (float)-tl->t_scale);
             sh = tl->s_shift;
@@ -1318,6 +1361,7 @@ void hle_rdpq_draw3d(uint8_t *rdram, recomp_context *ctx, GfxVert3D *v, int n, i
         if (t1) {
             st.tex1 = t1->tex;
             st.wrap1 = tl1->s_wrap || tl1->t_wrap;
+            st.mirror1 = (uint8_t)((tl1->s_mirror ? 1 : 0) | (tl1->t_mirror ? 2 : 0));
             const float ssc1 = SDL_powf(2.0f, (float)-tl1->s_scale), tsc1 = SDL_powf(2.0f, (float)-tl1->t_scale);
             const float tw1 = (float)(tl1->sub_w ? tl1->sub_w : t1->w), th1 = (float)(tl1->sub_h ? tl1->sub_h : t1->h);
             st.t1[0] = tw * ssc1 / (ssc * tw1);
@@ -1328,6 +1372,10 @@ void hle_rdpq_draw3d(uint8_t *rdram, recomp_context *ctx, GfxVert3D *v, int n, i
     }
     st.linear = linear_filter();
     st.blend = o.mode;
+    /* Without a framebuffer read the RDP writes what passes the alpha compare opaque. output_for asks
+     * for alpha blending there because the 2D path forces alpha to 0 or 255; this shader discards
+     * instead, so blending would let semi-transparent texels show the background (coins, foliage). */
+    if (s.ac == 1 && st.blend == GFX_BLEND_BLEND && (!s.blend_on || (s.m != BL_MEM && s.p != BL_MEM))) st.blend = GFX_BLEND_NONE;
     st.ztest = (R.m.som >> 4) & 1;   /* SOM_Z_COMPARE */
     st.zwrite = (R.m.som >> 5) & 1;  /* SOM_Z_WRITE */
     const C4 p = unpack(R.prim), e = unpack(R.env);
@@ -1346,3 +1394,8 @@ void hle_rdpq_draw3d(uint8_t *rdram, recomp_context *ctx, GfxVert3D *v, int n, i
     gfx_draw3d(&st, v, n);
 }
 
+void hle_rdpq_draw_particles(uint8_t *rdram, recomp_context *ctx, GfxVert3D *v, int n, int vx, int vy, int vw, int vh) {
+    g_prim_vtx = true;
+    hle_rdpq_draw3d(rdram, ctx, v, n, vx, vy, vw, vh);
+    g_prim_vtx = false;
+}

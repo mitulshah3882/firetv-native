@@ -11,7 +11,7 @@ _Last updated: 2026-11-18._
 
 ## On the TV (about 20 minutes)
 - [ ] **Try Cathode Quest 64** (the last card in the Native Arcade). The D-pad walks, OK jumps,
-  Rewind / Fast-forward turn the camera, Play/Pause recentres it. Press OK right after walking and the jump keeps going that way (a remote can't hold both). How far can you get, and does it feel right?
+  Rewind / Fast-forward turn the camera, Play/Pause recentres it. Press OK right after walking and the jump keeps going that way (a remote can't hold both). When the stone head asks "let's get going?", press Left or Right to pick **Ok** (the game's joke: "No!" is the default). The coins now show, and every level loads, but only the first has been played on the TV: how far can you get, and does it feel right?
 - [ ] **Listen to the games.** Nobody has heard this week's audio changes through a TV. Tell Claude
   about anything harsh, clipped, crackly, too quiet or too loud.
   - **Gravity Choir:** play until the multiplier is high (each step brings in another part of the

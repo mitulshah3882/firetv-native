@@ -13,7 +13,8 @@
  *
  * Overlays register through n64_rspq_overlay_register, which reads the ucode's name
  * (rsp_ucode_t.name: "rsp_tiny3d", "rsp_tinypx", ...) to pick a handler and returns the overlay ID
- * in the top nibble, as libdragon does. Phase 0: commands are decoded and counted; nothing draws yet.
+ * in the top nibble, as libdragon does. tiny3d's and tinypx's commands go to hle_t3d.c (through the
+ * rdpq command stream, so they keep their order), BigTex's to hle_bigtex.c.
  *
  * SPDX-FileCopyrightText: 2026 Mitul Shah
  * SPDX-License-Identifier: MIT
@@ -81,7 +82,17 @@ void hle_rspq_drain(uint8_t *rdram, recomp_context *ctx) {
         for (int i = 0; i < nw; i++) w[i] = n64_r32(rdram, g_tap + (uint32_t)i * 4);
         for (int i = 0; i < nw;) {
             const int len = SDL_min(size[(w[i] >> 24) & 0xF], nw - i);
-            hle_rdpq_t3d_op(rdram, ctx, w + i, len);
+            hle_rdpq_t3d_op(rdram, ctx, w + i, len, false);
+            i += len;
+        }
+    }
+    if (o->kind == OV_TINYPX) {  /* tinypx: SYNC_T3D 3 words, the others 2 */
+        uint32_t w[64];
+        const int nw = SDL_min(words, 64);
+        for (int i = 0; i < nw; i++) w[i] = n64_r32(rdram, g_tap + (uint32_t)i * 4);
+        for (int i = 0; i < nw;) {
+            const int len = SDL_min(((w[i] >> 24) & 0xF) == 0 ? 3 : 2, nw - i);
+            hle_rdpq_t3d_op(rdram, ctx, w + i, len, true);
             i += len;
         }
     }

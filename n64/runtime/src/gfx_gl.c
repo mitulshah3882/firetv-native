@@ -49,6 +49,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_LINEAR 0x2601
 #define GL_CLAMP_TO_EDGE 0x812F
 #define GL_REPEAT 0x2901
+#define GL_MIRRORED_REPEAT 0x8370
 #define GL_RGBA 0x1908
 #define GL_RGBA8 0x8058
 #define GL_UNSIGNED_BYTE 0x1401
@@ -140,8 +141,18 @@ GL_FUNCS(X)
 struct GfxTex {
     GLuint id;
     int w, h;
-    bool linear, wrap;   /* the sampler state it currently has */
+    bool linear;         /* the sampler state it currently has */
+    uint8_t wrap;        /* 0 clamp, else 1 | mirrored S << 1 | mirrored T << 2 */
 };
+
+/* A texture's wrap mode: clamped, or repeating (each axis mirrored or not, as the tile says). */
+static void set_wrap(GfxTex *t, bool wrap, uint8_t mirror) {
+    const uint8_t m = wrap ? (uint8_t)(1 | (mirror & 3) << 1) : 0;
+    if (t->wrap == m) return;
+    t->wrap = m;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, !wrap ? GL_CLAMP_TO_EDGE : (mirror & 1) ? GL_MIRRORED_REPEAT : GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, !wrap ? GL_CLAMP_TO_EDGE : (mirror & 2) ? GL_MIRRORED_REPEAT : GL_REPEAT);
+}
 
 typedef struct {
     float x, y, u, v;
@@ -353,11 +364,7 @@ void gfx_flush(void) {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, g->linear ? GL_LINEAR : GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, g->linear ? GL_LINEAR : GL_NEAREST);
         }
-        if (t->wrap != g->wrap) {
-            t->wrap = g->wrap;
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, g->wrap ? GL_REPEAT : GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, g->wrap ? GL_REPEAT : GL_CLAMP_TO_EDGE);
-        }
+        set_wrap(t, g->wrap, 0);
         if (g->blend != blend) apply_blend(blend = g->blend);
         if ((int)g->sc_on != sc) {
             sc = g->sc_on;
@@ -793,6 +800,81 @@ void gfx_fb_clear_depth(void) {
     glClear(GL_DEPTH_BUFFER_BIT);
 }
 
+/* ---- depth from a pattern: the RDP drawing a texture into its Z buffer as a colour image ---------- */
+#ifndef GL_R32F
+#define GL_R32F 0x822E
+#endif
+#ifndef GL_RED
+#define GL_RED 0x1903
+#endif
+static struct { GLuint prog, tex, vao; GLint u_d, u_org; bool tried; } Z;
+static const char *kFSDepth =
+    "uniform highp sampler2D u_d;\n"
+    "uniform highp vec4 u_org;\n"  /* pattern origin (N64 px), GL height, scale */
+    "out vec4 o;\n"
+    "void main() {\n"
+    "    highp ivec2 sz = textureSize(u_d, 0);\n"
+    "    highp ivec2 p = ivec2(floor(vec2(gl_FragCoord.x, u_org.z - gl_FragCoord.y) / u_org.w - u_org.xy));\n"
+    "    p = ((p % sz) + sz) % sz;\n"
+    "    gl_FragDepth = texelFetch(u_d, p, 0).r;\n"
+    "    o = vec4(0.0);\n"
+    "}\n";
+
+void gfx_fb_depth_pattern(const float *depth, int tw, int th, int x0, int y0, int x1, int y1, int org_x, int org_y) {
+    if (!S.on_fb || tw <= 0 || th <= 0 || x1 <= x0 || y1 <= y0) return;
+    if (!Z.prog && !Z.tried) {
+        Z.tried = true;
+        const GLuint vs = compile(GL_VERTEX_SHADER, kVSFull), fs = compile(GL_FRAGMENT_SHADER, kFSDepth);
+        if (vs && fs) {
+            Z.prog = glCreateProgram();
+            glAttachShader(Z.prog, vs);
+            glAttachShader(Z.prog, fs);
+            glLinkProgram(Z.prog);
+            GLint ok = 0;
+            glGetProgramiv(Z.prog, GL_LINK_STATUS, &ok);
+            if (!ok) { Z.prog = 0; n64rt_log("gfx: depth pattern program didn't link"); }
+        }
+        if (vs) glDeleteShader(vs);
+        if (fs) glDeleteShader(fs);
+        if (Z.prog) {
+            Z.u_d = glGetUniformLocation(Z.prog, "u_d");
+            Z.u_org = glGetUniformLocation(Z.prog, "u_org");
+            glGenVertexArrays(1, &Z.vao);
+            glGenTextures(1, &Z.tex);
+        }
+    }
+    if (!Z.prog) { gfx_fb_clear_depth(); return; }
+    gfx_flush();
+    const int k = S.fb_scale;
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, Z.tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, tw, th, 0, GL_RED, GL_FLOAT, depth);
+    glViewport(0, 0, S.vw, S.vh);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(x0 * k, (S.fb_h - y1) * k, (x1 - x0) * k, (y1 - y0) * k);
+    glEnable(GL_BLEND);  /* colour stays: only depth is written */
+    glBlendFuncSeparate(GL_ZERO, GL_ONE, GL_ZERO, GL_ONE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(0x0207 /* GL_ALWAYS */);
+    glDepthMask(GL_TRUE);
+    glUseProgram(Z.prog);
+    glUniform1i(Z.u_d, 0);
+    glUniform4f(Z.u_org, (float)org_x, (float)org_y, (float)(S.fb_h * k), (float)k);
+    glBindVertexArray(Z.vao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    S.st_draws++;
+    /* back to the 2D state */
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glDisable(GL_SCISSOR_TEST);
+    glUseProgram(S.prog);
+    glBindVertexArray(S.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, S.vbo);
+}
+
 /* Draws at once (after the pending 2D draws): tiny3d submits a few large batches a frame. */
 void gfx_draw3d(const Gfx3DState *st, const GfxVert3D *v, int n) {
     if (n <= 0 || st->prog < 0 || !S.on_fb) return;
@@ -837,11 +919,7 @@ void gfx_draw3d(const Gfx3DState *st, const GfxVert3D *v, int n) {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, st->linear ? GL_LINEAR : GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, st->linear ? GL_LINEAR : GL_NEAREST);
         }
-        if (t1->wrap != st->wrap1) {
-            t1->wrap = st->wrap1;
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, st->wrap1 ? GL_REPEAT : GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, st->wrap1 ? GL_REPEAT : GL_CLAMP_TO_EDGE);
-        }
+        set_wrap(t1, st->wrap1, st->mirror1);
     }
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, t->id);
@@ -850,11 +928,7 @@ void gfx_draw3d(const Gfx3DState *st, const GfxVert3D *v, int n) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, st->linear ? GL_LINEAR : GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, st->linear ? GL_LINEAR : GL_NEAREST);
     }
-    if (t->wrap != st->wrap) {
-        t->wrap = st->wrap;
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, st->wrap ? GL_REPEAT : GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, st->wrap ? GL_REPEAT : GL_CLAMP_TO_EDGE);
-    }
+    set_wrap(t, st->wrap, st->mirror);
     apply_blend(st->blend);
     if (st->ztest || st->zwrite) {
         glEnable(GL_DEPTH_TEST);

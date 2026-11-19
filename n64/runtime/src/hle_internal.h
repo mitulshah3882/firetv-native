@@ -50,10 +50,14 @@ void hle_rspq_boot(uint8_t *rdram);
 /* tiny3d (hle_t3d.c, behind the rspq tap): a command is recorded into the current rspq block or run;
  * pending triangles are drawn before any other RDP change. hle_rdpq_draw3d draws them with the
  * current render mode. */
-void hle_rdpq_t3d_op(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n);
+void hle_rdpq_t3d_op(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n, bool tpx);
 void hle_t3d_exec(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n);
 void hle_t3d_flush(uint8_t *rdram, recomp_context *ctx);
 void hle_rdpq_draw3d(uint8_t *rdram, recomp_context *ctx, GfxVert3D *v, int n, int vx, int vy, int vw, int vh);
+/* tinypx, tiny3d's particles (hle_t3d.c): a command, recorded like tiny3d's (tpx = true); each
+ * particle is a rectangle whose PRIM colour arrives as its vertex colour (hle_rdpq_draw_particles). */
+void hle_tpx_exec(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n);
+void hle_rdpq_draw_particles(uint8_t *rdram, recomp_context *ctx, GfxVert3D *v, int n, int vx, int vy, int vw, int vh);
 void hle_rspq_drain(uint8_t *rdram, recomp_context *ctx);
 /* Text: a glyph goes through the command layer (recorded into blocks and queues), and is drawn by
  * hle_libdragon.c. */

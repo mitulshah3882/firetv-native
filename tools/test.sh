@@ -210,6 +210,27 @@ if [[ -f "$P64SFX/CoinGet.wav" ]]; then
   wavs=()
   for w in CoinGet UiOk PlayerJump00; do wavs+=("rom:/sfx/$w.wav64=$P64SFX/$w.wav"); done
   game gj25_cathode_quest 1380 3000 "${wavs[@]}"
+  # ... and its ending (Map-Ending): a BigTex room, the game's one aPLib-compressed model (decoded on
+  # the host) and coins (tinypx particles). Reached by setting the scene manager's next scene
+  # (N64_POKE) once the title is up, at frame 600.
+  CQ="$B/n64/gj25_cathode_quest"
+  NM="${N64_INST:-$HOME/n64-toolchain}/bin/mips64-elf-nm"
+  next=$("$NM" -C "$ROOT/build/n64/p64-jam25/build/gj25_cathode_quest.elf" 2>/dev/null | awk '/ (b|d) .*::nextSceneId$/ {print $1; exit}')
+  if [[ ! -x "$CQ/gj25_cathode_quest" ]]; then
+    skip gj25_cathode_quest-ending "no binary (the game check above failed to build)"
+  elif [[ -z "$next" ]]; then
+    skip gj25_cathode_quest-ending "no nextSceneId in the ELF (or no mips64-elf-nm)"
+  elif ! run_logged "n64/gj25_cathode_quest/ending.log" env SDL_AUDIO_DRIVER=dummy N64_DEBUGF=1 N64_POKE="600:$next:4" \
+         N64_ASSETS="$ROOT/build/n64/gj25_cathode_quest/" N64_SHOT="$CQ/ending.png" N64_SHOT_FRAMES=1500 "$CQ/gj25_cathode_quest"; then
+    fail gj25_cathode_quest-ending "headless run exited non-zero"
+  elif grep -qE 'FATAL|ASSERTION' "$B/n64/gj25_cathode_quest/ending.log" || ! grep -q 'Scene 4 Loaded' "$B/n64/gj25_cathode_quest/ending.log"; then
+    grep -E 'FATAL|ASSERTION' "$B/n64/gj25_cathode_quest/ending.log" | head -3 | sed 's/^/  | /'
+    fail gj25_cathode_quest-ending "Map-Ending didn't load"
+  elif ! run_logged "n64/gj25_cathode_quest/ending-png.log" "$CQ/game_check" png "$CQ/ending.png" 3000; then
+    fail gj25_cathode_quest-ending "black frame"
+  else
+    pass gj25_cathode_quest-ending
+  fi
 else
   skip gj25_cathode_quest "not built (tools/n64-pyrite64.sh jam25)"
 fi

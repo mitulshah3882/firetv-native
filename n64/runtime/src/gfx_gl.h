@@ -81,8 +81,10 @@ typedef struct {
     int prog;
     GfxTex *tex;              /* NULL: none */
     bool linear, wrap;
+    uint8_t mirror;           /* with wrap: 1 = S, 2 = T repeat mirrored (the tile's mirror bits) */
     GfxTex *tex1;             /* TEX1 (NULL: tex), sampled at v_uv * t1.xy + t1.zw */
     bool wrap1;
+    uint8_t mirror1;
     float t1[4];
     int blend;                /* GFX_BLEND_* */
     bool ztest, zwrite;
@@ -93,3 +95,6 @@ typedef struct {
 } Gfx3DState;
 void gfx_draw3d(const Gfx3DState *st, const GfxVert3D *v, int n);
 void gfx_fb_clear_depth(void);
+/* Writes depth (0..1) over the rectangle [x0, x1) x [y0, y1) (N64 pixels) from a tw x th pattern
+ * repeated from (org_x, org_y), leaving colour as it is. */
+void gfx_fb_depth_pattern(const float *depth, int tw, int th, int x0, int y0, int x1, int y1, int org_x, int org_y);

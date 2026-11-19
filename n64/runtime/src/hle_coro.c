@@ -43,6 +43,8 @@ typedef struct {
 } Coro;
 
 static Coro g_co[CORO_MAX];
+/* Debug aid: N64_CORO_TRACE=1 logs coroutine creation, sleeps, finishing and destruction. */
+#define TRACE(...) do { static int on_ = -1; if (on_ < 0) on_ = SDL_getenv("N64_CORO_TRACE") != NULL; if (on_) n64rt_log(__VA_ARGS__); } while (0)
 static ucontext_t g_main_uc;
 static int g_cur = -1;
 
@@ -67,6 +69,7 @@ static void coro_entry(int i) {
     if (f) f(n64rt_rdram(), &c->ctx);
     else n64rt_log("coro: no function at %08X", c->fn);
     c->finished = true;
+    TRACE("coro %d finished", i);
     for (;;) yield_from(c);  /* never return onto a dead stack */
 }
 
@@ -93,6 +96,8 @@ void n64_coro_create(uint8_t *rdram, recomp_context *ctx) {
     c->wakeup = 0;
     c->caller = -1;
     c->ctx = *ctx;  /* gp, the FPU mode and status as the creator has them */
+    /* f_odd points into the context (odd FPU registers): at this copy, not the creator's */
+    c->ctx.f_odd = c->ctx.mips3_float_mode ? &c->ctx.f1.u32l : &c->ctx.f0.u32h;
     c->ctx.r4 = (gpr)(int32_t)arg;
     c->ctx.r29 = (gpr)(int32_t)(c->gstack + c->gstack_size - 16);
     c->ctx.r31 = 0;
@@ -101,6 +106,7 @@ void n64_coro_create(uint8_t *rdram, recomp_context *ctx) {
     c->uc.uc_stack.ss_size = HOST_STACK;
     c->uc.uc_link = NULL;
     makecontext(&c->uc, (void (*)(void))coro_entry, 1, i);
+    TRACE("coro %d created: fn %08X arg %08X stack %u", i, fn, arg, size);
     n64_ret32(ctx, CORO_HANDLE | (uint32_t)i);
 }
 
@@ -128,6 +134,7 @@ void n64_coro_sleep(uint8_t *rdram, recomp_context *ctx) {
     (void)rdram;
     if (g_cur < 0) return;
     g_co[g_cur].wakeup = ticks_now() + (uint64_t)ctx->r4;
+    TRACE("coro %d sleeps %llu ticks", g_cur, (unsigned long long)ctx->r4);
     yield_from(&g_co[g_cur]);
 }
 
@@ -135,6 +142,7 @@ void n64_coro_destroy(uint8_t *rdram, recomp_context *ctx) {
     (void)rdram;
     Coro *c = coro_of((uint32_t)ctx->r4);
     if (c && (int)(c - g_co) != g_cur) c->used = false;  /* stacks stay with the slot */
+    if (c) TRACE("coro %d destroyed", (int)(c - g_co));
 }
 
 void n64_coro_finished(uint8_t *rdram, recomp_context *ctx) {

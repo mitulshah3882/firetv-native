@@ -678,7 +678,7 @@ static void triangle(uint8_t *rdram, recomp_context *ctx, const uint32_t *a) {
 enum {
     OP_RESET_MODE, OP_FIXUP, OP_PUSH, OP_POP, OP_WRITE8, OP_FILL_COLOR32, OP_SCISSOR, OP_FILL_RECT,
     OP_TEX_RECT, OP_TILE_SPRITE, OP_TILE_SURFACE, OP_TLUT, OP_SPRITE_BLIT, OP_TEX_BLIT, OP_CHANGE_SOM,
-    OP_TILE_SURFACE_SUB, OP_TILE_REUSE, OP_TRIANGLE, OP_T3D, OP_CALL, OP_GLYPH, OP_COLOR_IMAGE,
+    OP_TILE_SURFACE_SUB, OP_TILE_REUSE, OP_TRIANGLE, OP_T3D, OP_CALL, OP_GLYPH, OP_COLOR_IMAGE, OP_RUN_BLOCK, OP_SET_PH,
 };
 typedef struct {
     uint8_t code;
@@ -740,8 +740,24 @@ static void load_sprite_tlut(uint8_t *rdram, recomp_context *ctx, uint32_t sprit
     R.tlut_loaded = true;
 }
 
+static Block *block_of(uint32_t h);
+static uint32_t g_ph[7];  /* rspq block placeholders 0-6: the blocks they stand for */
+
 static void exec(uint8_t *rdram, recomp_context *ctx, const Op *op) {
     const uint32_t *a = op->a;
+    if (op->code == OP_RUN_BLOCK) {  /* a block or queue, by reference (or a placeholder 0-6) */
+        static int depth;
+        const Block *b = block_of(a[0] < 7 ? g_ph[a[0]] : a[0]);
+        if (!b || depth >= 8) return;  /* the RSP nests blocks 8 deep */
+        ++depth;
+        for (int i = 0; i < b->n; ++i) exec(rdram, ctx, &b->ops[i]);
+        --depth;
+        return;
+    }
+    if (op->code == OP_SET_PH) {
+        if (a[0] < 7) g_ph[a[0]] = a[1];
+        return;
+    }
     if (op->code == OP_T3D) {  /* a tiny3d command (hle_t3d.c): a[0] = word count, then the words */
         hle_t3d_exec(rdram, ctx, a + 1, (int)a[0]);
         return;
@@ -1094,7 +1110,13 @@ static int block_alloc(void) {
 #define TRACE_Q(...) do { if (SDL_getenv("N64_OP_TRACE")) n64rt_log(__VA_ARGS__); } while (0)
 void n64_rspq_block_begin_reuse(uint8_t *rdram, recomp_context *ctx) {
     hle_rspq_drain(rdram, ctx);
-    g_recording = block_alloc();
+    Block *reuse = block_of((uint32_t)ctx->r4);  /* rspq_block_begin_reuse(block): record it again */
+    if (reuse) {
+        reuse->n = 0;
+        g_recording = (int)((uint32_t)ctx->r4 & 0xFFFF);
+    } else {
+        g_recording = block_alloc();
+    }
     TRACE_Q("block begin -> %d", g_recording);
 }
 void n64_rspq_block_begin(uint8_t *rdram, recomp_context *ctx) { n64_rspq_block_begin_reuse(rdram, ctx); }
@@ -1109,15 +1131,19 @@ static Block *block_of(uint32_t h) {
     const int idx = (int)(h & 0xFFFF) - 1;
     return (idx >= 0 && idx < (int)SDL_arraysize(g_blocks) && g_blocks[idx].used) ? &g_blocks[idx] : NULL;
 }
+/* A block run is recorded by reference, as the RSP calls a block: a block that is recorded again
+ * later (rspq_block_begin_reuse) runs with its new commands. Placeholders 0-6 resolve when run. */
 void n64_rspq_block_run(uint8_t *rdram, recomp_context *ctx) {
     hle_rspq_drain(rdram, ctx);
-    const Block *b = block_of((uint32_t)ctx->r4);
-    if (!b) return;
-    if (SDL_getenv("N64_OP_TRACE")) n64rt_log("run block/queue %08X: %d ops (recording %d)", (uint32_t)ctx->r4, b->n, g_recording);
-    for (int i = 0; i < b->n; ++i) {
-        if (g_recording) emit(rdram, ctx, &b->ops[i]); /* a block run inside a recording block */
-        else exec(rdram, ctx, &b->ops[i]);
-    }
+    const uint32_t h = (uint32_t)ctx->r4;
+    if (h >= 7 && !block_of(h)) return;
+    if (SDL_getenv("N64_OP_TRACE")) n64rt_log("run block/queue %08X (recording %d)", h, g_recording);
+    EMIT(OP_RUN_BLOCK, {h});
+}
+/* void rspq_block_set_placeholder(rspq_block_t *ph, rspq_block_t *ph_target): a command in order */
+void n64_rspq_block_set_placeholder(uint8_t *rdram, recomp_context *ctx) {
+    hle_rspq_drain(rdram, ctx);
+    EMIT(OP_SET_PH, {(uint32_t)ctx->r4, (uint32_t)ctx->r5});
 }
 void n64_rspq_block_free(uint8_t *rdram, recomp_context *ctx) {
     (void)rdram;

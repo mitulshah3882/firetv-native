@@ -102,3 +102,16 @@ stub n64_rompak_search_ext
 
 # Hand-written asm decompressors race the PI DMA by polling hardware registers: decoded on the host.
 stub n64_decompress_lz4_full_inplace
+
+# The ways a program dies without an assertion message (hle_libdragon.c says which it was).
+stub n64_abort
+stub n64_die
+stub n64___assert_func
+stub n64__ZSt9terminatev
+stub n64___cxa_pure_virtual
+stub n64__ZSt17__throw_bad_allocv
+stub n64__ZSt28__throw_bad_array_new_lengthv
+stub n64__ZSt20__throw_length_errorPKc
+stub n64__ZSt20__throw_out_of_rangePKc
+stub n64__ZSt19__throw_logic_errorPKc
+stub n64__ZSt25__throw_bad_function_callv

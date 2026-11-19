@@ -55,4 +55,8 @@ function(n64_add_recomp_app target)
   set_source_files_properties(${gen_sources} PROPERTIES COMPILE_OPTIONS "-w;-O2" COMPILE_DEFINITIONS "NDEBUG")
   set_source_files_properties("${rt}/n64rt.cpp" PROPERTIES COMPILE_OPTIONS "-std=c++20")
   target_compile_definitions(${target} PRIVATE NDEBUG)
+  # Unwind tables, so a fatal exit can log the host call stack on the device (n64rt.cpp). And no
+  # strict aliasing: N64Recomp's code reads and writes RDRAM through int16_t*, int32_t*, ... pointers
+  # to the same bytes, which the optimizer may otherwise reorder (decision 75).
+  target_compile_options(${target} PRIVATE -funwind-tables -fno-strict-aliasing)
 endfunction()

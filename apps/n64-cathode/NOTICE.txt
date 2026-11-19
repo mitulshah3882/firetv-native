@@ -1,0 +1,65 @@
+Cathode Quest 64: notice
+========================
+
+Cathode Quest 64 is a 3D platformer by Max Bebök (HailToDodongo), made for the N64brew Game Jam
+2025: you play a CRT television on a quest through a broken world. It is Nintendo 64 homebrew,
+made with Pyrite64 (an open-source N64 game editor and engine by the same author), tiny3d and
+libdragon. This app builds the game from source with Pyrite64's own editor against libdragon and
+tiny3d, translates the program to native ARM code with N64Recomp (static recompilation), and runs
+it on our own runtime on Fire TV's Vega OS. No console is emulated: the program runs as native code,
+and the program image and data it reads (assets/gj25_cathode_quest.bin,
+assets/gj25_cathode_quest.z64) are built from the open-source Pyrite64 repository. It is not
+affiliated with or endorsed by Nintendo, the N64brew community or the game's author.
+
+Source code
+-----------
+The complete source code for this build is at https://github.com/mitulshah3882/firetv-native
+(directory apps/n64-cathode; the Pyrite64 build is tools/n64-pyrite64.sh with our engine change in
+n64/pyrite64/patches, the runtime in n64/runtime, the recompiler configuration in
+n64/recomp/gj25_cathode_quest.toml). Third-party sources are not stored in that repository: the
+build tools download them at the exact versions listed below.
+
+The game code
+-------------
+- Pyrite64, https://github.com/HailToDodongo/pyrite64 (commit
+  ec98ba1b028f83e1a09feecd1fe60d39f2c0a278): the engine (n64/engine) and the game (Cathode Quest
+  64, n64/examples/jam25), MIT, Copyright (c) Max Bebök. PYRITE64-LICENSE.
+- Our changes (n64/pyrite64/patches): MIT, Copyright (c) 2026 Mitul Shah.
+  FIRETV-NATIVE-LICENSE.txt
+
+Assets and attributions
+-----------------------
+- The models, textures and art: Max Bebök, part of the MIT-licensed Pyrite64 repository.
+- Music: "sea_of_symbols", "0x2A731 discovery fragment", "orions-geology-workshop" and
+  "proto_spokehul" by John Oestmann, CC0 (public domain), as the game's credits state.
+- Fonts: Altinn-DIN (Copyright (c) 2019 Altinn, with Reserved Font Name Altinn-DIN Exp), Martian
+  Mono (Copyright 2020 The Martian Mono Project Authors) and RocknRoll One (Copyright 2020 The
+  RocknRoll Project Authors), all under the SIL Open Font License 1.1.
+- Sound effects: in the Pyrite64 repository, which documents no separate source for them. (To be
+  replaced with our own before this app is published.)
+- The launcher icon is made from a render of the game by this project's runtime.
+
+Components and licences (files in this directory)
+-------------------------------------------------
+- tiny3d, https://github.com/HailToDodongo/tiny3d (commit 6f5ac0ba098f86d04e549ea754834f1be3c150e1),
+  the game's 3D library, linked into the game program: MIT, Copyright (c) Max Bebök. TINY3D-LICENSE.
+  Its RSP microcode is not run: n64/runtime/src/hle_t3d.c does its work on the CPU and GPU.
+- libdragon, https://github.com/DragonMinded/libdragon (commit
+  39d0d6096130836a65710da6730290701d060272), linked into the game program: Unlicense (public
+  domain). LIBDRAGON-LICENSE.md.
+- newlib 4.4.0 and libstdc++ (GCC 16.2), the C and C++ libraries of libdragon's toolchain; parts of
+  them are linked into the game program. newlib's files carry several free licences (see
+  https://sourceware.org/newlib/); libstdc++ is GPL-3.0 with the GCC Runtime Library Exception.
+- N64Recomp, https://github.com/N64Recomp/N64Recomp (commit
+  598ce2080004a5672d604dceadbda436045307b7): MIT, Copyright (c) 2024 Wiseguy. Its runtime header
+  (recomp.h) is compiled into the app. N64RECOMP-LICENSE.txt
+- n64rt runtime (n64/runtime) and vegaplat platform layer (engine/vegaplat): MIT, Copyright (c)
+  2026 Mitul Shah. FIRETV-NATIVE-LICENSE.txt
+- SDL3 video and audio drivers for Vega (engine/sdl3-vega/src): zlib, Copyright (C) 2026 Mitul
+  Shah. SDL3-VEGA-LICENSE.txt
+- SDL 3.4.18, https://github.com/libsdl-org/SDL (tag release-3.4.18): zlib, Copyright (C)
+  1997-2026 Sam Lantinga. SDL3-LICENSE.txt. SDL includes yuv2rgb, Copyright (c) 2016 Adrien
+  Descamps, BSD-3-Clause: SDL3-yuv2rgb-LICENSE.txt.
+
+The app uses Vega OS system libraries that the device provides at run time. They are not part of
+this package.

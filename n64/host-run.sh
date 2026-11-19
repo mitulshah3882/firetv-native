@@ -22,23 +22,25 @@ INC=(-I"$ROOT/build/n64/include" -I"$GEN" -I"$ROOT/n64/runtime/include" -I"$SDL/
 T3D_RSP=$(ls -d "$ROOT"/third_party/_src/tiny3d-*/src/t3d/rsp 2>/dev/null | head -1)  # rsp_tiny3d.h for hle_t3d.c
 [[ -n "$T3D_RSP" ]] && INC+=(-I"$T3D_RSP")
 # Generated code: big, so compile in parallel; NDEBUG drops N64Recomp's per-instruction asserts.
+# -fno-strict-aliasing everywhere: N64Recomp's code reads and writes RDRAM through int16_t*, int32_t*
+# ... pointers to the same bytes (decision 75).
 pids=()
 for f in "$GEN"/funcs_*.c "$GEN"/ignored_stubs.c; do
   o="$OUT/obj/$(basename "$f" .c).o"
   if [[ ! -f "$o" || "$f" -nt "$o" ]]; then
-    cc -std=gnu11 -O2 -DNDEBUG -w "${INC[@]}" -c "$f" -o "$o" & pids+=($!)
+    cc -std=gnu11 -O2 -fno-strict-aliasing -DNDEBUG -w "${INC[@]}" -c "$f" -o "$o" & pids+=($!)
   fi
 done
 for p in ${pids[@]+"${pids[@]}"}; do wait "$p"; done
-c++ -std=c++20 -O2 -DNDEBUG "${INC[@]}" -c "$ROOT/n64/runtime/src/n64rt.cpp" -o "$OUT/obj/n64rt.o"
-cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_libdragon.c" -o "$OUT/obj/hle.o"
-cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_audio.c" -o "$OUT/obj/hle_audio.o"
-cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_rdpq.c" -o "$OUT/obj/hle_rdpq.o"
-cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_rspq.c" -o "$OUT/obj/hle_rspq.o"
-cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/gfx_gl.c" -o "$OUT/obj/gfx_gl.o"
-cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_t3d.c" -o "$OUT/obj/hle_t3d.o"
-cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_coro.c" -o "$OUT/obj/hle_coro.o"
-cc -std=gnu11 -O2 -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/n64_main.c" -o "$OUT/obj/main.o"
+c++ -std=c++20 -O2 -fno-strict-aliasing -DNDEBUG "${INC[@]}" -c "$ROOT/n64/runtime/src/n64rt.cpp" -o "$OUT/obj/n64rt.o"
+cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_libdragon.c" -o "$OUT/obj/hle.o"
+cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_audio.c" -o "$OUT/obj/hle_audio.o"
+cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_rdpq.c" -o "$OUT/obj/hle_rdpq.o"
+cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_rspq.c" -o "$OUT/obj/hle_rspq.o"
+cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/gfx_gl.c" -o "$OUT/obj/gfx_gl.o"
+cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_t3d.c" -o "$OUT/obj/hle_t3d.o"
+cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_coro.c" -o "$OUT/obj/hle_coro.o"
+cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/n64_main.c" -o "$OUT/obj/main.o"
 # shellcheck disable=SC2086
 c++ "$OUT"/obj/*.o $LIBS -o "$OUT/$NAME"
 cp "$GEN/$NAME.bin" "$OUT/"

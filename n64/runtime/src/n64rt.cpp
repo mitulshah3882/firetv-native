@@ -83,9 +83,31 @@ static void print_backtrace() {
     void* frames[32];
     backtrace_symbols_fd(frames, backtrace(frames, 32), 2);
 }
+#elif defined(VEGA_PACKAGE_ID)
+// On the device: the unwinder's frames as offsets into our .so, to symbolize on the Mac with
+// llvm-symbolizer --obj=<app>/build/armv7-release/lib/<pkg>.entry_point_factory.so.debug 0x<offset>.
+#include <dlfcn.h>
+#include <unwind.h>
+static _Unwind_Reason_Code bt_frame(struct _Unwind_Context* uc, void* arg) {
+    int* n = static_cast<int*>(arg);
+    const uintptr_t pc = _Unwind_GetIP(uc);
+    Dl_info info{};
+    if (pc && dladdr(reinterpret_cast<void*>(pc), &info) && info.dli_fbase)
+        SDL_Log("n64rt:   #%d %s+0x%lx", *n, info.dli_fname ? strrchr(info.dli_fname, '/') ? strrchr(info.dli_fname, '/') + 1 : info.dli_fname : "?",
+                static_cast<unsigned long>(pc - reinterpret_cast<uintptr_t>(info.dli_fbase)));
+    return ++*n < 40 ? _URC_NO_REASON : _URC_END_OF_STACK;
+}
+static void print_backtrace() {
+    int n = 0;
+    SDL_Log("n64rt: host backtrace (offsets in the .so):");
+    _Unwind_Backtrace(bt_frame, &n);
+}
 #else
 static void print_backtrace() {}
 #endif
+
+extern "C" void hle_debugf_tail(void);  // hle_libdragon.c: the program's last debugf lines
+extern "C" void n64rt_backtrace(void) { print_backtrace(); }
 
 [[noreturn]] static void fatal(const char* fmt, ...) {
     char buf[512];
@@ -93,6 +115,7 @@ static void print_backtrace() {}
     va_start(ap, fmt);
     vsnprintf(buf, sizeof buf, fmt, ap);
     va_end(ap);
+    hle_debugf_tail();
     SDL_Log("n64rt: FATAL: %s", buf);
     print_backtrace();
     n64rt_exit(3);
@@ -138,7 +161,8 @@ extern "C" bool n64rt_init(const char* image_path, uint32_t vram) {
     std::sort(g_funcs.begin(), g_funcs.end(), [](const FuncAt& a, const FuncAt& b) { return a.vram < b.vram; });
     g_scratch_top = N64RT_SCRATCH_TOP;
     g_start_ns = SDL_GetTicksNS();
-    g_virtual = SDL_getenv("N64_SHOT") != nullptr;
+    // N64_REALTIME=1 keeps the real clock in a headless run (timing bugs the device shows).
+    g_virtual = SDL_getenv("N64_SHOT") != nullptr && !SDL_getenv("N64_REALTIME");
     n64rt_log("loaded %s: %zu bytes at %08X, %zu functions", image_path, size, vram, g_funcs.size());
     return true;
 }
@@ -254,11 +278,14 @@ extern "C" gpr cop0_status_read(recomp_context* ctx) { return (gpr)(int32_t)ctx-
 /* The program's clock. Headless screenshot runs (N64_SHOT) use a virtual one: 1/60 s per presented
  * frame (n64rt_virtual_frame), plus 2 us per read so a loop that waits on it still moves. Frame N
  * then reproduces exactly, however fast the host renders. */
+static uint64_t g_virt_stall_ns;  // n64rt_stall: time the host spent without the program running
 extern "C" uint64_t n64rt_now_ns(void) {
-    if (g_virtual) return g_virt_ns += 2000;
+    if (g_virtual) return (g_virt_ns += 2000) + g_virt_stall_ns;
     return SDL_GetTicksNS() - g_start_ns;
 }
 extern "C" void n64rt_virtual_frame(uint64_t frames) { g_virt_ns = frames * 16666667ull; }
+/* A host stall the virtual clock should see too (N64_SLOW_DECODE models the device's slow decode). */
+extern "C" void n64rt_stall(uint64_t ns) { if (g_virtual) g_virt_stall_ns += ns; }
 
 extern "C" gpr cop0_read(recomp_context* ctx, int reg) {
     switch (reg) {
@@ -284,7 +311,8 @@ extern "C" void do_break(uint32_t vram) { fatal("break instruction at %08X (asse
 
 extern "C" void recomp_syscall_handler(uint8_t*, recomp_context*, int32_t vram) { fatal("syscall at %08X", (uint32_t)vram); }
 
-extern "C" void pause_self(uint8_t*) { fatal("pause_self"); }
+// newlib's _exit: the program called exit() or abort() (an out-of-memory operator new aborts).
+extern "C" void pause_self(uint8_t*) { fatal("the program exited (pause_self: exit or abort)"); }
 
 extern "C" void n64rt_unrecompilable(const char* name, recomp_context*) {
     fatal("%s contains instructions N64Recomp could not translate", name);

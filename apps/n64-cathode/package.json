@@ -1,0 +1,7 @@
+{
+  "name": "vega-n64-cathode",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "kepler": { "projectType": "native", "targets": ["tv"] }
+}

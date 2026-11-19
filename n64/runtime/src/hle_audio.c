@@ -273,6 +273,12 @@ static hwave *wave_get(uint8_t *rdram, recomp_context *ctx, uint32_t addr) {
         for (int c = 0; c < w->channels; c++) { SDL_free(w->pcm[c]); w->pcm[c] = NULL; }
         return NULL;
     }
+    /* Debug aid: N64_SLOW_DECODE=<ms> stalls each decode, as the device's slower CPU does. */
+    if (SDL_getenv("N64_SLOW_DECODE")) {
+        const int ms = SDL_atoi(SDL_getenv("N64_SLOW_DECODE"));
+        SDL_Delay((Uint32)ms);
+        n64rt_stall((uint64_t)ms * 1000000ull);
+    }
     n64rt_log("audio: decoded waveform %d (%s, %d ch, %d samples @ %.0f Hz, loop %d) in %.1f ms",
               A.nwaves - 1, format == FORMAT_VADPCM ? "VADPCM" : "PCM", w->channels, w->len, w->freq,
               w->loop_len, (SDL_GetTicksNS() - t0) / 1e6);

@@ -80,6 +80,9 @@ cp "$GEN_TOML" "$TOML_DIR/.recomp-$(basename "$TOML")"
 rm -f "$TOML_DIR/.recomp-$(basename "$TOML")"
 rm -f "$PASS1_TOML"
 TOML_FOR_STUBS="$GEN_TOML"
+# N64Recomp declares a jump table's addend right after a label (L_x: gpr jr_addend_x = ...), which is
+# C23; the device's clang 15 rejects it. An empty statement after every label is valid in any C.
+sed -i '' -E 's/^(L_[0-9A-Fa-f]+):$/\1:;/' "$OUT"/funcs_*.c
 
 # Memory image: every loadable section, laid out from the lowest address (normally 0x80000000).
 NAME="$(basename "$ELF" .elf)"

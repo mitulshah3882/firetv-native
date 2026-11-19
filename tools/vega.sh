@@ -71,8 +71,20 @@ case "$cmd" in
     "$0" launch "$comp"
     ;;
   key)
+    # Keys go to whatever is in front. If our app isn't (it quit, or the screensaver took over), OK
+    # lands on the home screen and can open store or subscription pages: on 2026-11-18 a batch of
+    # Right+OK after a crash ended on a streaming app's subscription page. So unless a com.firetvnative
+    # app is the visible one, only the directions, Back and Home are sent (they can't select
+    # anything); other keys are refused. VEGA_KEYS_ANYWHERE=1 skips the check.
     cmds=""
-    for k in "$@"; do cmds+="inputd-cli button_press $k >/dev/null 2>&1; sleep 0.15; "; done
+    for k in "$@"; do
+      case "$k" in
+        KEY_UP|KEY_DOWN|KEY_LEFT|KEY_RIGHT|KEY_BACK|KEY_HOMEPAGE) guard="" ;;
+        *) [[ "${VEGA_KEYS_ANYWHERE:-}" == 1 ]] && guard="" || \
+             guard="vlcm list 2>/dev/null | grep '^com.firetvnative' | grep -q ' VISIBLE ' || { echo 'refused $k: no com.firetvnative app is visible'; exit 3; }; " ;;
+      esac
+      cmds+="${guard}inputd-cli button_press $k >/dev/null 2>&1; sleep 0.15; "
+    done
     vega device run-cmd --command "$cmds"
     ;;
   hold)

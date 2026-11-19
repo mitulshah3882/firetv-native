@@ -333,6 +333,15 @@ static void present(void) {
         }
     }
     gfx_screen_end(hle_video.win);
+    /* N64_REALTIME=1 (headless, on the real clock): present at 60 Hz, as a display would. */
+    static int realtime = -1;
+    if (realtime < 0) realtime = G.shot_path && SDL_getenv("N64_REALTIME");
+    if (realtime) {
+        static uint64_t next;
+        const uint64_t t = SDL_GetTicksNS();
+        if (next > t) SDL_DelayNS(next - t);
+        next = (next > t ? next : t) + 16666667ull;
+    }
     ++G.frames;
     n64rt_virtual_frame(G.frames);
     ++G.stat_frames;
@@ -375,6 +384,42 @@ void n64_rdpq_detach_show(uint8_t *rdram, recomp_context *ctx) {
 void n64_rdpq_detach_wait(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
 void n64_rdpq_detach(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
 void n64_display_show(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; present(); }
+
+/* ================================================================================================
+ * The ways a program dies without an assertion message: abort(), std::terminate and libstdc++'s
+ * __throw_* helpers (exceptions are off, so a failed operator new ends in __throw_bad_alloc).
+ * Each says which it was, with the heap's break (sbrk(0)), instead of a bare exit.
+ * ============================================================================================== */
+void hle_debugf_tail(void);
+extern void n64_sbrk(uint8_t *rdram, recomp_context *ctx) __attribute__((weak));
+static void dying(uint8_t *rdram, recomp_context *ctx, const char *what) {
+    (void)rdram;
+    const uint32_t brk = n64_sbrk ? (uint32_t)n64rt_call(ctx, n64_sbrk, 0, 0, 0, 0) : 0;
+    n64rt_log("the program is ending: %s (heap break %08X)", what, brk);
+    hle_debugf_tail();
+    n64rt_backtrace();
+    n64rt_exit(3);
+}
+void n64_abort(uint8_t *rdram, recomp_context *ctx) { dying(rdram, ctx, "abort()"); }
+void n64_die(uint8_t *rdram, recomp_context *ctx) { dying(rdram, ctx, "libdragon's die()"); }
+/* newlib's assert (a plain C++ assert() reaches it, not libdragon's):
+ * void __assert_func(const char *file, int line, const char *func, const char *failedexpr) */
+void n64___assert_func(uint8_t *rdram, recomp_context *ctx) {
+    char file[128] = "?", expr[160] = "?", what[400];
+    for (int i = 0; i < (int)sizeof file - 1 && (uint32_t)ctx->r4; i++) if (!(file[i] = (char)n64_r8(rdram, (uint32_t)ctx->r4 + (uint32_t)i))) break;
+    for (int i = 0; i < (int)sizeof expr - 1 && (uint32_t)ctx->r7; i++) if (!(expr[i] = (char)n64_r8(rdram, (uint32_t)ctx->r7 + (uint32_t)i))) break;
+    file[sizeof file - 1] = expr[sizeof expr - 1] = 0;
+    SDL_snprintf(what, sizeof what, "assertion \"%s\" failed at %s:%d", expr, file, (int)(int32_t)ctx->r5);
+    dying(rdram, ctx, what);
+}
+void n64__ZSt9terminatev(uint8_t *rdram, recomp_context *ctx) { dying(rdram, ctx, "std::terminate"); }
+void n64___cxa_pure_virtual(uint8_t *rdram, recomp_context *ctx) { dying(rdram, ctx, "a pure virtual call"); }
+void n64__ZSt17__throw_bad_allocv(uint8_t *rdram, recomp_context *ctx) { dying(rdram, ctx, "out of memory (operator new: std::bad_alloc)"); }
+void n64__ZSt28__throw_bad_array_new_lengthv(uint8_t *rdram, recomp_context *ctx) { dying(rdram, ctx, "std::bad_array_new_length"); }
+void n64__ZSt20__throw_length_errorPKc(uint8_t *rdram, recomp_context *ctx) { dying(rdram, ctx, "std::length_error"); }
+void n64__ZSt20__throw_out_of_rangePKc(uint8_t *rdram, recomp_context *ctx) { dying(rdram, ctx, "std::out_of_range"); }
+void n64__ZSt19__throw_logic_errorPKc(uint8_t *rdram, recomp_context *ctx) { dying(rdram, ctx, "std::logic_error"); }
+void n64__ZSt25__throw_bad_function_callv(uint8_t *rdram, recomp_context *ctx) { dying(rdram, ctx, "std::bad_function_call"); }
 
 /* ================================================================================================
  * libdragon's __mi_memset*: assembly that fills memory through the MI's repeat mode (so a store
@@ -806,6 +851,15 @@ enum { ISV_BASE = 0x13FF0000u, ISV_SIZE = 0x20 + 0x200 };
 static uint8_t g_isv[ISV_SIZE];
 static char g_isv_line[512];
 static int g_isv_len;
+/* The last lines are kept either way and printed if the program dies (hle_debugf_tail). */
+enum { TAIL_LINES = 32 };
+static char g_tail[TAIL_LINES][160];
+static int g_tail_n;
+void hle_debugf_tail(void) {
+    const int first = g_tail_n > TAIL_LINES ? g_tail_n - TAIL_LINES : 0;
+    if (g_tail_n) n64rt_log("the program's last debugf lines:");
+    for (int i = first; i < g_tail_n; i++) n64rt_log("  debugf: %s", g_tail[i % TAIL_LINES]);
+}
 static void isviewer_flush(uint32_t n) {
     static int on = -1;
     if (on < 0) on = SDL_getenv("N64_DEBUGF") && SDL_atoi(SDL_getenv("N64_DEBUGF")) > 0;
@@ -814,6 +868,7 @@ static void isviewer_flush(uint32_t n) {
         if (c == '\n' || g_isv_len == (int)sizeof g_isv_line - 1) {
             g_isv_line[g_isv_len] = 0;
             if (on) n64rt_log("debugf: %s", g_isv_line);
+            if (g_isv_len) SDL_strlcpy(g_tail[g_tail_n++ % TAIL_LINES], g_isv_line, sizeof g_tail[0]);
             g_isv_len = 0;
         } else if (c != '\r') {
             g_isv_line[g_isv_len++] = c;

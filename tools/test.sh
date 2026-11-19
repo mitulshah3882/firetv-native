@@ -131,9 +131,9 @@ game() {
   # The generated code is big: compile it once (and again only when regenerated), as host-run.sh does.
   for f in "$GEN"/funcs_*.c "$GEN"/ignored_stubs.c; do
     local o="$O/obj/$(basename "$f" .c).o"
-    [[ -f "$o" && "$o" -nt "$f" && "$o" -nt "$B/include/recomp.h" ]] || bg cc -std=gnu11 -O2 -DNDEBUG -w "${GINC[@]}" -c "$f" -o "$o"
+    [[ -f "$o" && "$o" -nt "$f" && "$o" -nt "$B/include/recomp.h" ]] || bg cc -std=gnu11 -O2 -fno-strict-aliasing -DNDEBUG -w "${GINC[@]}" -c "$f" -o "$o"
   done
-  bg c++ -std=c++20 -O2 -DNDEBUG "${GINC[@]}" -c "$RT/n64rt.cpp" -o "$O/n64rt.o"
+  bg c++ -std=c++20 -O2 -fno-strict-aliasing -DNDEBUG "${GINC[@]}" -c "$RT/n64rt.cpp" -o "$O/n64rt.o"
   for s in hle_libdragon hle_rdpq hle_rspq hle_audio gfx_gl hle_t3d n64_main; do bg cc -std=gnu11 -O2 -Wall "${GINC[@]}" -c "$RT/$s.c" -o "$O/$s.o"; done
   # game_check's wav mode needs the program's wav64 loader (helloworld has none).
   bg cc -std=gnu11 -O2 -Wall "${GINC[@]}" -I"$RT" ${1:+-DGAME_CHECK_WAV} -c "$ROOT/tests/n64/game_check.c" -o "$O/game_check.o"

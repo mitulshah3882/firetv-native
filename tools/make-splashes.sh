@@ -65,5 +65,6 @@ splash n64-landgrab landgrab.png "Land Grab" 255 97 97
 splash n64-hydraharmonics hydraharmonics.png "Hydra Harmonics" 255 112 176
 splash n64-swordstrike swordstrike.png "Sword Strike" 255 80 64
 splash n64-tohubohu tohubohu.png "Le Tohu-bohu" 255 196 64
+splash n64-cathode cathode.png "Cathode Quest 64" 255 214 92
 splash prism-spire prismspire.png "Prism Spire" 255 170 110
 splash chroma-orbit chromaorbit.png "Chroma Orbit" 120 200 255

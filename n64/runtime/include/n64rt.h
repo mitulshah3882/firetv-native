@@ -38,6 +38,10 @@ uint64_t n64rt_call(recomp_context* ctx, recomp_func_t* f, uint32_t a0, uint32_t
 /* The program's clock in ns (virtual in headless screenshot runs); the frame count drives it there. */
 uint64_t n64rt_now_ns(void);
 void n64rt_virtual_frame(uint64_t frames);
+/* Debug: advance the virtual clock by a host stall (headless runs). */
+void n64rt_stall(uint64_t ns);
+/* Logs the host call stack (offsets into the app's .so on the device). */
+void n64rt_backtrace(void);
 /* A scratch allocator at the top of RDRAM for HLE-owned N64-visible objects. */
 uint32_t n64rt_alloc(uint32_t size, uint32_t align);
 

@@ -568,7 +568,7 @@ typedef struct {
     uint64_t t0;
     int pulse;
 } RemoteKey;
-static struct { RemoteKey key[RK_COUNT]; bool loaded, dpad_stick; } g_remote;
+static struct { RemoteKey key[RK_COUNT]; bool loaded, dpad_stick, jump_keeps; } g_remote;
 
 static void load_remote_map(void) {
     static const uint16_t defaults[RK_COUNT] = {BTN_A, BTN_START, BTN_B, BTN_CL, BTN_CR};
@@ -585,8 +585,12 @@ static void load_remote_map(void) {
         if (!end) end = p + SDL_strlen(p);
         if (eq && eq < end && eq - p == 4 && !SDL_strncasecmp(p, "dpad", 4)) {
             /* "dpad=stick": the D-pad moves the analog stick instead of pressing the D-pad buttons,
-             * for games that only steer with the stick (Le Tohu-bohu) */
-            g_remote.dpad_stick = end - eq - 1 == 5 && !SDL_strncasecmp(eq + 1, "stick", 5);
+             * for games that only steer with the stick (Le Tohu-bohu). "dpad=stickjump" also keeps
+             * the last direction through a jump (Cathode Quest): see the jump assist below. */
+            const size_t vl = (size_t)(end - eq - 1);
+            g_remote.dpad_stick = (vl == 5 && !SDL_strncasecmp(eq + 1, "stick", 5)) ||
+                                  (vl == 9 && !SDL_strncasecmp(eq + 1, "stickjump", 9));
+            g_remote.jump_keeps = vl == 9 && !SDL_strncasecmp(eq + 1, "stickjump", 9);
         } else if (eq && eq < end) {
             size_t kl = (size_t)(eq - p);
             const uint16_t bit = button_named(eq + 1, (size_t)(end - eq - 1));
@@ -718,6 +722,31 @@ void n64_joypad_poll(uint8_t *rdram, recomp_context *ctx) {
         PadState *r = &G.pad[0];
         int sx = (r->cur & BTN_DR) ? 85 : (r->cur & BTN_DL) ? -85 : 0, sy = (r->cur & BTN_DU) ? 85 : (r->cur & BTN_DD) ? -85 : 0;
         if (sx && sy) { sx = sx * 7 / 10; sy = sy * 7 / 10; }
+        /* Jump assist ("dpad=stickjump"): the D-pad and OK are under one thumb, so a remote can't
+         * hold a direction and jump. OK (A) pressed within 300 ms of letting go of the D-pad keeps
+         * that direction while it's held and for 450 ms after, which carries a running jump. */
+        if (g_remote.jump_keeps) {
+            static int last_sx, last_sy;
+            static uint64_t dpad_at, keep_until;
+            static bool keeping;
+            const uint64_t now = n64rt_now_ns();
+            if (sx || sy) {
+                last_sx = sx;
+                last_sy = sy;
+                dpad_at = now;
+                keeping = false;
+            } else {
+                const bool a = (r->cur & BTN_A) != 0;
+                if (a && !keeping && (last_sx || last_sy) && now - dpad_at < 300000000ull) keeping = true;
+                if (keeping && a) keep_until = now + 450000000ull;
+                if (keeping && now < keep_until) {
+                    sx = last_sx;
+                    sy = last_sy;
+                } else {
+                    keeping = false;
+                }
+            }
+        }
         r->sx = (int8_t)sx;
         r->sy = (int8_t)sy;
         r->cur &= (uint16_t)~(BTN_DU | BTN_DD | BTN_DL | BTN_DR);

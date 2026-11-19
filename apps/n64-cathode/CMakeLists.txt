@@ -24,9 +24,10 @@ vega_app_license(PYRITE64-LICENSE "${P64_SRC}/LICENSE")
 vega_app_license(TINY3D-LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/_src/tiny3d-6f5ac0ba098f86d04e549ea754834f1be3c150e1/LICENSE")
 
 # Remote: the D-pad moves (it steers the analog stick, all the game reads for walking), OK jumps
-# (A), Rewind / Fast-forward turn the camera (C-left / C-right), Menu pauses (START). A gamepad
-# has every button.
+# (A; pressed right after the D-pad, the jump keeps that direction: "stickjump"), Rewind /
+# Fast-forward turn the camera (C-left / C-right), Play/Pause recentres it (Z), Menu is START. A
+# gamepad has every button.
 n64_add_recomp_app(n64_cathode PACKAGE_ID "com.firetvnative.n64.cathode" GAME gj25_cathode_quest)
-target_compile_definitions(n64_cathode PRIVATE N64_REMOTE_MAP_DEFAULT="dpad=stick")
+target_compile_definitions(n64_cathode PRIVATE N64_REMOTE_MAP_DEFAULT="dpad=stickjump,playpause=Z")
 target_link_libraries(n64_cathode PRIVATE m)
 vpt_create_package(NAME n64-cathode)

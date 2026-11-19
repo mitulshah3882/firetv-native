@@ -35,8 +35,9 @@ Assets and attributions
 - Fonts: Altinn-DIN (Copyright (c) 2019 Altinn, with Reserved Font Name Altinn-DIN Exp), Martian
   Mono (Copyright 2020 The Martian Mono Project Authors) and RocknRoll One (Copyright 2020 The
   RocknRoll Project Authors), all under the SIL Open Font License 1.1.
-- Sound effects: in the Pyrite64 repository, which documents no separate source for them. (To be
-  replaced with our own before this app is published.)
+- Sound effects: our own, synthesized by n64/pyrite64/jam25-sfx.py under the game's file names
+  (MIT, Copyright (c) 2026 Mitul Shah). The repository's own sound effects document no source, so
+  they are not used.
 - The launcher icon is made from a render of the game by this project's runtime.
 
 Components and licences (files in this directory)

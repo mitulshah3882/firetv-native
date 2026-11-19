@@ -11,8 +11,8 @@
 #      docs and other examples, the editor's submodules shallow, and the Git LFS files the build
 #      reads from GitHub's media endpoint (tools/lfs-fetch.py checks each against its pointer);
 #   2. builds the editor once (AppleClang; only its CLI is used);
-#   3. copies the project to build/n64/p64-<name>, applies n64/pyrite64/patches/<name>.patch if
-#      there is one, and runs `pyrite64 --cli --cmd build` with N64_INST set to a staging prefix:
+#   3. copies the project to build/n64/p64-<name>, applies n64/pyrite64/patches/<name>.patch and
+#      writes our sound effects over its own (n64/pyrite64/<name>-sfx.py) if there are any, and runs `pyrite64 --cli --cmd build` with N64_INST set to a staging prefix:
 #      our toolchain plus tiny3d's t3d.mk (the generated Makefiles include $(N64_INST)/include/t3d.mk).
 #      The editor copies its engine into the project from n64/engine under its working directory,
 #      so it runs from build/n64/p64-work: its data/ plus a copy of the engine with
@@ -88,7 +88,8 @@ ln -sfn "$T3D/t3d.mk" "$STAGE/include/t3d.mk"
 OUT="$ROOT/build/n64/p64-$NAME"
 PATCH="$ROOT/n64/pyrite64/patches/$NAME.patch"
 STAMP="$OUT/.source"
-WANT="$P64_COMMIT $( [[ -f "$PATCH" ]] && shasum -a 256 "$PATCH" | cut -d" " -f1 || true )"
+SFX="$ROOT/n64/pyrite64/$NAME-sfx.py"
+WANT="$P64_COMMIT $(for f in "$PATCH" "$SFX"; do if [[ -f "$f" ]]; then cat "$f"; fi; done | shasum -a 256 | cut -d" " -f1)"
 if [[ ! -f "$STAMP" || "$(cat "$STAMP")" != "$WANT" ]]; then
   echo "[pyrite64] fresh copy of n64/examples/$NAME"
   rm -rf "${OUT:?}"
@@ -96,6 +97,9 @@ if [[ ! -f "$STAMP" || "$(cat "$STAMP")" != "$WANT" ]]; then
   if [[ -f "$PATCH" ]]; then
     patch -s -f -F 0 -p1 -d "$OUT" -i "$PATCH" </dev/null || { echo "error: $PATCH no longer applies" >&2; exit 1; }
   fi
+  # Our own sound effects in place of ones whose source isn't documented (n64/pyrite64/<name>-sfx.py
+  # writes them under the same names).
+  if [[ -f "$SFX" ]]; then python3 -I "$SFX" "$OUT/assets/sfx"; fi
   echo "$WANT" > "$STAMP"
 fi
 # The editor reads its templates (data/...) and copies its engine (n64/engine) from the directory

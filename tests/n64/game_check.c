@@ -108,10 +108,15 @@ static void wav_entry(uint8_t *rdram, recomp_context *ctx) {
         if (!eq || (size_t)(eq - g_argv[i]) >= sizeof rom) { fail("bad argument %s", g_argv[i]); continue; }
         memcpy(rom, g_argv[i], (size_t)(eq - g_argv[i]));
         rom[eq - g_argv[i]] = 0;
+#ifdef GAME_CHECK_WAV64_LOAD  /* programs that only use wav64_t *wav64_load(path, parms) (Pyrite64) */
+        const uint32_t wav = (uint32_t)n64rt_call(ctx, n64_wav64_load, n64_string(rdram, rom), 0, 0, 0);
+        if (!wav) { fail("%s: wav64_load returned NULL", rom); continue; }
+#else
         const uint32_t wav = n64rt_alloc(256, 16);  /* wav64_t is 64 bytes in this libdragon */
         n64rt_call(ctx, n64_wav64_open, wav, n64_string(rdram, rom), 0, 0);
+#endif
         const int format = n64_r8(rdram, wav + WF_FORMAT);
-        if (format != FORMAT_VADPCM) fail("%s: format %d, expected VADPCM (%d)", rom, format, FORMAT_VADPCM);
+        if (format != FORMAT_VADPCM && format != 0) fail("%s: format %d, expected VADPCM (%d) or raw PCM (0)", rom, format, FORMAT_VADPCM);
         const hwave *w = wave_get(rdram, ctx, wav);
         if (!w) { fail("%s: not decoded", rom); continue; }
         compare(rom, w, eq + 1);

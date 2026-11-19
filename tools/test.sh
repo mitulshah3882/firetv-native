@@ -5,7 +5,7 @@
 #           lanes in the generated recomp.h, the portable 64-bit multiply
 #   elf     decision 51 on the device toolchain: no runtime object defines a weak n64_* symbol,
 #           and an optional recompiled function is a weak reference (needs the Vega SDK's clang, else skipped)
-#   <game>  each recompiled game in build/n64 (helloworld, brew_volley, jam_landgrab, jam_hydraharmonics, jam_swordstrike, jam_tohubohu; skipped if
+#   <game>  each recompiled game in build/n64 (helloworld, brew_volley, jam_landgrab, jam_hydraharmonics, jam_swordstrike, jam_tohubohu, gj25_cathode_quest; skipped if
 #           not generated): its sound effects decoded through its own recompiled wav64 loader vs
 #           the source WAVs, and a headless run that must boot and draw a non-black frame
 #   chroma_rules         Chroma Orbit's rules (tests/originals): clusters, rings, chains, flares and
@@ -134,13 +134,14 @@ game() {
     [[ -f "$o" && "$o" -nt "$f" && "$o" -nt "$B/include/recomp.h" ]] || bg cc -std=gnu11 -O2 -fno-strict-aliasing -DNDEBUG -w "${GINC[@]}" -c "$f" -o "$o"
   done
   bg c++ -std=c++20 -O2 -fno-strict-aliasing -DNDEBUG "${GINC[@]}" -c "$RT/n64rt.cpp" -o "$O/n64rt.o"
-  for s in hle_libdragon hle_rdpq hle_rspq hle_audio gfx_gl hle_t3d n64_main; do bg cc -std=gnu11 -O2 -Wall "${GINC[@]}" -c "$RT/$s.c" -o "$O/$s.o"; done
+  for s in hle_libdragon hle_rdpq hle_rspq hle_audio gfx_gl hle_t3d hle_coro n64_main; do bg cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${GINC[@]}" -c "$RT/$s.c" -o "$O/$s.o"; done
   # game_check's wav mode needs the program's wav64 loader (helloworld has none).
-  bg cc -std=gnu11 -O2 -Wall "${GINC[@]}" -I"$RT" ${1:+-DGAME_CHECK_WAV} -c "$ROOT/tests/n64/game_check.c" -o "$O/game_check.o"
+  local wavload=""; grep -q 'n64_wav64_open(' "$GEN/funcs.h" || wavload=-DGAME_CHECK_WAV64_LOAD
+  bg cc -std=gnu11 -O2 -Wall "${GINC[@]}" -I"$RT" ${1:+-DGAME_CHECK_WAV} $wavload -c "$ROOT/tests/n64/game_check.c" -o "$O/game_check.o"
   if ! wait_all; then fail "$name" "build failed"; return; fi
   # Link order as in host-run.sh: the recompiled objects first (on Mach-O the first of two weak
   # definitions wins; decision 51).
-  local runtime=("$O/n64rt.o" "$O/hle_libdragon.o" "$O/hle_rdpq.o" "$O/hle_rspq.o" "$O/gfx_gl.o" "$O/hle_t3d.o")
+  local runtime=("$O/n64rt.o" "$O/hle_libdragon.o" "$O/hle_rdpq.o" "$O/hle_rspq.o" "$O/gfx_gl.o" "$O/hle_t3d.o" "$O/hle_coro.o")
   if ! c++ "$O"/obj/*.o "${runtime[@]}" "$O/hle_audio.o" "$O/n64_main.o" $SDL_LIBS -o "$O/$name" ||
      ! c++ "$O"/obj/*.o "${runtime[@]}" "$O/game_check.o" $SDL_LIBS -o "$O/game_check"; then
     fail "$name" "link failed"; return
@@ -197,6 +198,18 @@ else
   skip jam_hydraharmonics "no N64brew Game Jam 2024 checkout (tools/fetch-deps.sh n64jam2024)"
   skip jam_swordstrike "no N64brew Game Jam 2024 checkout (tools/fetch-deps.sh n64jam2024)"
   skip jam_tohubohu "no N64brew Game Jam 2024 checkout (tools/fetch-deps.sh n64jam2024)"
+fi
+
+# Cathode Quest 64 (Pyrite64): its swap chain, draw-layer queues, coroutines (the boot logos run in
+# one) and BigTex title; frame 1380 is the title screen. Its sound effects are our own
+# (n64/pyrite64/jam25-sfx.py, written into the project copy by tools/n64-pyrite64.sh).
+P64SFX="$ROOT/build/n64/p64-jam25/assets/sfx"
+if [[ -f "$P64SFX/CoinGet.wav" ]]; then
+  wavs=()
+  for w in CoinGet UiOk PlayerJump00; do wavs+=("rom:/sfx/$w.wav64=$P64SFX/$w.wav"); done
+  game gj25_cathode_quest 1380 3000 "${wavs[@]}"
+else
+  skip gj25_cathode_quest "not built (tools/n64-pyrite64.sh jam25)"
 fi
 
 # ---- the original games: rules and synthesizers, no device ----

@@ -40,6 +40,10 @@ void gfx_fb_bind(int w, int h, int scale);
 #define GFX_FB_SLOTS 8
 void gfx_fb_slot(int slot);
 void gfx_fb_show_slot(int slot);
+/* Pyrite64's BigTex (deferred texturing): texture memory (from 0x80400000, n bytes) and the pass that
+ * turns rows y0..y1 of a G-buffer slot into texels in the current target (gfx_gl.c explains). */
+void gfx_bigtex_memory(const uint8_t *bytes, uint32_t n);
+void gfx_bigtex_resolve(int gbuf_slot, int y0, int y1);
 void gfx_fb_clear(uint32_t rgba);                 /* the whole target, ignoring the scissor */
 void gfx_scissor(const SDL_Rect *r);              /* N64 pixels; NULL: off */
 
@@ -77,6 +81,9 @@ typedef struct {
     int prog;
     GfxTex *tex;              /* NULL: none */
     bool linear, wrap;
+    GfxTex *tex1;             /* TEX1 (NULL: tex), sampled at v_uv * t1.xy + t1.zw */
+    bool wrap1;
+    float t1[4];
     int blend;                /* GFX_BLEND_* */
     bool ztest, zwrite;
     float prim[4], env[4], prim_lod, athresh;

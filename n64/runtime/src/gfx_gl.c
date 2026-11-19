@@ -29,6 +29,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_FALSE 0
 #define GL_TRUE 1
 #define GL_TRIANGLES 0x0004
+#define GL_TRIANGLE_STRIP 0x0005
 #define GL_ZERO 0
 #define GL_ONE 1
 #define GL_SRC_ALPHA 0x0302
@@ -39,6 +40,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_CULL_FACE 0x0B44
 #define GL_TEXTURE_2D 0x0DE1
 #define GL_TEXTURE0 0x84C0
+#define GL_TEXTURE1 0x84C1
 #define GL_TEXTURE_MAG_FILTER 0x2800
 #define GL_TEXTURE_MIN_FILTER 0x2801
 #define GL_TEXTURE_WRAP_S 0x2802
@@ -127,7 +129,8 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glReadPixels, (GLint x, GLint y, GLsizei w, GLsizei h, GLenum fmt, GLenum type, void *px)) \
     X(void, glDepthFunc, (GLenum f))                                                                  \
     X(void, glDepthMask, (GLboolean m))                                                               \
-    X(void, glUniform1f, (GLint loc, GLfloat v))
+    X(void, glUniform1f, (GLint loc, GLfloat v))                                                     \
+    X(void, glUniform1ui, (GLint loc, GLuint v))
 
 #define X(ret, name, args) static ret(*name) args;
 GL_FUNCS(X)
@@ -640,7 +643,7 @@ static const char *kVS3D =
 #define MAX_PROGS3D 64
 static struct {
     GLuint vao, vbo;
-    struct { GLuint p; GLint tex, prim, env, prim_lod, athresh; } prog[MAX_PROGS3D];
+    struct { GLuint p; GLint tex, tex1, t1, prim, env, prim_lod, athresh; } prog[MAX_PROGS3D];
     int nprog;
 } D;
 
@@ -648,7 +651,7 @@ int gfx_prog3d(const char *fs_body) {
     if (!S.ok || D.nprog == MAX_PROGS3D) return -1;
     char *fs = NULL;
     SDL_asprintf(&fs,
-                 "in vec2 v_uv;\nin vec4 v_col;\nuniform sampler2D u_tex;\nuniform vec4 u_prim, u_env;\n"
+                 "in vec2 v_uv;\nin vec4 v_col;\nuniform sampler2D u_tex, u_tex1;\nuniform highp vec4 u_t1;\nuniform vec4 u_prim, u_env;\n"
                  "uniform float u_prim_lod, u_athresh;\nin highp float v_zc;\nout vec4 o;\nvoid main() {\n"
                  "gl_FragDepth = clamp(v_zc * gl_FragCoord.w * 0.5 + 0.5, 0.0, 1.0);\n%s\n}\n", fs_body);
     const GLuint vs = compile(GL_VERTEX_SHADER, kVS3D), f = compile(GL_FRAGMENT_SHADER, fs);
@@ -666,11 +669,120 @@ int gfx_prog3d(const char *fs_body) {
     const int i = D.nprog++;
     D.prog[i].p = p;
     D.prog[i].tex = glGetUniformLocation(p, "u_tex");
+    D.prog[i].tex1 = glGetUniformLocation(p, "u_tex1");
+    D.prog[i].t1 = glGetUniformLocation(p, "u_t1");
     D.prog[i].prim = glGetUniformLocation(p, "u_prim");
     D.prog[i].env = glGetUniformLocation(p, "u_env");
     D.prog[i].prim_lod = glGetUniformLocation(p, "u_prim_lod");
     D.prog[i].athresh = glGetUniformLocation(p, "u_athresh");
     return i;
+}
+
+/* ---- BigTex: Pyrite64's deferred texturing (hle_bigtex.c) ------------------------------------
+ * Its models draw into a G-buffer whose R, G, B bytes are a 24-bit address into texture memory at
+ * 0x80400000 (R: 0x40 + the texture page, then V, U). The resolve turns each pixel into the texel
+ * there: textures are 4x4 blocks of 16 bytes, four RGBA5551 colours then 2-bit indices (the word at
+ * +8; the texel's index is at bits 2g..2g+2 of it, g = the address's low 4 bits). On the console the
+ * RSP and the CPU do this from RDRAM; here a full-screen pass reads the G-buffer's colour target and
+ * an integer texture holding texture memory, 4096 bytes a row. */
+#ifndef GL_RGBA8UI
+#define GL_RGBA8UI 0x8D7C
+#endif
+#ifndef GL_RGBA_INTEGER
+#define GL_RGBA_INTEGER 0x8D99
+#endif
+static struct { GLuint prog, mem, vao; GLint u_gbuf, u_mem, u_size; uint32_t size; bool tried; } B;
+
+static const char *kVSFull =
+    "void main() {\n"
+    "    vec2 p = vec2((gl_VertexID & 1) != 0 ? 1.0 : -1.0, (gl_VertexID & 2) != 0 ? 1.0 : -1.0);\n"
+    "    gl_Position = vec4(p, 0.0, 1.0);\n"
+    "}\n";
+static const char *kFSResolve =
+    "uniform highp sampler2D u_gbuf;\n"
+    "uniform highp usampler2D u_mem;\n"
+    "uniform highp uint u_size;\n"
+    "out vec4 o;\n"
+    "highp uint byte_at(highp uint off) {\n"
+    "    highp uvec4 t = texelFetch(u_mem, ivec2(int((off >> 2u) & 1023u), int(off >> 12u)), 0);\n"
+    "    highp uint c = off & 3u;\n"
+    "    return c == 0u ? t.r : c == 1u ? t.g : c == 2u ? t.b : t.a;\n"
+    "}\n"
+    "void main() {\n"
+    "    highp uvec3 g = uvec3(texelFetch(u_gbuf, ivec2(gl_FragCoord.xy), 0).rgb * 255.0 + 0.5);\n"
+    "    highp uint addr = (g.r << 16u) | (g.g << 8u) | g.b;\n"
+    "    if (addr < 0x400000u || addr - 0x400000u >= u_size) { o = vec4(0.0, 0.0, 0.0, 1.0); return; }\n"
+    "    highp uint off = addr - 0x400000u, blk = off & ~15u, gi = off & 15u;\n"
+    "    highp uint idx = (byte_at(blk + 8u) << 24u) | (byte_at(blk + 9u) << 16u) | (byte_at(blk + 10u) << 8u) | byte_at(blk + 11u);\n"
+    "    highp uint co = (idx >> (gi * 2u)) & 6u;\n"
+    "    highp uint c = (byte_at(blk + co) << 8u) | byte_at(blk + co + 1u);\n"
+    "    o = vec4(float((c >> 11u) & 31u), float((c >> 6u) & 31u), float((c >> 1u) & 31u), 31.0) / 31.0;\n"
+    "}\n";
+
+static bool bigtex_init(void) {
+    if (B.prog || B.tried) return B.prog != 0;
+    B.tried = true;
+    const GLuint vs = compile(GL_VERTEX_SHADER, kVSFull), fs = compile(GL_FRAGMENT_SHADER, kFSResolve);
+    if (!vs || !fs) return false;
+    B.prog = glCreateProgram();
+    glAttachShader(B.prog, vs);
+    glAttachShader(B.prog, fs);
+    glLinkProgram(B.prog);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    GLint ok = 0;
+    glGetProgramiv(B.prog, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[1024];
+        glGetProgramInfoLog(B.prog, sizeof log, NULL, log);
+        n64rt_log("gfx: bigtex link: %s", log);
+        B.prog = 0;
+        return false;
+    }
+    B.u_gbuf = glGetUniformLocation(B.prog, "u_gbuf");
+    B.u_mem = glGetUniformLocation(B.prog, "u_mem");
+    B.u_size = glGetUniformLocation(B.prog, "u_size");
+    glGenVertexArrays(1, &B.vao);
+    glGenTextures(1, &B.mem);
+    return true;
+}
+
+void gfx_bigtex_memory(const uint8_t *bytes, uint32_t n) {
+    if (!bigtex_init()) return;
+    gfx_flush();
+    const int rows = (int)((n + 4095) / 4096);
+    glBindTexture(GL_TEXTURE_2D, B.mem);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8UI, 1024, rows, 0, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, bytes);
+    B.size = n;
+}
+
+void gfx_bigtex_resolve(int gbuf_slot, int y0, int y1) {
+    if (!bigtex_init() || !B.size || gbuf_slot < 0 || gbuf_slot >= GFX_FB_SLOTS || !S.slot[gbuf_slot].tex || !S.on_fb) return;
+    gfx_flush();
+    const int k = S.fb_scale;
+    glViewport(0, 0, S.vw, S.vh);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(0, (S.fb_h - y1) * k, S.fb_w * k, (y1 - y0) * k);
+    glDisable(GL_BLEND);
+    glUseProgram(B.prog);
+    glUniform1i(B.u_gbuf, 0);
+    glUniform1i(B.u_mem, 1);
+    glUniform1ui(B.u_size, B.size);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, B.mem);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, S.slot[gbuf_slot].tex);
+    glBindVertexArray(B.vao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    S.st_draws++;
+    /* back to the 2D state */
+    glDisable(GL_SCISSOR_TEST);
+    glUseProgram(S.prog);
+    glBindVertexArray(S.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, S.vbo);
 }
 
 void gfx_fb_clear_depth(void) {
@@ -708,11 +820,30 @@ void gfx_draw3d(const Gfx3DState *st, const GfxVert3D *v, int n) {
     const typeof(D.prog[0]) *pr = &D.prog[st->prog];
     glUseProgram(pr->p);
     glUniform1i(pr->tex, 0);
+    glUniform1i(pr->tex1, 1);
+    glUniform4f(pr->t1, st->t1[0], st->t1[1], st->t1[2], st->t1[3]);
     glUniform4f(pr->prim, st->prim[0], st->prim[1], st->prim[2], st->prim[3]);
     glUniform4f(pr->env, st->env[0], st->env[1], st->env[2], st->env[3]);
     glUniform1f(pr->prim_lod, st->prim_lod);
     glUniform1f(pr->athresh, st->athresh);
     GfxTex *t = st->tex ? st->tex : &S.white;
+    /* TEX1 on unit 1 (its own wrap; the filter is the render mode's, as for TEX0) */
+    GfxTex *t1 = st->tex1 ? st->tex1 : t;
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, t1->id);
+    if (st->tex1) {
+        if (t1->linear != st->linear) {
+            t1->linear = st->linear;
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, st->linear ? GL_LINEAR : GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, st->linear ? GL_LINEAR : GL_NEAREST);
+        }
+        if (t1->wrap != st->wrap1) {
+            t1->wrap = st->wrap1;
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, st->wrap1 ? GL_REPEAT : GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, st->wrap1 ? GL_REPEAT : GL_CLAMP_TO_EDGE);
+        }
+    }
+    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, t->id);
     if (t->linear != st->linear) {
         t->linear = st->linear;

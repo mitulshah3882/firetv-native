@@ -60,5 +60,11 @@ void hle_rspq_drain(uint8_t *rdram, recomp_context *ctx);
 void hle_rdpq_glyph(uint8_t *rdram, recomp_context *ctx, const uint32_t a[10]);
 /* rdpq_attach's surfaces (surface_t pointers in RDRAM; 0 = none). */
 void hle_rdpq_attached(uint32_t color, uint32_t depth);
+/* Render surfaces by buffer: the gfx_gl colour-target slot for a surface (w x h, `bytes` long), and
+ * the slot whose surface holds an RDRAM address (its base and stride), or -1. */
+int hle_slot_for(uint32_t buf, int w, int h, uint32_t stride);
+int hle_slot_of_addr(uint32_t addr, uint32_t *base, uint32_t *stride);
+/* Pyrite64's BigTex (hle_bigtex.c): an rsp_bigtex command. */
+void hle_bigtex_command(uint8_t *rdram, const uint32_t *w, int n);
 void hle_draw_glyph(uint8_t *rdram, recomp_context *ctx, const uint32_t *a);
 void hle_rspq_frame(void);

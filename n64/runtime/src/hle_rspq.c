@@ -25,7 +25,7 @@ uint32_t n64rt_sym_rspq_cur_pointer, n64rt_sym_rspq_cur_sentinel; /* set by n64_
 #define TAP_BYTES 512       /* bigger than any one command (libdragon caps them at 62 words) */
 #define UCODE_NAME_OFFSET 24 /* rsp_ucode_t: code, code_end, data, data_end, meta, meta_end, name */
 
-typedef enum { OV_UNKNOWN, OV_TINY3D, OV_TINYPX } OverlayKind;
+typedef enum { OV_UNKNOWN, OV_TINY3D, OV_TINYPX, OV_BIGTEX } OverlayKind;
 typedef struct {
     bool used;
     OverlayKind kind;
@@ -85,6 +85,11 @@ void hle_rspq_drain(uint8_t *rdram, recomp_context *ctx) {
             i += len;
         }
     }
+    if (o->kind == OV_BIGTEX) {
+        uint32_t w[4] = {0};
+        for (int i = 0; i < SDL_min(words, 4); i++) w[i] = n64_r32(rdram, g_tap + (uint32_t)i * 4);
+        hle_bigtex_command(rdram, w, SDL_min(words, 4));
+    }
     n64_w32(rdram, n64rt_sym_rspq_cur_pointer, g_tap);
 }
 
@@ -131,7 +136,8 @@ static uint32_t overlay_add(uint8_t *rdram, uint32_t ucode, int id) {
     SDL_zerop(o);
     o->used = true;
     SDL_strlcpy(o->name, name[0] ? name : "unnamed", sizeof o->name);
-    o->kind = !SDL_strcmp(name, "rsp_tiny3d") ? OV_TINY3D : (!SDL_strcmp(name, "rsp_tinypx") ? OV_TINYPX : OV_UNKNOWN);
+    o->kind = !SDL_strcmp(name, "rsp_tiny3d") ? OV_TINY3D : !SDL_strcmp(name, "rsp_tinypx") ? OV_TINYPX
+            : !SDL_strcmp(name, "rsp_bigtex") ? OV_BIGTEX : OV_UNKNOWN;  /* Pyrite64's BigTex: hle_bigtex.c */
     n64rt_log("rspq: overlay %s registered as %X%s", o->name, id, o->kind == OV_UNKNOWN ? " (no host microcode: ignored)" : "");
     return (uint32_t)id << 28;
 }

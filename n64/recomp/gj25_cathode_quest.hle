@@ -1,0 +1,9 @@
+# Cathode Quest 64's own HLE rules (after n64/recomp/libdragon.hle; see its header).
+#
+# Pyrite64's BigTex resolve: hand-written MIPS reading the G-buffer and texture memory from RDRAM
+# (an assembly label without a size). n64/runtime/src/hle_bigtex.c does it on the GPU.
+#
+# SPDX-FileCopyrightText: 2026 Mitul Shah
+# SPDX-License-Identifier: MIT
+func BigTex_applyTexture
+stub n64_BigTex_applyTexture

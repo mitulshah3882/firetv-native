@@ -77,6 +77,8 @@ bg cc -std=gnu11 "${UFLAGS[@]}" -Wall -c "$RT/hle_rdpq.c" -o "$U/hle_rdpq.o"
 bg cc -std=gnu11 "${UFLAGS[@]}" -Wall -c "$RT/hle_rspq.c" -o "$U/hle_rspq.o"
 bg cc -std=gnu11 "${UFLAGS[@]}" -Wall -c "$RT/gfx_gl.c" -o "$U/gfx_gl.o"
 bg cc -std=gnu11 "${UFLAGS[@]}" -Wall -c "$RT/hle_t3d.c" -o "$U/hle_t3d.o"
+bg cc -std=gnu11 "${UFLAGS[@]}" -Wall -c "$RT/hle_bigtex.c" -o "$U/hle_bigtex.o"
+bg cc -std=gnu11 "${UFLAGS[@]}" -Wall -c "$RT/hle_coro.c" -o "$U/hle_coro.o"
 bg cc -std=gnu11 -O2 -w -I"$CODEC" -I"$CODEC/vadpcm" -c "$CODEC/libvadpcm.c" -o "$U/libvadpcm.o"
 for t in main test_vadpcm test_font test_memory test_dmult fixture_stubs; do
   f="$ROOT/tests/unit/$t.c"; [[ $t == fixture_stubs ]] && f="$FIX/stubs.c"
@@ -134,14 +136,14 @@ game() {
     [[ -f "$o" && "$o" -nt "$f" && "$o" -nt "$B/include/recomp.h" ]] || bg cc -std=gnu11 -O2 -fno-strict-aliasing -DNDEBUG -w "${GINC[@]}" -c "$f" -o "$o"
   done
   bg c++ -std=c++20 -O2 -fno-strict-aliasing -DNDEBUG "${GINC[@]}" -c "$RT/n64rt.cpp" -o "$O/n64rt.o"
-  for s in hle_libdragon hle_rdpq hle_rspq hle_audio gfx_gl hle_t3d hle_coro n64_main; do bg cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${GINC[@]}" -c "$RT/$s.c" -o "$O/$s.o"; done
+  for s in hle_libdragon hle_rdpq hle_rspq hle_audio gfx_gl hle_t3d hle_coro hle_bigtex n64_main; do bg cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${GINC[@]}" -c "$RT/$s.c" -o "$O/$s.o"; done
   # game_check's wav mode needs the program's wav64 loader (helloworld has none).
   local wavload=""; grep -q 'n64_wav64_open(' "$GEN/funcs.h" || wavload=-DGAME_CHECK_WAV64_LOAD
   bg cc -std=gnu11 -O2 -Wall "${GINC[@]}" -I"$RT" ${1:+-DGAME_CHECK_WAV} $wavload -c "$ROOT/tests/n64/game_check.c" -o "$O/game_check.o"
   if ! wait_all; then fail "$name" "build failed"; return; fi
   # Link order as in host-run.sh: the recompiled objects first (on Mach-O the first of two weak
   # definitions wins; decision 51).
-  local runtime=("$O/n64rt.o" "$O/hle_libdragon.o" "$O/hle_rdpq.o" "$O/hle_rspq.o" "$O/gfx_gl.o" "$O/hle_t3d.o" "$O/hle_coro.o")
+  local runtime=("$O/n64rt.o" "$O/hle_libdragon.o" "$O/hle_rdpq.o" "$O/hle_rspq.o" "$O/gfx_gl.o" "$O/hle_t3d.o" "$O/hle_coro.o" "$O/hle_bigtex.o")
   if ! c++ "$O"/obj/*.o "${runtime[@]}" "$O/hle_audio.o" "$O/n64_main.o" $SDL_LIBS -o "$O/$name" ||
      ! c++ "$O"/obj/*.o "${runtime[@]}" "$O/game_check.o" $SDL_LIBS -o "$O/game_check"; then
     fail "$name" "link failed"; return

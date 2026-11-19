@@ -113,20 +113,42 @@ void n64_rdpq_init(uint8_t *rdram, recomp_context *ctx) {
  * targets (slots), so frames drawn ahead of vi_show (Pyrite64's swap chain) don't overwrite each
  * other. A surface without a buffer (display_get's, here) is slot 0. One of another size (a
  * render-to-texture target) isn't modelled yet: it draws into the last slot, which is never shown. */
-static uint32_t g_slot_buf[GFX_FB_SLOTS];
-static int slot_of_surface(uint8_t *rdram, uint32_t surface) {
-    const uint32_t buf = surface ? n64_r32(rdram, surface + 8) : 0;
+static struct { uint32_t buf, stride, h; uint64_t used; } g_slot[GFX_FB_SLOTS];
+static uint64_t g_slot_clock;
+int hle_slot_for(uint32_t buf, int w, int h, uint32_t stride) {
+    buf &= 0x1FFFFFFFu;
     if (!buf) return 0;
-    if (hle_video.w && (n64_r16(rdram, surface + 2) != hle_video.w || n64_r16(rdram, surface + 4) != hle_video.h)) {
+    if (hle_video.w && (w != hle_video.w || h != hle_video.h)) {
         static bool once;
-        if (!once) { once = true; n64rt_log("gfx: render target %dx%d not modelled (drawn offscreen)", n64_r16(rdram, surface + 2), n64_r16(rdram, surface + 4)); }
+        if (!once) { once = true; n64rt_log("gfx: render target %dx%d not modelled (drawn offscreen)", w, h); }
         return GFX_FB_SLOTS - 1;
     }
+    int lru = 0;
+    for (int i = 0; i < GFX_FB_SLOTS - 1; i++) {
+        if (g_slot[i].buf == buf) { g_slot[i].used = ++g_slot_clock; return i; }
+        if (g_slot[i].used < g_slot[lru].used) lru = i;
+    }
+    /* a new surface takes a free slot, else the one used longest ago (a scene that has ended) */
+    g_slot[lru].buf = buf;
+    g_slot[lru].stride = stride;
+    g_slot[lru].h = (uint32_t)h;
+    g_slot[lru].used = ++g_slot_clock;
+    return lru;
+}
+int hle_slot_of_addr(uint32_t addr, uint32_t *base, uint32_t *stride) {
+    addr &= 0x1FFFFFFFu;
     for (int i = 0; i < GFX_FB_SLOTS - 1; i++)
-        if (g_slot_buf[i] == buf) return i;
-    for (int i = 0; i < GFX_FB_SLOTS - 1; i++)
-        if (!g_slot_buf[i]) { g_slot_buf[i] = buf; return i; }
-    return 0;
+        if (g_slot[i].buf && addr >= g_slot[i].buf && addr < g_slot[i].buf + g_slot[i].stride * g_slot[i].h) {
+            *base = g_slot[i].buf;
+            *stride = g_slot[i].stride;
+            return i;
+        }
+    return -1;
+}
+static int slot_of_surface(uint8_t *rdram, uint32_t surface) {
+    if (!surface) return 0;
+    return hle_slot_for(n64_r32(rdram, surface + 8), n64_r16(rdram, surface + 2), n64_r16(rdram, surface + 4),
+                        n64_r16(rdram, surface + 6));
 }
 
 void n64_rdpq_attach(uint8_t *rdram, recomp_context *ctx) {

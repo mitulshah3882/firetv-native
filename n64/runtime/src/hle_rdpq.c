@@ -900,9 +900,12 @@ static void exec(uint8_t *rdram, recomp_context *ctx, const Op *op) {
              * distance dithers out. That draws a clear for now (the dither is lost) and skips the
              * draws until the colour image is set back. */
             const uint32_t depth_buf = g_att_depth ? n64_r32(rdram, g_att_depth + 8) : 0;
-            const bool to_depth = depth_buf && a[0] == depth_buf;
+            const bool to_depth = depth_buf && (a[0] & 0x1FFFFFFFu) == (depth_buf & 0x1FFFFFFFu);
             if (to_depth && !R.to_depth) gfx_fb_clear_depth();
             R.to_depth = to_depth;
+            /* Another colour image of the screen's size (a swap-chain surface, BigTex's G-buffer)
+             * is its own GL colour target. */
+            if (!to_depth && a[0]) gfx_fb_slot(hle_slot_for(a[0], (int)(a[1] & 0xFFFF), (int)(a[1] >> 16), a[2]));
         } break;
         default: break;
     }
@@ -981,8 +984,9 @@ void n64___rdpq_write8(uint8_t *rdram, recomp_context *ctx) {
 }
 /* void rdpq_set_color_image(const surface_t *surface) */
 void n64_rdpq_set_color_image(uint8_t *rdram, recomp_context *ctx) {
-    const uint32_t s = (uint32_t)ctx->r4;
-    EMIT(OP_COLOR_IMAGE, {s ? n64_r32(rdram, s + 8) : 0});
+    const uint32_t s = (uint32_t)ctx->r4;  /* buffer, width | height << 16, stride */
+    EMIT(OP_COLOR_IMAGE, {s ? n64_r32(rdram, s + 8) : 0, s ? (uint32_t)n64_r16(rdram, s + 2) | (uint32_t)n64_r16(rdram, s + 4) << 16 : 0,
+                          s ? n64_r16(rdram, s + 6) : 0});
 }
 void n64_rdpq_set_z_image(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
 /* const surface_t *rdpq_get_attached(void) */
@@ -1220,12 +1224,12 @@ void hle_rdpq_t3d_op(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int
 
 /* The colour combiner as GLSL: (A - B) * C + D per cycle, for RGB and alpha. */
 static const char *cc_rgb(int pos, int sel) {
-    static const char *common[6] = {"comb.rgb", "tex.rgb", "tex.rgb", "u_prim.rgb", "v_col.rgb", "u_env.rgb"};
+    static const char *common[6] = {"comb.rgb", "tex.rgb", "tex1.rgb", "u_prim.rgb", "v_col.rgb", "u_env.rgb"};
     if (sel < 6) return common[sel];
     switch (pos) {
         case 0: return sel == 6 ? "vec3(1.0)" : sel == 7 ? "vec3(0.5)" : "vec3(0.0)";  /* 7: noise */
         case 2: {
-            static const char *mul[16] = {"", "", "", "", "", "", "vec3(0.0)", "vec3(comb.a)", "vec3(tex.a)", "vec3(tex.a)",
+            static const char *mul[16] = {"", "", "", "", "", "", "vec3(0.0)", "vec3(comb.a)", "vec3(tex.a)", "vec3(tex1.a)",
                                           "vec3(u_prim.a)", "vec3(v_col.a)", "vec3(u_env.a)", "vec3(0.0)", "vec3(u_prim_lod)", "vec3(0.0)"};
             return sel < 16 ? mul[sel] : "vec3(0.0)";
         }
@@ -1234,9 +1238,9 @@ static const char *cc_rgb(int pos, int sel) {
     }
 }
 static const char *cc_alpha(int pos, int sel) {
-    static const char *common[8] = {"comb.a", "tex.a", "tex.a", "u_prim.a", "v_col.a", "u_env.a", "1.0", "0.0"};
+    static const char *common[8] = {"comb.a", "tex.a", "tex1.a", "u_prim.a", "v_col.a", "u_env.a", "1.0", "0.0"};
     if (pos == 2) {
-        static const char *mul[8] = {"0.0", "tex.a", "tex.a", "u_prim.a", "v_col.a", "u_env.a", "u_prim_lod", "0.0"};
+        static const char *mul[8] = {"0.0", "tex.a", "tex1.a", "u_prim.a", "v_col.a", "u_env.a", "u_prim_lod", "0.0"};
         return mul[sel & 7];
     }
     return common[sel & 7];
@@ -1251,7 +1255,8 @@ static int program_for(const DrawState *s) {
     for (int i = 0; i < g_nprog3d; i++)
         if (g_prog3d[i].cc == R.m.cc && g_prog3d[i].two == (s->ncycles == 2) && g_prog3d[i].ac == ac) return g_prog3d[i].prog;
     char body[2048];
-    int len = SDL_snprintf(body, sizeof body, "vec4 tex = texture(u_tex, v_uv);\nvec4 comb = vec4(0.0);\n");
+    int len = SDL_snprintf(body, sizeof body, "vec4 tex = texture(u_tex, v_uv);\nvec4 tex1 = texture(u_tex1, v_uv * u_t1.xy + u_t1.zw);\n"
+                                              "vec4 comb = vec4(0.0);\n");
     for (int c = 0; c < s->ncycles; c++) {
         const Cycle *k = &s->cc[c];
         len += SDL_snprintf(body + len, sizeof body - (size_t)len,
@@ -1288,18 +1293,37 @@ void hle_rdpq_draw3d(uint8_t *rdram, recomp_context *ctx, GfxVert3D *v, int n, i
     SDL_zero(st);
     st.prog = program_for(&s);
     if (st.prog < 0) return;
+    st.t1[0] = st.t1[1] = 1.0f;  /* TEX1's coordinates from TEX0's: identity unless tile 1 has a texture */
     if (cc_reads_tex(&s)) {
-        const Tile *tl = &R.tile[0];
+        /* v[].u/v arrive in texels; the shader gets them normalised for tile 0, and tile 1 (TEX1:
+         * same S,T, its own scale, shift and size) as an affine map of those (u_t1). */
+        const Tile *tl = &R.tile[0], *tl1 = &R.tile[1];
         const HleTex *t = tile_texture(rdram, ctx, tl);
+        float ssc = 1, tsc = 1, sh = 0, th_ = 0, tw = 1, th = 1;
         if (t) {
             st.tex = t->tex;
             st.wrap = tl->s_wrap || tl->t_wrap;
-            const float ssc = SDL_powf(2.0f, (float)-tl->s_scale), tsc = SDL_powf(2.0f, (float)-tl->t_scale);
-            const float tw = (float)(tl->sub_w ? tl->sub_w : t->w), th = (float)(tl->sub_h ? tl->sub_h : t->h);
+            ssc = SDL_powf(2.0f, (float)-tl->s_scale);
+            tsc = SDL_powf(2.0f, (float)-tl->t_scale);
+            sh = tl->s_shift;
+            th_ = tl->t_shift;
+            tw = (float)(tl->sub_w ? tl->sub_w : t->w);
+            th = (float)(tl->sub_h ? tl->sub_h : t->h);
             for (int i = 0; i < n; i++) {
-                v[i].u = (v[i].u * ssc - tl->s_shift) / tw;
-                v[i].v = (v[i].v * tsc - tl->t_shift) / th;
+                v[i].u = (v[i].u * ssc - sh) / tw;
+                v[i].v = (v[i].v * tsc - th_) / th;
             }
+        }
+        const HleTex *t1 = tl1->kind ? tile_texture(rdram, ctx, tl1) : NULL;
+        if (t1) {
+            st.tex1 = t1->tex;
+            st.wrap1 = tl1->s_wrap || tl1->t_wrap;
+            const float ssc1 = SDL_powf(2.0f, (float)-tl1->s_scale), tsc1 = SDL_powf(2.0f, (float)-tl1->t_scale);
+            const float tw1 = (float)(tl1->sub_w ? tl1->sub_w : t1->w), th1 = (float)(tl1->sub_h ? tl1->sub_h : t1->h);
+            st.t1[0] = tw * ssc1 / (ssc * tw1);
+            st.t1[1] = th * tsc1 / (tsc * th1);
+            st.t1[2] = (sh * ssc1 / ssc - tl1->s_shift) / tw1;
+            st.t1[3] = (th_ * tsc1 / tsc - tl1->t_shift) / th1;
         }
     }
     st.linear = linear_filter();

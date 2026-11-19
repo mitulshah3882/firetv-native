@@ -40,6 +40,7 @@ cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/s
 cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/gfx_gl.c" -o "$OUT/obj/gfx_gl.o"
 cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_t3d.c" -o "$OUT/obj/hle_t3d.o"
 cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_coro.c" -o "$OUT/obj/hle_coro.o"
+cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/hle_bigtex.c" -o "$OUT/obj/hle_bigtex.o"
 cc -std=gnu11 -O2 -fno-strict-aliasing -Wall "${INC[@]}" -c "$ROOT/n64/runtime/src/n64_main.c" -o "$OUT/obj/main.o"
 # shellcheck disable=SC2086
 c++ "$OUT"/obj/*.o $LIBS -o "$OUT/$NAME"

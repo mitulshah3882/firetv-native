@@ -9,7 +9,18 @@ _Last updated: 2026-11-18._
 > **Pushing:** Claude keeps pushing finished work to GitHub under your OK of 2026-11-15 ("feel free to
 > push"). Say so if you'd rather it hold commits locally.
 
+## First, please
+- [ ] **Check your Amazon account for an unintended subscription or trial (2026-11-18).** A scripted
+  batch of remote presses kept going after a test game had quit, and it walked the TV's home screen
+  into a Prime Video subscription page. Claude backed out with Back and didn't press OK on that page
+  knowingly, but it can't see your account. Key injection now refuses OK and similar keys unless one
+  of our apps is in front.
+
 ## On the TV (about 20 minutes)
+- [ ] **Try Cathode Quest 64** (installed as "Cathode Quest 64 (N64)": find it under Settings >
+  Applications if it's not in your apps row; not in the arcade yet). The D-pad walks, OK jumps,
+  Rewind / Fast-forward turn the camera. Known: the title room is untextured (BigTex, next), and you
+  can't move and jump at once on a remote. How far can you get, and does it feel right?
 - [ ] **Listen to the games.** Nobody has heard this week's audio changes through a TV. Tell Claude
   about anything harsh, clipped, crackly, too quiet or too loud.
   - **Gravity Choir:** play until the multiplier is high (each step brings in another part of the

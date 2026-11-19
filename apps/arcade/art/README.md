@@ -18,3 +18,4 @@ Extra moments (`<game>-2.png`, `-3.png`), which the selected card cross-fades th
 - `supertuxkart-2.png`: SuperTuxKart 1.5 racing on Volcano Island on the TV (game art CC-BY-SA 3.0/4.0, CC0 and GPL, © the SuperTuxKart team)
 - `prismspire-2.png`, `prismspire-3.png`: Prism Spire's demo AI at 7.3 m and the collapse that ends the round (the `tall` script), rendered by its Mac host preview
 - `chromaorbit-2.png`, `chromaorbit-3.png`: Chroma Orbit in Night City and a supernova (the `tour` script), rendered by its Mac host preview
+- `swordstrike.png`: Sword Strike by Super Boognish (N64brew Game Jam 2024, MIT), a render of the recompiled build with its tiny3d backdrop by our host runner

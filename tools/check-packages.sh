@@ -16,7 +16,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-GAMES=" doom quake supertux supertuxkart gravity-choir prism-spire chroma-orbit n64-brew-volley n64-landgrab n64-hydraharmonics "
+GAMES=" doom quake supertux supertuxkart gravity-choir prism-spire chroma-orbit n64-brew-volley n64-landgrab n64-hydraharmonics n64-swordstrike "
 fail=0
 bad() { echo "  FAIL: $*"; fail=1; }
 

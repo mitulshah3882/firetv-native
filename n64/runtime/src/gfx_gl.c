@@ -163,8 +163,10 @@ static struct {
     GLint u_xf, u_tex;
     GfxTex white;
     /* targets */
-    GLuint fb, fb_tex, fb_depth;
+    GLuint fb, fb_tex, fb_depth;       /* the current slot's framebuffer and texture; the shared depth */
     int fb_w, fb_h, fb_scale;          /* N64 pixels, scale */
+    struct { GLuint fb, tex; } slot[GFX_FB_SLOTS];  /* colour targets of the same size, one depth */
+    int cur_slot, show_slot;
     GLuint screen_fbo, screen_tex;     /* offscreen "screen" (headless), else 0 = the window */
     int off_w, off_h;
     int tw, th;                        /* current target size in its own units (for the projection) */
@@ -421,37 +423,60 @@ static void set_target(GLuint fbo, int tw, int th, int vw, int vh) {
     glUniform4f(S.u_xf, 2.0f / (float)tw, -2.0f / (float)th, -1.0f, 1.0f);
 }
 
+/* The N64 framebuffer. A program that renders into several surfaces of the screen's size (Pyrite64's
+ * swap chain: three) gets a colour target per surface, in slots; they share one depth buffer, as
+ * the surfaces share one Z buffer on the N64. Others only ever use slot 0. */
 void gfx_fb_bind(int w, int h, int scale) {
     if (scale < 1) scale = 1;
-    if (!S.fb || S.fb_w != w || S.fb_h != h || S.fb_scale != scale) {
+    if (S.fb_w != w || S.fb_h != h || S.fb_scale != scale) {
         gfx_flush();
-        if (S.fb) {
-            glDeleteFramebuffers(1, &S.fb);
-            glDeleteTextures(1, &S.fb_tex);
-            glDeleteRenderbuffers(1, &S.fb_depth);
+        for (int i = 0; i < GFX_FB_SLOTS; i++) {
+            if (S.slot[i].fb) glDeleteFramebuffers(1, &S.slot[i].fb);
+            if (S.slot[i].tex) glDeleteTextures(1, &S.slot[i].tex);
+            S.slot[i].fb = S.slot[i].tex = 0;
         }
+        if (S.fb_depth) glDeleteRenderbuffers(1, &S.fb_depth);
         S.fb_w = w;
         S.fb_h = h;
         S.fb_scale = scale;
-        glGenTextures(1, &S.fb_tex);
-        glBindTexture(GL_TEXTURE_2D, S.fb_tex);
+        glGenRenderbuffers(1, &S.fb_depth);
+        glBindRenderbuffer(GL_RENDERBUFFER, S.fb_depth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w * scale, h * scale);
+        n64rt_log("gfx: N64 framebuffer %dx%d x%d", w, h, scale);
+    }
+    if (!S.slot[S.cur_slot].fb) {
+        GLuint tex, fb;
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w * scale, h * scale, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glGenRenderbuffers(1, &S.fb_depth);
-        glBindRenderbuffer(GL_RENDERBUFFER, S.fb_depth);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w * scale, h * scale);
-        glGenFramebuffers(1, &S.fb);
-        glBindFramebuffer(GL_FRAMEBUFFER, S.fb);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, S.fb_tex, 0);
+        glGenFramebuffers(1, &fb);
+        glBindFramebuffer(GL_FRAMEBUFFER, fb);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, S.fb_depth);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) n64rt_log("gfx: framebuffer incomplete");
-        n64rt_log("gfx: N64 framebuffer %dx%d x%d", w, h, scale);
+        glClearColor(0, 0, 0, 1);
+        glClear(GL_COLOR_BUFFER_BIT);
+        S.slot[S.cur_slot].fb = fb;
+        S.slot[S.cur_slot].tex = tex;
     }
+    S.fb = S.slot[S.cur_slot].fb;
+    S.fb_tex = S.slot[S.cur_slot].tex;
     S.on_fb = true;
     set_target(S.fb, w, h, w * scale, h * scale);
+}
+
+void gfx_fb_slot(int slot) {
+    if (slot < 0 || slot >= GFX_FB_SLOTS || slot == S.cur_slot) return;
+    gfx_flush();
+    S.cur_slot = slot;
+    if (S.fb_w) gfx_fb_bind(S.fb_w, S.fb_h, S.fb_scale);
+}
+void gfx_fb_show_slot(int slot) {
+    if (slot >= 0 && slot < GFX_FB_SLOTS) S.show_slot = slot;
 }
 
 void gfx_fb_clear(uint32_t rgba) {
@@ -542,7 +567,8 @@ void gfx_screen_begin(int *out_w, int *out_h) {
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
-    if (S.fb) {
+    const GLuint show_tex = S.slot[S.show_slot].tex ? S.slot[S.show_slot].tex : S.fb_tex;
+    if (show_tex) {
         float dh = (float)h, dw = dh * 4.0f / 3.0f;
         if (dw > (float)w) {
             dw = (float)w;
@@ -550,7 +576,7 @@ void gfx_screen_begin(int *out_w, int *out_h) {
         }
         const SDL_FRect dst = {((float)w - dw) / 2, ((float)h - dh) / 2, dw, dh};
         /* the framebuffer texture's row 0 is the N64 picture's bottom */
-        GfxTex fbt = {S.fb_tex, S.fb_w * S.fb_scale, S.fb_h * S.fb_scale, true, false};
+        GfxTex fbt = {show_tex, S.fb_w * S.fb_scale, S.fb_h * S.fb_scale, true, false};
         const SDL_FRect src = {0, (float)fbt.h, (float)fbt.w, -(float)fbt.h};
         gfx_quad(&fbt, &src, &dst, 0, 0, NULL, GFX_BLEND_NONE, true, 0xFFFFFFFFu);
         gfx_flush();

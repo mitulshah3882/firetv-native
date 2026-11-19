@@ -56,6 +56,7 @@ void hle_set_window(SDL_Window *win) {
 }
 
 static float bits_f(uint32_t b) { return n64_bits_to_float(b); }
+static uint32_t f_bits(float f) { uint32_t b; SDL_memcpy(&b, &f, 4); return b; }
 
 /* Addresses of libdragon globals HLE code touches (set from n64_image.h by n64_main.c). */
 uint32_t n64rt_sym_rdpq_inited;
@@ -108,8 +109,30 @@ void n64_rdpq_init(uint8_t *rdram, recomp_context *ctx) {
     hle_rspq_boot(rdram); /* rdpq_init would have called rspq_init */
 }
 
+/* The surfaces a program renders into, by their buffer address: each gets one of gfx_gl's colour
+ * targets (slots), so frames drawn ahead of vi_show (Pyrite64's swap chain) don't overwrite each
+ * other. A surface without a buffer (display_get's, here) is slot 0. One of another size (a
+ * render-to-texture target) isn't modelled yet: it draws into the last slot, which is never shown. */
+static uint32_t g_slot_buf[GFX_FB_SLOTS];
+static int slot_of_surface(uint8_t *rdram, uint32_t surface) {
+    const uint32_t buf = surface ? n64_r32(rdram, surface + 8) : 0;
+    if (!buf) return 0;
+    if (hle_video.w && (n64_r16(rdram, surface + 2) != hle_video.w || n64_r16(rdram, surface + 4) != hle_video.h)) {
+        static bool once;
+        if (!once) { once = true; n64rt_log("gfx: render target %dx%d not modelled (drawn offscreen)", n64_r16(rdram, surface + 2), n64_r16(rdram, surface + 4)); }
+        return GFX_FB_SLOTS - 1;
+    }
+    for (int i = 0; i < GFX_FB_SLOTS - 1; i++)
+        if (g_slot_buf[i] == buf) return i;
+    for (int i = 0; i < GFX_FB_SLOTS - 1; i++)
+        if (!g_slot_buf[i]) { g_slot_buf[i] = buf; return i; }
+    return 0;
+}
+
 void n64_rdpq_attach(uint8_t *rdram, recomp_context *ctx) {
     hle_t3d_flush(rdram, ctx);
+    hle_rdpq_attached((uint32_t)ctx->r4, (uint32_t)ctx->r5);  /* rdpq_attach(color, depth) */
+    gfx_fb_slot(slot_of_surface(rdram, (uint32_t)ctx->r4));
     if (!hle_video.w) ensure_fb(320, 240);
     gfx_fb_bind(hle_video.w, hle_video.h, hle_video.scale);
     hle_rdpq_frame_begin();
@@ -158,37 +181,48 @@ void n64_rdpq_font_render_paragraph(uint8_t *rdram, recomp_context *ctx) {
         const uint32_t g = glyphs + (uint32_t)gi * 8;
         const int xoff = (int8_t)n64_r8(rdram, g + 1), yoff = (int8_t)n64_r8(rdram, g + 2);
         const int xoff2 = (int8_t)n64_r8(rdram, g + 3), yoff2 = (int8_t)n64_r8(rdram, g + 4);
-        const int s = n64_r8(rdram, g + 5), t = n64_r8(rdram, g + 6);
         const uint8_t at = n64_r8(rdram, g + 7);
-        const int natlas = at >> 2, ntile = at & 3;
-        const uint32_t sprite = n64_r32(rdram, atlases + (uint32_t)natlas * 12);
-        /* MONO fonts pack four 1bpp layers in a CI4 atlas; the glyph's tile selects the layer.
-         * MONO_OUTLINE packs two 2-bit layers: per layer an outline bit, then the fill bit (drawn
-         * here as layers 2*ntile and 2*ntile+1), coloured with the style's outline_color and color. */
-        const SDL_FRect src = {(float)s, (float)t, (float)(xoff2 - xoff), (float)(yoff2 - yoff)};
-        const SDL_FRect dst = {x0 + cx + xoff, y0 + cy + yoff, src.w, src.h};
         const uint32_t style_at = styles + (uint32_t)style * 16;
-        if (type == 3) {
-            /* ALIASED_OUTLINE: an IA8 atlas whose intensity mixes the fill (PRIM) and outline (ENV)
-             * colours, as libdragon's combiner does: (PRIM-ENV)*TEX0+ENV, alpha TEX0*PRIM. */
-            HleTex *ht = hle_sprite_texture(rdram, ctx, sprite, -1, false);
-            if (ht) {
-                static uint64_t cc;
-                if (!cc) cc = hle_cc1(3, 5, 1, 5, 1, 7, 3, 7);
-                hle_draw_combined(ht, &src, &dst, cc, HLE_BLENDER_MULTIPLY, n64_r32(rdram, style_at), n64_r32(rdram, style_at + 4));
-            }
-            continue;
-        }
-        for (int pass = (type == 2 ? 0 : 1); pass < 2; ++pass) {
-            const int layer = (type == 1) ? ntile : (type == 2 ? ntile * 2 + pass : -1);
-            const uint32_t col = n64_r32(rdram, style_at + (pass == 0 ? 4 : 0));  /* outline_color : color */
-            if (pass == 0 && (col & 0xFF) == 0) continue;
-            HleTex *ht = hle_sprite_texture(rdram, ctx, sprite, layer, type != 4);
-            if (!ht) continue;
-            gfx_quad(ht->tex, &src, &dst, 0, 0, NULL, GFX_BLEND_BLEND, false, col);
-        }
+        /* Drawn through the command layer, so a glyph lands in a recording rspq block or queue
+         * (Pyrite64's 2D draw layers) in order; the paragraph itself is gone by the time it runs. */
+        const uint32_t a[10] = {n64_r32(rdram, atlases + (uint32_t)(at >> 2) * 12), (uint32_t)type | (uint32_t)(at & 3) << 8,
+                                n64_r8(rdram, g + 5), n64_r8(rdram, g + 6), (uint32_t)(xoff2 - xoff), (uint32_t)(yoff2 - yoff),
+                                f_bits(x0 + (float)(cx + xoff)), f_bits(y0 + (float)(cy + yoff)),
+                                n64_r32(rdram, style_at), n64_r32(rdram, style_at + 4)};
+        hle_rdpq_glyph(rdram, ctx, a);
     }
     n64_ret32(ctx, (uint32_t)n);
+}
+
+/* One glyph (hle_rdpq.c's OP_GLYPH): atlas sprite, font type | tile << 8, s, t, w, h, x, y (float
+ * bits), color, outline color. */
+void hle_draw_glyph(uint8_t *rdram, recomp_context *ctx, const uint32_t *a) {
+    const uint32_t sprite = a[0];
+    const int type = (int)(a[1] & 0xFF), ntile = (int)(a[1] >> 8);
+    const SDL_FRect src = {(float)a[2], (float)a[3], (float)a[4], (float)a[5]};
+    const SDL_FRect dst = {bits_f(a[6]), bits_f(a[7]), src.w, src.h};
+    if (type == 3) {
+        /* ALIASED_OUTLINE: an IA8 atlas whose intensity mixes the fill (PRIM) and outline (ENV)
+         * colours, as libdragon's combiner does: (PRIM-ENV)*TEX0+ENV, alpha TEX0*PRIM. */
+        HleTex *ht = hle_sprite_texture(rdram, ctx, sprite, -1, false);
+        if (ht) {
+            static uint64_t cc;
+            if (!cc) cc = hle_cc1(3, 5, 1, 5, 1, 7, 3, 7);
+            hle_draw_combined(ht, &src, &dst, cc, HLE_BLENDER_MULTIPLY, a[8], a[9]);
+        }
+        return;
+    }
+    /* MONO fonts pack four 1bpp layers in a CI4 atlas; the glyph's tile selects the layer.
+     * MONO_OUTLINE packs two 2-bit layers: per layer an outline bit, then the fill bit (drawn
+     * here as layers 2*ntile and 2*ntile+1), coloured with the style's outline_color and color. */
+    for (int pass = (type == 2 ? 0 : 1); pass < 2; ++pass) {
+        const int layer = (type == 1) ? ntile : (type == 2 ? ntile * 2 + pass : -1);
+        const uint32_t col = pass == 0 ? a[9] : a[8];  /* outline_color : color */
+        if (pass == 0 && (col & 0xFF) == 0) continue;
+        HleTex *ht = hle_sprite_texture(rdram, ctx, sprite, layer, type != 4);
+        if (!ht) continue;
+        gfx_quad(ht->tex, &src, &dst, 0, 0, NULL, GFX_BLEND_BLEND, false, col);
+    }
 }
 
 /* ================================================================================================
@@ -266,6 +300,7 @@ static void handle_events(void) {
 }
 
 static void present(void) {
+    if (SDL_getenv("N64_OP_TRACE")) n64rt_log("present %d", (int)G.frames);
     int ow = 0, oh = 0;
     gfx_screen_begin(&ow, &oh);  /* the window, cleared, with the frame letterboxed at 4:3 */
     draw_back_hint(ow, oh);
@@ -340,6 +375,90 @@ void n64_rdpq_detach_show(uint8_t *rdram, recomp_context *ctx) {
 void n64_rdpq_detach_wait(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
 void n64_rdpq_detach(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
 void n64_display_show(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; present(); }
+
+/* ================================================================================================
+ * libdragon's __mi_memset*: assembly that fills memory through the MI's repeat mode (so a store
+ * writes 16 bytes). Recompiled, each store would write once, so they're filled here.
+ * void *__mi_memset32(void *ptr, uint32_t value, size_t len), len in bytes; likewise 8, 16, 64.
+ * ============================================================================================== */
+static void mi_fill(uint8_t *rdram, recomp_context *ctx, int size) {
+    const uint32_t p = (uint32_t)ctx->r4, len = (uint32_t)ctx->r6;
+    const uint64_t v = (uint64_t)ctx->r5;
+    for (uint32_t i = 0; i < len; i += (uint32_t)size) {
+        switch (size) {
+            case 1: n64_w8(rdram, p + i, (uint8_t)v); break;
+            case 2: n64_w16(rdram, p + i, (uint16_t)v); break;
+            case 4: n64_w32(rdram, p + i, (uint32_t)v); break;
+            default: n64_w32(rdram, p + i, (uint32_t)(v >> 32)); n64_w32(rdram, p + i + 4, (uint32_t)v); break;
+        }
+    }
+    n64_ret32(ctx, p);
+}
+void n64___mi_memset(uint8_t *rdram, recomp_context *ctx) { mi_fill(rdram, ctx, 1); }
+void n64___mi_memset16(uint8_t *rdram, recomp_context *ctx) { mi_fill(rdram, ctx, 2); }
+void n64___mi_memset32(uint8_t *rdram, recomp_context *ctx) { mi_fill(rdram, ctx, 4); }
+void n64___mi_memset64(uint8_t *rdram, recomp_context *ctx) { mi_fill(rdram, ctx, 8); }
+
+/* ================================================================================================
+ * The VI API under display.h, which Pyrite64's swap chain drives itself: it renders into one of its
+ * own surfaces, hands it over in rdpq_detach_cb's callback, and its vblank handler calls vi_show on
+ * the next finished one. Everything here draws into one framebuffer, so vi_show presents it; the
+ * vblank handler runs whenever the program waits for the VI (kirq_wait, vi_wait_vblank), and the
+ * detach callback runs once the frame's commands have.
+ * ============================================================================================== */
+static uint32_t g_vblank_fn, g_vblank_arg;
+static bool g_in_vblank;
+
+static void run_vblank(uint8_t *rdram, recomp_context *ctx) {
+    (void)rdram;
+    if (!g_vblank_fn || g_in_vblank) return;
+    recomp_func_t *fn = get_function((int32_t)g_vblank_fn);
+    if (!fn) return;
+    g_in_vblank = true;
+    n64rt_call(ctx, fn, g_vblank_arg, 0, 0, 0);
+    g_in_vblank = false;
+}
+void n64_vi_init(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; if (!hle_video.w) ensure_fb(320, 240); }
+void n64_vi_install_vblank_handler(uint8_t *rdram, recomp_context *ctx) {
+    (void)rdram;
+    g_vblank_fn = (uint32_t)ctx->r4;
+    g_vblank_arg = (uint32_t)ctx->r5;
+}
+void n64_vi_uninstall_vblank_handler(uint8_t *rdram, recomp_context *ctx) {
+    (void)rdram;
+    if ((uint32_t)ctx->r4 == g_vblank_fn) g_vblank_fn = 0;
+}
+/* void vi_show(surface_t *fb): NULL blanks the screen */
+void n64_vi_show(uint8_t *rdram, recomp_context *ctx) {
+    if (!(uint32_t)ctx->r4) return;
+    const uint32_t s = (uint32_t)ctx->r4;
+    const int w = n64_r16(rdram, s + 2), h = n64_r16(rdram, s + 4);
+    if (w > 0 && h > 0 && (w != hle_video.w || h != hle_video.h)) ensure_fb(w, h);
+    gfx_fb_show_slot(slot_of_surface(rdram, s));
+    present();
+}
+void n64_vi_wait_vblank(uint8_t *rdram, recomp_context *ctx) { run_vblank(rdram, ctx); }
+void n64_vi_get_refresh_rate(uint8_t *rdram, recomp_context *ctx) { (void)rdram; ctx->f0.fl = 60.0f; }
+/* kirq_wait_t kirq_begin_wait_vi(void): a 16-byte struct, returned through a0 */
+void n64_kirq_begin_wait_vi(uint8_t *rdram, recomp_context *ctx) {
+    const uint32_t out = (uint32_t)ctx->r4;
+    for (int i = 0; i < 16; i += 4) n64_w32(rdram, out + (uint32_t)i, 0);
+    n64_ret32(ctx, out);
+}
+void n64_kirq_wait(uint8_t *rdram, recomp_context *ctx) { run_vblank(rdram, ctx); }
+/* libdragon's RSP_WAIT_LOOP calls this every iteration while it polls something the RSP or an
+ * interrupt would change. Pyrite64's SwapChain::drain polls until the VI has taken its buffers, and
+ * interrupts only happen when asked for here, so a pass of the loop is a vblank. */
+void n64___rsp_check_assert(uint8_t *rdram, recomp_context *ctx) { run_vblank(rdram, ctx); }
+/* void rdpq_detach_cb(void (*cb)(void*), void *arg) */
+void n64_rdpq_detach_cb(uint8_t *rdram, recomp_context *ctx) {
+    const uint32_t cb = (uint32_t)ctx->r4, arg = (uint32_t)ctx->r5;
+    hle_rspq_drain(rdram, ctx);
+    hle_t3d_flush(rdram, ctx);
+    hle_rspq_frame();
+    recomp_func_t *fn = cb ? get_function((int32_t)cb) : NULL;
+    if (fn) n64rt_call(ctx, fn, arg, 0, 0, 0);
+}
 
 /* ================================================================================================
  * Controllers: port 0 = Fire TV remote (+ first gamepad when there are two); then gamepads.
@@ -680,8 +799,35 @@ static void rom_to_rdram(uint8_t *rdram, uint32_t ram, uint32_t pi, uint32_t len
     for (uint32_t i = 0; i < len; ++i) n64_w8(rdram, ram + i, (rom && off + i < size) ? rom[off + i] : 0);
 }
 /* uint32_t io_read(uint32_t pi_address) */
+/* An IS-Viewer at 0x13FF0000, the debug-log device emulators provide: libdragon's debugf goes there
+ * once debug_init_emulog finds it (it writes a magic word and reads it back). With N64_DEBUGF=1 the
+ * program's log lines (Pyrite64's [INF]/[WRN]/[ERR]) show in ours. */
+enum { ISV_BASE = 0x13FF0000u, ISV_SIZE = 0x20 + 0x200 };
+static uint8_t g_isv[ISV_SIZE];
+static char g_isv_line[512];
+static int g_isv_len;
+static void isviewer_flush(uint32_t n) {
+    static int on = -1;
+    if (on < 0) on = SDL_getenv("N64_DEBUGF") && SDL_atoi(SDL_getenv("N64_DEBUGF")) > 0;
+    for (uint32_t i = 0; i < n && i < 0x200; ++i) {
+        const char c = (char)g_isv[0x20 + i];
+        if (c == '\n' || g_isv_len == (int)sizeof g_isv_line - 1) {
+            g_isv_line[g_isv_len] = 0;
+            if (on) n64rt_log("debugf: %s", g_isv_line);
+            g_isv_len = 0;
+        } else if (c != '\r') {
+            g_isv_line[g_isv_len++] = c;
+        }
+    }
+}
 void n64_io_read(uint8_t *rdram, recomp_context *ctx) {
     (void)rdram;
+    const uint32_t a = (uint32_t)ctx->r4 & 0x1FFFFFFFu;
+    if (a >= ISV_BASE && a + 3 < ISV_BASE + ISV_SIZE) {
+        const uint8_t *p = g_isv + (a - ISV_BASE);
+        n64_ret32(ctx, (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]);
+        return;
+    }
     size_t size = 0;
     const uint8_t *rom = n64rt_rom(&size);
     const uint32_t off = (uint32_t)ctx->r4 - 0x10000000u;
@@ -689,7 +835,15 @@ void n64_io_read(uint8_t *rdram, recomp_context *ctx) {
     if (rom && off + 3 < size) v = (uint32_t)rom[off] << 24 | (uint32_t)rom[off + 1] << 16 | (uint32_t)rom[off + 2] << 8 | rom[off + 3];
     n64_ret32(ctx, v);
 }
-void n64_io_write(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
+/* void io_write(uint32_t pi_address, uint32_t data) */
+void n64_io_write(uint8_t *rdram, recomp_context *ctx) {
+    (void)rdram;
+    const uint32_t a = (uint32_t)ctx->r4 & 0x1FFFFFFFu, v = (uint32_t)ctx->r5;
+    if (a < ISV_BASE || a + 3 >= ISV_BASE + ISV_SIZE) return;
+    uint8_t *p = g_isv + (a - ISV_BASE);
+    p[0] = (uint8_t)(v >> 24); p[1] = (uint8_t)(v >> 16); p[2] = (uint8_t)(v >> 8); p[3] = (uint8_t)v;
+    if (a == ISV_BASE + 0x14) isviewer_flush(v);  /* the write pointer: the length just written */
+}
 void n64_io_accessible(uint8_t *rdram, recomp_context *ctx) { (void)rdram; n64_ret32(ctx, 1); }
 /* void dma_read(void *ram, uint32_t pi_address, unsigned long len) and the async variants */
 void n64_dma_read(uint8_t *rdram, recomp_context *ctx) { rom_to_rdram(rdram, (uint32_t)ctx->r4, (uint32_t)ctx->r5, (uint32_t)ctx->r6); }

@@ -4,7 +4,7 @@
 #           codec and the source WAVs), mono/outline font layers, address masking and memory
 #           lanes in the generated recomp.h, the portable 64-bit multiply
 #   elf     decision 51 on the device toolchain: no runtime object defines a weak n64_* symbol,
-#           and the VADPCM preload is a weak reference (needs the Vega SDK's clang, else skipped)
+#           and an optional recompiled function is a weak reference (needs the Vega SDK's clang, else skipped)
 #   <game>  each recompiled game in build/n64 (helloworld, brew_volley, jam_landgrab, jam_hydraharmonics, jam_swordstrike, jam_tohubohu; skipped if
 #           not generated): its sound effects decoded through its own recompiled wav64 loader vs
 #           the source WAVs, and a headless run that must boot and draw a non-black frame
@@ -107,11 +107,11 @@ else
     fail elf "the runtime doesn't compile for armv7"
   else
     bad=$(for o in "$E"/*.o; do "$VEGA_TC/mac/bin/llvm-nm" "$o" | awk -v o="$(basename "$o")" '$(NF-1) ~ /^[WV]$/ && $NF ~ /^n64_/ {print o ": " $NF}'; done)
-    ref=$("$VEGA_TC/mac/bin/llvm-nm" "$E/hle_audio.o" | awk '$NF == "n64_wav64_vadpcm_preload" {print $(NF-1)}')
+    ref=$("$VEGA_TC/mac/bin/llvm-nm" "$E/hle_rdpq.o" | awk '$NF == "n64_sprite_get_palette" {print $(NF-1)}')
     if [[ -n "$bad" ]]; then
       fail elf "weak definitions of recompiled functions tie with N64Recomp's weak RECOMP_FUNC: $(echo $bad)"
     elif [[ "$ref" != "w" ]]; then
-      fail elf "hle_audio.o should reference n64_wav64_vadpcm_preload weakly (nm 'w'), got '${ref:-nothing}'"
+      fail elf "hle_rdpq.o should reference n64_sprite_get_palette weakly (nm 'w'), got '${ref:-nothing}'"
     else
       pass elf
     fi

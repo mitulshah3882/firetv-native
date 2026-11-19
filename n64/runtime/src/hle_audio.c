@@ -25,21 +25,6 @@
 
 #include "n64rt.h"
 
-/* Recompiled libdragon code we call into; programs without wav64 don't have it. Under clang,
- * N64Recomp's RECOMP_FUNC makes every recompiled function weak, so a weak fallback *definition*
- * here would tie with it and the linker would keep whichever came first (on the device that was the
- * fallback: no VADPCM sound at all). On ELF we use a weak *reference* instead (NULL when absent).
- * Mach-O can't link an undefined weak reference, so the Mac preview keeps a fallback definition;
- * there the recompiled objects come first in the link. */
-static bool g_no_vadpcm_preload;
-#if defined(__APPLE__)
-__attribute__((weak)) void n64_wav64_vadpcm_preload(uint8_t *rdram, recomp_context *ctx) {
-    (void)rdram; (void)ctx;
-    g_no_vadpcm_preload = true;
-}
-#else
-extern void n64_wav64_vadpcm_preload(uint8_t *rdram, recomp_context *ctx) __attribute__((weak));
-#endif
 
 /* waveform_t / wav64_t / wav64_state_t field offsets, from the program's DWARF (libdragon 39d0d60). */
 enum {
@@ -80,7 +65,6 @@ static struct {
     int nwaves;
     struct { uint32_t cb, arg; int64_t at; bool live; } ev[MAX_EVENTS];
     int64_t now;            /* samples mixed so far */
-    uint32_t scratch, scratch_size;
     SDL_IOStream *dump;
     uint32_t dump_bytes;
     const char *wav_dump_dir;
@@ -148,15 +132,79 @@ static void vadpcm_decode(const uint8_t *frames, int nframes, const int16_t *boo
     }
 }
 
-static uint32_t scratch(uint32_t size) {
-    if (size > A.scratch_size) {
-        A.scratch_size = (size + 0xFFF) & ~0xFFFu;
-        A.scratch = n64rt_alloc(A.scratch_size, 16);
+/* The frame layout in a wav64 file: blocks of 128 frames, channel after channel within a block
+ * (libdragon's vadpcm_file_index). */
+static int vadpcm_file_index(int frame, int ch, int nframes, int channels) {
+    if (channels == 1) return frame;
+    const int B = 128, block = frame / B, off = frame % B, nblocks = (nframes + B - 1) / B;
+    const int bs = (block == nblocks - 1) ? (nframes - block * B) : B;
+    return block * B * channels + ch * bs + off;
+}
+
+/* A waveform's VADPCM frames, planar ([all L frames][all R frames]), read straight from the ROM and
+ * Huffman-decoded if the file is: what libdragon's wav64_vadpcm_preload produces, ported (MIT). It
+ * reads the whole file into a malloc'd buffer (and twice that again for Huffman), which a program's
+ * heap can't hold for music (Cathode Quest's tracks are 3-5 MB), so it isn't called. */
+static uint8_t *vadpcm_frames(uint8_t *rdram, uint32_t st, uint32_t ext, int len, int channels) {
+    size_t rom_size = 0;
+    const uint8_t *rom = n64rt_rom(&rom_size);
+    const uint32_t base = n64_r32(rdram, st + ST_ROM_BASE);
+    if (!rom || !base) return NULL;
+    const size_t off = (base & 0x0FFFFFFFu) + n64_r32(rdram, st + ST_BASE_OFFSET);
+    const int file_frames = (len + 31) / 32 * 2, nframes = (len + 15) / 16;
+    const size_t file_bytes = (size_t)file_frames * 9 * (size_t)channels;
+    if (off >= rom_size) return NULL;
+    uint8_t *file = SDL_malloc(file_bytes);
+    if (!file) return NULL;
+    if (n64_r16(rdram, ext + 2) & 1) {  /* VADPCM_FLAG_HUFFMAN: nibbles coded with three tables */
+        uint8_t codes[3][256];
+        SDL_memset(codes, 0, sizeof codes);
+        for (int t = 0; t < 3; t++) {  /* huff_ctx[t] at ext + 20: lengths[8], values[16] */
+            const uint32_t hc = ext + 20 + (uint32_t)t * 24;
+            for (int j = 0; j < 16; j++) {
+                const int l = (n64_r8(rdram, hc + (uint32_t)(j / 2)) >> (4 * (~j & 1))) & 0xF;
+                if (l == 0xF || l == 0 || l > 8) continue;
+                const int shift = 8 - l, code = (n64_r8(rdram, hc + 8 + (uint32_t)j) << shift) & 0xFF;
+                for (int k = 0; k < (1 << shift) && code + k < 256; k++) codes[t][code + k] = (uint8_t)(j << 4 | l);
+            }
+        }
+        const uint8_t *src = rom + off, *end = rom + rom_size;
+        uint64_t buffer = 0;
+        int bits = 0;
+        uint8_t *dst = file;
+        for (size_t i = 0; i < file_bytes; i += 9) {
+            const uint8_t *tbl = codes[0];
+            for (int j = 0; j < 9; j++) {
+                while (bits < 32) {  /* big-endian words, zeros past the ROM's end */
+                    uint32_t w = 0;
+                    for (int b = 0; b < 4; b++) w = w << 8 | (src < end ? *src++ : 0);
+                    buffer = buffer << 32 | w;
+                    bits += 32;
+                }
+                const uint8_t c1 = tbl[(buffer >> (bits - 8)) & 0xFF];
+                bits -= c1 & 0xF;
+                if (j == 0) tbl = codes[1];
+                const uint8_t c2 = tbl[(buffer >> (bits - 8)) & 0xFF];
+                bits -= c2 & 0xF;
+                if (j == 0) tbl = codes[2];
+                *dst++ = (uint8_t)((c1 >> 4) << 4 | (c2 >> 4));
+            }
+        }
+    } else {
+        if (off + file_bytes > rom_size) { SDL_free(file); return NULL; }
+        SDL_memcpy(file, rom + off, file_bytes);
     }
-    return A.scratch;
+    uint8_t *out = SDL_malloc((size_t)nframes * 9 * (size_t)channels);
+    if (out)
+        for (int c = 0; c < channels; c++)
+            for (int fr = 0; fr < nframes; fr++)
+                SDL_memcpy(out + ((size_t)c * nframes + fr) * 9, file + (size_t)vadpcm_file_index(fr, c, file_frames, channels) * 9, 9);
+    SDL_free(file);
+    return out;
 }
 
 static bool decode_vadpcm(uint8_t *rdram, recomp_context *ctx, hwave *w, uint32_t st) {
+    (void)ctx;
     const uint32_t ext = n64_r32(rdram, st + ST_EXT);
     const int npred = (int8_t)n64_r8(rdram, ext + 0), order = (int8_t)n64_r8(rdram, ext + 1);
     const int bits = n64_r8(rdram, ext + 6) ? n64_r8(rdram, ext + 6) : 4;
@@ -165,26 +213,18 @@ static bool decode_vadpcm(uint8_t *rdram, recomp_context *ctx, hwave *w, uint32_
         return false;
     }
     const int nframes = (w->len + 15) / 16;
-    const uint32_t dst = scratch((uint32_t)(nframes * 9 * w->channels));
-    /* libdragon unpacks (and un-Huffmans) the frames, planar: [all L frames][all R frames]. */
-#if !defined(__APPLE__)
-    if (!n64_wav64_vadpcm_preload) g_no_vadpcm_preload = true;
-    else
-#endif
-    n64rt_call(ctx, n64_wav64_vadpcm_preload, w->addr, dst, 0, 0);
-    if (g_no_vadpcm_preload) {
-        n64rt_log("audio: VADPCM needs libdragon's wav64_vadpcm_preload, not in this program");
+    uint8_t *all = vadpcm_frames(rdram, st, ext, w->len, w->channels);
+    if (!all) {
+        n64rt_log("audio: VADPCM data not found in the ROM");
         return false;
     }
-    uint8_t *frames = SDL_malloc((size_t)nframes * 9);
     int16_t *book = SDL_malloc(sizeof(int16_t) * 8 * order * npred);
     for (int c = 0; c < w->channels; c++) {
-        for (int i = 0; i < nframes * 9; i++) frames[i] = n64_r8(rdram, dst + c * nframes * 9 + i);
         const uint32_t cb = ext + VADPCM_EXT_HEADER + c * VADPCM_CODEBOOK_STRIDE;
         for (int i = 0; i < 8 * order * npred; i++) book[i] = (int16_t)n64_r16(rdram, cb + i * 2);
-        vadpcm_decode(frames, nframes, book, npred, order, w->pcm[c], w->len);
+        vadpcm_decode(all + (size_t)c * nframes * 9, nframes, book, npred, order, w->pcm[c], w->len);
     }
-    SDL_free(frames);
+    SDL_free(all);
     SDL_free(book);
     return true;
 }

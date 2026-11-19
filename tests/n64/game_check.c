@@ -4,11 +4,9 @@
  *
  *   game_check <assets dir> wav <rom path>=<source.wav> ...
  *     Boots the program (constructors, DFS), opens each wav64 with the game's own recompiled
- *     wav64_open, and decodes it through the mixer HLE, which calls the recompiled
- *     wav64_vadpcm_preload (Huffman, block layout) and then our VADPCM decoder. The result must
- *     match the source WAV within a lossy codec's distance (SNR). It fails if the runtime's
- *     fallback preload got linked instead of the recompiled one (decision 51: the silent sound
- *     effects of Brew Volley and Land Grab).
+ *     wav64_open, and decodes it through the mixer HLE, which reads the frames from the ROM
+ *     (Huffman, block layout: a port of libdragon's wav64_vadpcm_preload) and runs our VADPCM
+ *     decoder. The result must match the source WAV within a lossy codec's distance (SNR).
  *
  *   game_check png <file.png> <min non-black, in 1/10000 of the frame>
  *     A headless run's screenshot must not be (nearly) black.
@@ -115,10 +113,6 @@ static void wav_entry(uint8_t *rdram, recomp_context *ctx) {
         const int format = n64_r8(rdram, wav + WF_FORMAT);
         if (format != FORMAT_VADPCM) fail("%s: format %d, expected VADPCM (%d)", rom, format, FORMAT_VADPCM);
         const hwave *w = wave_get(rdram, ctx, wav);
-        if (g_no_vadpcm_preload) {
-            fail("%s: the runtime's fallback n64_wav64_vadpcm_preload was linked, not the recompiled one (decision 51)", rom);
-            break;
-        }
         if (!w) { fail("%s: not decoded", rom); continue; }
         compare(rom, w, eq + 1);
     }

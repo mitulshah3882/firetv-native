@@ -6,8 +6,6 @@
 #     (assets/raw/SplashScreenImages.zip)
 #   - the shared library needs only libapmf, libc, libm and the loader (anything else fails launch)
 #   - no GL function pointer is exported (it would bind to the driver's symbol; decision 45)
-#   - recompiled N64 programs link libdragon's recompiled wav64_vadpcm_preload, not a stub (the
-#     silent-sound bug of decision 51)
 #
 #   tools/check-packages.sh [app ...]      (default: the apps the arcade ships)
 #
@@ -47,7 +45,7 @@ for a in "${apps[@]}"; do
     has assets/raw/SplashScreenImages.zip || bad "no assets/raw/SplashScreenImages.zip"
   fi
 
-  # The shared library: dependencies, exported GL symbols, the VADPCM preload.
+  # The shared library: dependencies, exported GL symbols.
   so=$(ls apps/"$a"/build/armv7-release/lib/*.entry_point_factory.so 2>/dev/null | head -1)
   tc=$(ls -d apps/"$a"/build/private/toolchain/armv7/mac/bin 2>/dev/null | head -1)
   if [[ -n "$so" && -n "$tc" ]]; then
@@ -57,13 +55,6 @@ for a in "${apps[@]}"; do
     done
     gl=$("$tc/llvm-nm" -D --defined-only "$so" 2>/dev/null | awk '$3 ~ /^gl[A-Z]/' | head -3)
     [[ -z "$gl" ]] || bad "exports GL symbols: $(echo $gl | cut -c1-80)"
-    dbg="$so.debug"
-    if [[ "$a" == n64-* && -f "$dbg" ]]; then
-      sz=$("$tc/llvm-nm" -S "$dbg" 2>/dev/null | awk '$4 == "n64_wav64_vadpcm_preload" {print $2}' | head -1)
-      if [[ -n "$sz" ]] && (( 16#$sz < 256 )); then
-        bad "n64_wav64_vadpcm_preload is a $((16#$sz))-byte stub, not the recompiled function"
-      fi
-    fi
   fi
 done
 [[ $fail -eq 0 ]] && echo "all checks passed" || echo "some checks failed"

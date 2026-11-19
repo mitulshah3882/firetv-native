@@ -1,0 +1,24 @@
+Pyrite64's engine (n64/engine at ec98ba1) built with our toolchain (GCC 16.2, libdragon 39d0d60).
+
+The engine builds with -Wall -Wextra -Werror. GCC 16 warns about tiny3d's own designated
+initializers in C++ (t3d_viewport_create in t3d.h: -Wmissing-field-initializers), and the engine's
+headers have unused parameters that -Wextra reports, so the build stops on code that isn't wrong.
+This keeps the warnings and stops treating them as errors.
+
+tools/n64-pyrite64.sh applies it to a copy of n64/engine in build/n64/p64-work, which the editor
+copies into the project; the Pyrite64 checkout stays as fetched.
+
+SPDX-FileCopyrightText: 2026 Mitul Shah
+SPDX-License-Identifier: MIT
+
+--- a/Makefile
++++ b/Makefile
+@@ -7,7 +7,7 @@
+ include $(N64_INST)/include/t3d.mk
+ 
+ N64_CXXFLAGS += -std=gnu++20 -fno-exceptions -O3 -Iinclude \
+-	-Wall -Wextra -Werror \
++	-Wall -Wextra -Wno-error -Wno-missing-field-initializers \
+ 	-Wformat-signedness -fno-common \
+ 	-Wshadow -Wdouble-promotion -Wformat-security -Wformat-overflow -Wformat-truncation \
+ 	-Wfatal-errors

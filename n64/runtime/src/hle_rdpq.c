@@ -72,7 +72,12 @@ static struct {
     uint32_t frame;
     bool sc_on;                           /* the scissor (also for 3D draws) */
     SDL_Rect sc;
+    bool to_depth;                        /* the colour image is the attached depth buffer */
 } R;
+
+/* What rdpq_attach attached (surface_t pointers), for rdpq_get_attached and rdpq_set_color_image. */
+static uint32_t g_att_color, g_att_depth;
+void hle_rdpq_attached(uint32_t color, uint32_t depth) { g_att_color = color; g_att_depth = depth; R.to_depth = false; }
 
 /* ================================================================================================
  * Texture decoding and cache
@@ -673,7 +678,7 @@ static void triangle(uint8_t *rdram, recomp_context *ctx, const uint32_t *a) {
 enum {
     OP_RESET_MODE, OP_FIXUP, OP_PUSH, OP_POP, OP_WRITE8, OP_FILL_COLOR32, OP_SCISSOR, OP_FILL_RECT,
     OP_TEX_RECT, OP_TILE_SPRITE, OP_TILE_SURFACE, OP_TLUT, OP_SPRITE_BLIT, OP_TEX_BLIT, OP_CHANGE_SOM,
-    OP_TILE_SURFACE_SUB, OP_TILE_REUSE, OP_TRIANGLE, OP_T3D,
+    OP_TILE_SURFACE_SUB, OP_TILE_REUSE, OP_TRIANGLE, OP_T3D, OP_CALL, OP_GLYPH, OP_COLOR_IMAGE,
 };
 typedef struct {
     uint8_t code;
@@ -685,8 +690,9 @@ typedef struct {
     int n, cap;
     bool used;
 } Block;
-static Block g_blocks[64];
-static int g_recording; /* block index + 1 */
+/* Blocks and queues share this table; a handle is 0x80000000 | (index + 1). */
+static Block g_blocks[256];
+static int g_recording; /* block (or current queue) index + 1 */
 static int g_last_tile = -1; /* the tile of the last texture upload (rdpq_tex_reuse) */
 
 static void set_som_bits(uint32_t which, uint32_t and_mask, uint32_t or_val) {
@@ -740,7 +746,16 @@ static void exec(uint8_t *rdram, recomp_context *ctx, const Op *op) {
         hle_t3d_exec(rdram, ctx, a + 1, (int)a[0]);
         return;
     }
+    if (op->code == OP_CALL) {  /* a callback the RSP would call on reaching this point: func, arg */
+        hle_t3d_flush(rdram, ctx);
+        recomp_func_t *fn = get_function((int32_t)a[0]);
+        if (fn) n64rt_call(ctx, fn, a[1], 0, 0, 0);
+        return;
+    }
     hle_t3d_flush(rdram, ctx);  /* its pending triangles use the render mode before this change */
+    if (R.to_depth && (op->code == OP_FILL_RECT || op->code == OP_TEX_RECT || op->code == OP_TRIANGLE ||
+                       op->code == OP_SPRITE_BLIT || op->code == OP_TEX_BLIT))
+        return;  /* drawing into the depth buffer as colour: see OP_COLOR_IMAGE */
     switch (op->code) {
         case OP_RESET_MODE:
             R.m.cc = (uint64_t)(a[0] & 0x00FFFFFF) << 32 | a[1];
@@ -862,11 +877,31 @@ static void exec(uint8_t *rdram, recomp_context *ctx, const Op *op) {
         case OP_TEX_BLIT: /* flags|w, h|stride, buffer, x, y, has_parms, parms[11] */
             blit(surface_texture(rdram, a[0], a[1], a[2], 0), bits_f(a[3]), bits_f(a[4]), a[5] ? a + 6 : NULL);
             break;
+        case OP_GLYPH: hle_draw_glyph(rdram, ctx, a); break;
+        case OP_COLOR_IMAGE: { /* buffer of the new colour image */
+            /* A program may point the colour image at its depth buffer and draw into it: Cathode
+             * Quest "clears" depth that way, with a Bayer pattern just short of the far plane so the
+             * distance dithers out. That draws a clear for now (the dither is lost) and skips the
+             * draws until the colour image is set back. */
+            const uint32_t depth_buf = g_att_depth ? n64_r32(rdram, g_att_depth + 8) : 0;
+            const bool to_depth = depth_buf && a[0] == depth_buf;
+            if (to_depth && !R.to_depth) gfx_fb_clear_depth();
+            R.to_depth = to_depth;
+        } break;
         default: break;
     }
 }
 
+/* Debug aid: N64_OP_TRACE=<n> logs the first n ops, recorded (into a block or queue) or executed. */
+static void trace_op(const Op *op, bool rec) {
+    static int left = -1;
+    if (left < 0) left = SDL_getenv("N64_OP_TRACE") ? SDL_atoi(SDL_getenv("N64_OP_TRACE")) : 0;
+    if (left <= 0) return;
+    --left;
+    n64rt_log("op %s%d [rec %d] %08X %08X %08X %08X", rec ? "rec " : "", op->code, g_recording, op->a[0], op->a[1], op->a[2], op->a[3]);
+}
 static void emit(uint8_t *rdram, recomp_context *ctx, const Op *op) {
+    trace_op(op, g_recording != 0);
     if (g_recording) {
         Block *b = &g_blocks[g_recording - 1];
         if (b->n == b->cap) {
@@ -924,6 +959,18 @@ void n64___rdpq_fixup_write8_syncchange(uint8_t *rdram, recomp_context *ctx) {
 void n64___rdpq_write8_syncchangeuse(uint8_t *rdram, recomp_context *ctx) {
     EMIT(OP_WRITE8, {(uint32_t)ctx->r4, (uint32_t)ctx->r5, (uint32_t)ctx->r6});
 }
+/* void __rdpq_write8(uint32_t cmd_id, uint32_t arg0, uint32_t arg1) */
+void n64___rdpq_write8(uint8_t *rdram, recomp_context *ctx) {
+    EMIT(OP_WRITE8, {(uint32_t)ctx->r4, (uint32_t)ctx->r5, (uint32_t)ctx->r6});
+}
+/* void rdpq_set_color_image(const surface_t *surface) */
+void n64_rdpq_set_color_image(uint8_t *rdram, recomp_context *ctx) {
+    const uint32_t s = (uint32_t)ctx->r4;
+    EMIT(OP_COLOR_IMAGE, {s ? n64_r32(rdram, s + 8) : 0});
+}
+void n64_rdpq_set_z_image(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)ctx; }
+/* const surface_t *rdpq_get_attached(void) */
+void n64_rdpq_get_attached(uint8_t *rdram, recomp_context *ctx) { (void)rdram; n64_ret32(ctx, g_att_color); }
 void n64___rdpq_set_fill_color(uint8_t *rdram, recomp_context *ctx) { EMIT(OP_FILL_COLOR32, {(uint32_t)ctx->r4}); }
 void n64___rdpq_set_scissor(uint8_t *rdram, recomp_context *ctx) { EMIT(OP_SCISSOR, {(uint32_t)ctx->r4, (uint32_t)ctx->r5}); }
 /* void __rdpq_fill_rectangle(uint32_t w0, uint32_t w1): w0 = x1,y1; w1 = x0,y0 (10.2, exclusive) */
@@ -1033,34 +1080,40 @@ void n64_rdpq_tex_multi_end(uint8_t *rdram, recomp_context *ctx) { (void)rdram; 
 /* ================================================================================================
  * rspq blocks: record the calls above between begin and end, replay them on run.
  * ============================================================================================== */
-void n64_rspq_block_begin_reuse(uint8_t *rdram, recomp_context *ctx) {
-    (void)ctx;
-    hle_rspq_drain(rdram, ctx);
+static int block_alloc(void) {
     for (int i = 0; i < (int)SDL_arraysize(g_blocks); i++) {
         if (!g_blocks[i].used) {
             g_blocks[i].used = true;
             g_blocks[i].n = 0;
-            g_recording = i + 1;
-            return;
+            return i + 1;
         }
     }
     n64rt_log("rspq: out of blocks");
+    return 0;
+}
+#define TRACE_Q(...) do { if (SDL_getenv("N64_OP_TRACE")) n64rt_log(__VA_ARGS__); } while (0)
+void n64_rspq_block_begin_reuse(uint8_t *rdram, recomp_context *ctx) {
+    hle_rspq_drain(rdram, ctx);
+    g_recording = block_alloc();
+    TRACE_Q("block begin -> %d", g_recording);
 }
 void n64_rspq_block_begin(uint8_t *rdram, recomp_context *ctx) { n64_rspq_block_begin_reuse(rdram, ctx); }
 void n64_rspq_block_end(uint8_t *rdram, recomp_context *ctx) {
     hle_rspq_drain(rdram, ctx);
+    TRACE_Q("block end %d", g_recording);
     n64_ret32(ctx, g_recording ? 0x80000000u | (uint32_t)g_recording : 0); /* opaque handle */
     g_recording = 0;
 }
 static Block *block_of(uint32_t h) {
-    if ((h & 0xFFFFFF00u) != 0x80000000u) return NULL;
-    const int idx = (int)(h & 0xFF) - 1;
+    if ((h & 0xFFFF0000u) != 0x80000000u) return NULL;
+    const int idx = (int)(h & 0xFFFF) - 1;
     return (idx >= 0 && idx < (int)SDL_arraysize(g_blocks) && g_blocks[idx].used) ? &g_blocks[idx] : NULL;
 }
 void n64_rspq_block_run(uint8_t *rdram, recomp_context *ctx) {
     hle_rspq_drain(rdram, ctx);
     const Block *b = block_of((uint32_t)ctx->r4);
     if (!b) return;
+    if (SDL_getenv("N64_OP_TRACE")) n64rt_log("run block/queue %08X: %d ops (recording %d)", (uint32_t)ctx->r4, b->n, g_recording);
     for (int i = 0; i < b->n; ++i) {
         if (g_recording) emit(rdram, ctx, &b->ops[i]); /* a block run inside a recording block */
         else exec(rdram, ctx, &b->ops[i]);
@@ -1073,8 +1126,64 @@ void n64_rspq_block_free(uint8_t *rdram, recomp_context *ctx) {
 }
 
 /* ================================================================================================
+ * Syncpoints. Commands run when they're written here, so a syncpoint is reached at once; one with a
+ * callback (rspq_call_deferred, rdpq_call_deferred) calls it at its place in the command stream,
+ * which is later if it's recorded into a block or queue.
+ * int rspq_syncpoint_new_cb(void (*func)(void *), void *arg)
+ * ============================================================================================== */
+void n64_rspq_syncpoint_new_cb(uint8_t *rdram, recomp_context *ctx) {
+    hle_rspq_drain(rdram, ctx);
+    const uint32_t fn = (uint32_t)ctx->r4, arg = (uint32_t)ctx->r5;
+    EMIT(OP_CALL, {fn, arg});
+    n64_ret32(ctx, 1);
+}
+void n64_rspq_syncpoint_new(uint8_t *rdram, recomp_context *ctx) { hle_rspq_drain(rdram, ctx); n64_ret32(ctx, 1); }
+void n64_rspq_check_syncpoint(uint8_t *rdram, recomp_context *ctx) { (void)rdram; n64_ret32(ctx, 1); }
+void n64_rspq_wait_syncpoint(uint8_t *rdram, recomp_context *ctx) { hle_rspq_drain(rdram, ctx); }
+
+/* ================================================================================================
+ * rspq queues. Pyrite64 records each draw layer into its own queue while the scene draws, then runs
+ * the queues in layer order. A queue here is a block that stays open: rspq_queue_switch(q) makes it
+ * the recording target, rspq_queue_switch(NULL) goes back to the main queue (executing), and
+ * rspq_queue_run(q) replays it wherever it is called, as rspq_block_run does.
+ * ============================================================================================== */
+void n64_rspq_queue_create(uint8_t *rdram, recomp_context *ctx) {
+    (void)rdram;
+    const int h = block_alloc();
+    n64_ret32(ctx, h ? 0x80000000u | (uint32_t)h : 0);
+    TRACE_Q("queue create -> %d", h);
+}
+void n64_rspq_queue_switch(uint8_t *rdram, recomp_context *ctx) {
+    hle_rspq_drain(rdram, ctx);
+    const uint32_t h = (uint32_t)ctx->r4;
+    g_recording = block_of(h) ? (int)(h & 0xFFFF) : 0;
+    TRACE_Q("queue switch %08X -> recording %d", h, g_recording);
+}
+void n64_rspq_queue_run(uint8_t *rdram, recomp_context *ctx) { n64_rspq_block_run(rdram, ctx); }
+void n64_rspq_queue_clear(uint8_t *rdram, recomp_context *ctx) {
+    hle_rspq_drain(rdram, ctx);
+    TRACE_Q("queue clear %08X", (uint32_t)ctx->r4);
+    Block *b = block_of((uint32_t)ctx->r4);
+    if (b) b->n = 0;
+}
+void n64_rspq_queue_destroy(uint8_t *rdram, recomp_context *ctx) {
+    hle_rspq_drain(rdram, ctx);
+    const uint32_t h = (uint32_t)ctx->r4;
+    Block *b = block_of(h);
+    if (!b) return;
+    if (g_recording == (int)(h & 0xFFFF)) g_recording = 0;
+    b->used = false;
+    b->n = 0;
+}
+
+/* ================================================================================================
  * 3D (hle_t3d.c): tiny3d commands as ops, and triangles drawn with the current render mode
  * ============================================================================================== */
+void hle_rdpq_glyph(uint8_t *rdram, recomp_context *ctx, const uint32_t a[10]) {
+    Op op = {OP_GLYPH, {0}};
+    SDL_memcpy(op.a, a, 10 * sizeof(uint32_t));
+    emit(rdram, ctx, &op);
+}
 void hle_rdpq_t3d_op(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n) {
     Op op = {OP_T3D, {0}};
     if (n > 17) n = 17;

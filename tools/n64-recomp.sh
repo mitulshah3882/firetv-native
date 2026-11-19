@@ -25,14 +25,24 @@ OUT="$TOML_DIR/$(val output_func_path)"
 [[ -f "$ELF" ]] || { echo "ELF not found: $ELF (build it with tools/n64-libdragon.sh)" >&2; exit 1; }
 
 rm -rf "$OUT" && mkdir -p "$OUT"
-(cd "$TOML_DIR" && "$RECOMP" "$TOML" 2>&1 | grep -v -E '^\[Info\]|Unhandled|clearing output|could not be recompiled' || true)
+RULES=("$TOML_DIR/libdragon.hle" "${TOML%.toml}.hle")
+# "func <label>" rules name assembly entry points the ELF gives no size (NOTYPE): each becomes a
+# function reaching to the next symbol (N64Recomp's function_sizes), so stub rules can match it.
+PASS1_TOML="$TOML_DIR/.recomp0-$(basename "$TOML")"
+cp "$TOML" "$PASS1_TOML"
+for f in $(cat "${RULES[@]}" 2>/dev/null | sed -n 's/^func[[:space:]]\{1,\}\([A-Za-z0-9_]*\).*/\1/p'); do
+  span=$("$TC/mips64-elf-nm" -n "$ELF" | awk -v s="$f" 'found && $1 != a { print a, $1; exit } $3 == s { a = $1; found = 1 }')
+  [[ -n "$span" ]] || continue
+  size=$(( 16#${span#* } - 16#${span% *} ))
+  [[ "$size" -gt 0 ]] && printf '\n[[input.function_sizes]]\nname = "%s"\nsize = %d\n' "$f" "$size" >> "$PASS1_TOML"
+done
+(cd "$TOML_DIR" && "$RECOMP" "$(basename "$PASS1_TOML")" 2>&1 | grep -v -E '^\[Info\]|Unhandled|clearing output|could not be recompiled' || true)
 ls "$OUT"/funcs_0.c >/dev/null
 
 # HLE rules (libdragon.hle + optional <name>.hle): expand the stub/keep globs against the functions
 # N64Recomp found, then recompile again with the stubbed functions excluded.
-RULES=("$TOML_DIR/libdragon.hle" "${TOML%.toml}.hle")
 GEN_TOML="$OUT/.recomp.toml"
-python3 -I - "$TOML" "$OUT/funcs.h" "$GEN_TOML" "${RULES[@]}" <<'PY'
+python3 -I - "$PASS1_TOML" "$OUT/funcs.h" "$GEN_TOML" "${RULES[@]}" <<'PY'
 import fnmatch, os, re, sys
 toml_path, funcs_h, out_toml, *rule_files = sys.argv[1:]
 rules = []
@@ -68,6 +78,7 @@ rm -f "$OUT"/funcs_*.c "$OUT"/funcs.h
 cp "$GEN_TOML" "$TOML_DIR/.recomp-$(basename "$TOML")"
 (cd "$TOML_DIR" && "$RECOMP" ".recomp-$(basename "$TOML")" 2>&1 | grep -v -E '^\[Info\]|Unhandled|clearing output' || true)
 rm -f "$TOML_DIR/.recomp-$(basename "$TOML")"
+rm -f "$PASS1_TOML"
 TOML_FOR_STUBS="$GEN_TOML"
 
 # Memory image: every loadable section, laid out from the lowest address (normally 0x80000000).

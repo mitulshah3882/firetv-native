@@ -165,9 +165,10 @@ extern "C" const uint8_t* n64rt_rom(size_t* size) {
 }
 
 extern "C" void n64rt_set_boot_globals(uint32_t memsize_sym, uint32_t tvtype_sym, uint32_t entropy_sym) {
-    // What libdragon's entrypoint.S stores before main(). We report 7.5 MB so libdragon's heap stays
-    // below our stack and HLE scratch area at the top of the 8 MB RDRAM.
-    if (memsize_sym) n64_w32(g_rdram, memsize_sym, N64RT_RDRAM_SIZE - 0x80000u);
+    // What libdragon's entrypoint.S stores before main(): 8 MB, an Expansion Pak (Cathode Quest
+    // checks is_memory_expanded()). libdragon's heap stops STACK_SIZE (64 KB) below it, where the
+    // stack is, as on the console; the HLE scratch area is above the 8 MB (decision 70).
+    if (memsize_sym) n64_w32(g_rdram, memsize_sym, N64RT_RDRAM_SIZE);
     if (tvtype_sym) n64_w32(g_rdram, tvtype_sym, 1);  // NTSC
     if (entropy_sym) {
         /* headless screenshot runs (N64_SHOT) seed it the same every time, so frame N reproduces */
@@ -190,7 +191,7 @@ extern "C" uint64_t n64rt_call(recomp_context* ctx, recomp_func_t* f, uint32_t a
 
 extern "C" int n64rt_run_boot(recomp_func_t* ctors, recomp_func_t* entry, uint32_t gp) {
     memset(&g_ctx, 0, sizeof g_ctx);
-    const uint32_t stack_top = 0x80000000u + N64RT_RDRAM_SIZE - 0x40000u;
+    const uint32_t stack_top = 0x80000000u + N64RT_RDRAM_SIZE;  // top of RDRAM, as on the console
     g_ctx.r29 = N64_KSEG0(stack_top - 0x10);
     g_ctx.r28 = N64_KSEG0(gp);
     cop0_status_write(&g_ctx, 0x34000000u | 0x80u | 0x40u | 0x20u);
@@ -204,8 +205,8 @@ extern "C" int n64rt_run_boot(recomp_func_t* ctors, recomp_func_t* entry, uint32
 
 extern "C" int n64rt_run(recomp_func_t* entry, uint32_t gp) {
     memset(&g_ctx, 0, sizeof g_ctx);
-    // The stack lives just below the HLE scratch area at the top of RDRAM.
-    const uint32_t stack_top = 0x80000000u + N64RT_RDRAM_SIZE - 0x40000u;
+    // The stack lives at the top of RDRAM, as on the console (HLE scratch is above the 8 MB).
+    const uint32_t stack_top = 0x80000000u + N64RT_RDRAM_SIZE;
     g_ctx.r29 = N64_KSEG0(stack_top - 0x10);
     g_ctx.r28 = N64_KSEG0(gp);
     // libdragon's boot code enables CU1 and FR (64-bit FPU registers).

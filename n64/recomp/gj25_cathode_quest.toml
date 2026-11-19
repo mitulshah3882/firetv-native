@@ -1,0 +1,11 @@
+# N64Recomp config: Cathode Quest 64 by HailToDodongo (N64brew Game Jam 2025, MIT; Pyrite64's
+# n64/examples/jam25), built by tools/n64-pyrite64.sh jam25 with Pyrite64's editor and engine.
+# Paths are relative to this file's directory.
+[input]
+# entrypoint omitted: _start is an assembly label (NOTYPE, size 0)
+elf_path = "../../build/n64/p64-jam25/build/gj25_cathode_quest.elf"
+output_func_path = "../../build/n64/gj25_cathode_quest"
+
+[patches]
+# Hardware-facing libdragon functions are handled by the rules in libdragon.hle.
+ignored = []

@@ -55,4 +55,10 @@ void hle_t3d_exec(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n)
 void hle_t3d_flush(uint8_t *rdram, recomp_context *ctx);
 void hle_rdpq_draw3d(uint8_t *rdram, recomp_context *ctx, GfxVert3D *v, int n, int vx, int vy, int vw, int vh);
 void hle_rspq_drain(uint8_t *rdram, recomp_context *ctx);
+/* Text: a glyph goes through the command layer (recorded into blocks and queues), and is drawn by
+ * hle_libdragon.c. */
+void hle_rdpq_glyph(uint8_t *rdram, recomp_context *ctx, const uint32_t a[10]);
+/* rdpq_attach's surfaces (surface_t pointers in RDRAM; 0 = none). */
+void hle_rdpq_attached(uint32_t color, uint32_t depth);
+void hle_draw_glyph(uint8_t *rdram, recomp_context *ctx, const uint32_t *a);
 void hle_rspq_frame(void);

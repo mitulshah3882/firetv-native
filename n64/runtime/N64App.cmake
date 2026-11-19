@@ -40,7 +40,7 @@ function(n64_add_recomp_app target)
   vega_app_license(N64RECOMP-LICENSE.txt "${N64RT_REPO}/third_party/_src/N64Recomp-598ce20/LICENSE")
 
   vega_add_sdl3_app(${target} PACKAGE_ID "${arg_PACKAGE_ID}"
-    SOURCES "${rt}/n64_main.c" "${rt}/hle_libdragon.c" "${rt}/hle_rdpq.c" "${rt}/hle_rspq.c" "${rt}/hle_audio.c" "${rt}/gfx_gl.c" "${rt}/hle_t3d.c" "${rt}/n64rt.cpp"
+    SOURCES "${rt}/n64_main.c" "${rt}/hle_libdragon.c" "${rt}/hle_rdpq.c" "${rt}/hle_rspq.c" "${rt}/hle_audio.c" "${rt}/gfx_gl.c" "${rt}/hle_t3d.c" "${rt}/hle_coro.c" "${rt}/n64rt.cpp"
     ASSETS_DIR "${pkgroot}")
   target_sources(${target} PRIVATE ${gen_sources})
   target_include_directories(${target} PRIVATE "${N64RT_REPO}/build/n64/include" "${gen}" "${N64RT_REPO}/n64/runtime/include")

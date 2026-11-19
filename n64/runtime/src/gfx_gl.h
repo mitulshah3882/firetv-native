@@ -35,6 +35,11 @@ int gfx_tex_h(const GfxTex *t);
 
 /* The N64 framebuffer: (re)created at w x h N64 pixels times `scale`, and made the draw target. */
 void gfx_fb_bind(int w, int h, int scale);
+/* Colour targets of that size sharing its depth buffer: gfx_fb_slot makes one the draw target,
+ * gfx_fb_show_slot picks the one gfx_screen_begin presents. Both default to 0. */
+#define GFX_FB_SLOTS 8
+void gfx_fb_slot(int slot);
+void gfx_fb_show_slot(int slot);
 void gfx_fb_clear(uint32_t rgba);                 /* the whole target, ignoring the scissor */
 void gfx_scissor(const SDL_Rect *r);              /* N64 pixels; NULL: off */
 

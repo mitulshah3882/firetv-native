@@ -711,3 +711,9 @@ To draw 3D, the N64 runtime needs a depth buffer, shaders and a framebuffer it c
 On the TV, Hydra Harmonics, Land Grab and Brew Volley run at 60 fps, and the "Press BACK again to exit" hint, now a texture rendered once by SDL's software renderer, still shows. The framebuffer has a depth buffer and a scale factor waiting for phase 2.
 
 While this was running, the user asked about disk space: 2.9 GB of old debug symbols and Debug builds went from the project, and 1.3 GB of scratch files.
+
+## 2026-11-18: N64 3D, phase 2: the first triangles
+
+tiny3d's commands, caught by the rspq tap in phase 0, now drive a host model of its microcode (`hle_t3d.c`). It keeps a matrix stack the way tiny3d keeps one in RDRAM, transforms and lights each vertex on the CPU into a vertex cache addressed exactly as tiny3d encodes it, and assembles triangles, strips and sequences. The triangles are drawn in clip space with whatever RDP render mode the game set: the colour combiner becomes a generated GLSL shader, the blender a GL blend mode, and the RDP's Z flags the depth test. Commands written while an rspq block is recording are recorded too, which matters: Sword Strike records its backdrop model once at start-up and replays it every frame.
+
+The first frame on the Mac showed Sword Strike's backdrop, a room of five coloured walls seen from above, behind the 2D platforms and fighters. On the TV two of the walls were missing. Both run past the camera, so some of their vertices are behind the eye (w < 0); desktop GL clips such triangles, and the stick's driver evidently doesn't. tiny3d's own microcode clips against the near plane, and so does our model now, on the CPU, before anything reaches GL. With that, the TV matches the Mac, at 60 fps with about 18 draw calls a frame. Sword Strike is packaged as its own app; OK jumps, Play/Pause attacks and Rewind or Fast-forward slides.

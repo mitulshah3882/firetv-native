@@ -58,5 +58,6 @@ them before shipping too.
   Wilhelm scream's provenance is murky) and `challengers.wav` (the fight music; no documented source).
   `overrides/swordstrike-sfx.py` synthesizes our own under the same names: a sliding square-wave yelp
   and an 8-bar chiptune loop in A minor (MIT).
-- Not packaged for the TV yet: its 3D backdrop needs the tiny3d host microcode (phase 2 of
-  `docs/research/tiny3d-hle.md`), and its controls (A jump, B attack, L slide) need a remote patch.
+- Packaged as `apps/n64-swordstrike` (2026-11-18), its 3D backdrop drawn by our host model of
+  tiny3d's microcode. Remote: OK jumps, Play/Pause attacks, Rewind/Fast-forward slide (the runtime's
+  `N64_REMOTE_MAP`); a remote patch to make one-thumb play comfortable is still to do.

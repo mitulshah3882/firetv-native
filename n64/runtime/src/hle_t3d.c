@@ -186,23 +186,26 @@ static void push_vert(const CVert *c) {
     o->y = c->clip[1];
     o->w = c->clip[3];
     /* No depth clipping (the N64 has no far plane): z is clamped to the depth range instead. */
-    if (c->clip[3] > 1e-6f) o->z = SDL_clamp(c->clip[2] / c->clip[3], -1.0f, 1.0f) * c->clip[3];
-    else o->z = -c->clip[3];  /* behind the eye: GL clips the triangle there */
+    o->z = SDL_clamp(c->clip[2] / c->clip[3], -1.0f, 1.0f) * c->clip[3];  /* w >= NEAR_W (clipped) */
     o->u = c->s;
     o->v = c->t;
     SDL_memcpy(o->c, c->c, 4);
 }
 
-static void tri(int a, int b, int c) {
-    if (a < 0 || b < 0 || c < 0) return;
-    const CVert *va = &T.v[a], *vb = &T.v[b], *vc = &T.v[c];
-    if (T.cull != 2 && va->clip[3] > 0 && vb->clip[3] > 0 && vc->clip[3] > 0) {
-        const float ax = va->clip[0] / va->clip[3], ay = va->clip[1] / va->clip[3];
-        const float bx = vb->clip[0] / vb->clip[3], by = vb->clip[1] / vb->clip[3];
-        const float cx = vc->clip[0] / vc->clip[3], cy = vc->clip[1] / vc->clip[3];
-        const float area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);  /* > 0: counter-clockwise (front) */
-        if ((T.cull == 0 && area <= 0) || (T.cull == 1 && area >= 0)) return;
-    }
+/* Near-plane clipping on the CPU (Sutherland-Hodgman against w = NEAR_W): every vertex handed to GL
+ * is in front of the eye. The stick's GPU driver doesn't clip triangles with vertices behind the
+ * eye (w < 0) the way desktop GL does: Sword Strike's walls, which run past the camera, vanished. */
+#define NEAR_W 1e-3f
+static CVert lerp_vert(const CVert *p, const CVert *q, float t) {
+    CVert o;
+    for (int i = 0; i < 4; i++) o.clip[i] = p->clip[i] + (q->clip[i] - p->clip[i]) * t;
+    for (int i = 0; i < 4; i++) o.c[i] = (uint8_t)((float)p->c[i] + ((float)q->c[i] - (float)p->c[i]) * t + 0.5f);
+    o.s = p->s + (q->s - p->s) * t;
+    o.t = p->t + (q->t - p->t) * t;
+    return o;
+}
+
+static void emit_tri(const CVert *va, const CVert *vb, const CVert *vc) {
     if (T.ntri + 3 > T.cap) {
         T.cap = SDL_max(T.cap * 2, 3072);
         T.tri = (GfxVert3D *)SDL_realloc(T.tri, sizeof(GfxVert3D) * (size_t)T.cap);
@@ -210,6 +213,33 @@ static void tri(int a, int b, int c) {
     push_vert(va);
     push_vert(vb);
     push_vert(vc);
+}
+
+static void tri(int a, int b, int c) {
+    if (a < 0 || b < 0 || c < 0) return;
+    const CVert *va = &T.v[a], *vb = &T.v[b], *vc = &T.v[c];
+    if (va->clip[3] < NEAR_W || vb->clip[3] < NEAR_W || vc->clip[3] < NEAR_W) {
+        const CVert *in[3] = {va, vb, vc};
+        CVert out[4];
+        int n = 0;
+        for (int i = 0; i < 3; i++) {
+            const CVert *p = in[i], *q = in[(i + 1) % 3];
+            const bool pin = p->clip[3] >= NEAR_W, qin = q->clip[3] >= NEAR_W;
+            if (pin) out[n++] = *p;
+            if (pin != qin) out[n++] = lerp_vert(p, q, (NEAR_W - p->clip[3]) / (q->clip[3] - p->clip[3]));
+        }
+        /* culling isn't reliable across the eye plane; the clipped pieces are drawn as they wind */
+        for (int i = 1; i + 1 < n; i++) emit_tri(&out[0], &out[i], &out[i + 1]);
+        return;
+    }
+    if (T.cull != 2 && va->clip[3] > 0 && vb->clip[3] > 0 && vc->clip[3] > 0) {
+        const float ax = va->clip[0] / va->clip[3], ay = va->clip[1] / va->clip[3];
+        const float bx = vb->clip[0] / vb->clip[3], by = vb->clip[1] / vb->clip[3];
+        const float cx = vc->clip[0] / vc->clip[3], cy = vc->clip[1] / vc->clip[3];
+        const float area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);  /* > 0: counter-clockwise (front) */
+        if ((T.cull == 0 && area <= 0) || (T.cull == 1 && area >= 0)) return;
+    }
+    emit_tri(va, vb, vc);
 }
 
 void hle_t3d_flush(uint8_t *rdram, recomp_context *ctx) {

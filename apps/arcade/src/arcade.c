@@ -133,6 +133,11 @@ static Game g_games[] = {
      "safe first. Textured, animated N64 3D, recompiled to native ARM.",
      {"N64RECOMP", "TINY3D", "NO EMULATOR", "4 PLAYERS"},
      "pkg://com.firetvnative.n64.tohubohu.main", "art/tohubohu.png", {1.0f, 0.77f, 0.25f, 1}, CARD_ART, NULL, NULL, true, {{0}}},
+    {"Cathode Quest 64", "Nintendo 64 homebrew \xC2\xB7 statically recompiled",
+     "A 3D platformer where you play a CRT TV, by the author of tiny3d. Its engine,",
+     "Pyrite64, its coroutines and deferred texturing all run as native ARM.",
+     {"N64RECOMP", "PYRITE64", "NO EMULATOR", "3D PLATFORMER"},
+     "pkg://com.firetvnative.n64.cathode.main", "art/cathode.png", {1.0f, 0.84f, 0.36f, 1}, CARD_ART, NULL, NULL, true, {{0}}},
 };
 #define NUM_GAMES ((int)(sizeof(g_games) / sizeof(g_games[0])))
 
@@ -650,17 +655,18 @@ static void draw_about(void) {
         {"Hydra Harmonics", "Catch-64 (N64brew Game Jam 2024, MIT); Coustard font (SIL OFL 1.1)"},
         {"Sword Strike", "Super Boognish (N64brew Game Jam 2024, MIT); tiny3d (MIT); our own sounds"},
         {"Le Tohu-bohu", "tfmoe__ (N64brew Game Jam 2024, MIT); tiny3d (MIT); Thickhead font (public domain)"},
+        {"Cathode Quest 64", "HailToDodongo (Pyrite64 example, MIT); music John Oestmann (CC0); our own sounds"},
         {"Fonts", "Chakra Petch and Press Start 2P (SIL Open Font License 1.1)"},
         {"Music", "generated live by a tiny synthesizer, no samples"},
     };
-    for (size_t i = 0; i < SDL_arraysize(intro); ++i, y += 40)
+    for (size_t i = 0; i < SDL_arraysize(intro); ++i, y += 36)
         text_draw(A.r, A.body, p.x + 52, y, intro[i], rgba(0.9f, 0.88f, 0.98f, 0.92f * t), 1);
-    y += 30;
-    for (size_t i = 0; i < SDL_arraysize(rows); ++i, y += 32) {
+    y += 22;
+    for (size_t i = 0; i < SDL_arraysize(rows); ++i, y += 30) {
         text_draw(A.r, A.body, p.x + 52, y, rows[i][0], rgba(1, 0.45f, 0.8f, 0.95f * t), 1);
         text_draw(A.r, A.body, p.x + 232, y, rows[i][1], rgba(0.9f, 0.88f, 0.98f, 0.92f * t), 1);
     }
-    y += 30;
+    y += 14;
     text_draw(A.r, A.body, p.x + 52, y, "\xC2\xA9 2026 Mitul Shah \xC2\xB7 MIT License \xC2\xB7 built with Claude Code",
               rgba(0.75f, 0.72f, 0.9f, 0.8f * t), 1);
     keycap(p.x + p.w - 210, p.y + p.h - 64, "BACK", 0);

@@ -10,8 +10,7 @@ _Last updated: 2026-11-18._
 > push"). Say so if you'd rather it hold commits locally.
 
 ## On the TV (about 20 minutes)
-- [ ] **Try Cathode Quest 64** (installed as "Cathode Quest 64 (N64)": find it under Settings >
-  Applications if it's not in your apps row; not in the arcade yet). The D-pad walks, OK jumps,
+- [ ] **Try Cathode Quest 64** (the last card in the Native Arcade). The D-pad walks, OK jumps,
   Rewind / Fast-forward turn the camera, Play/Pause recentres it. Press OK right after walking and the jump keeps going that way (a remote can't hold both). How far can you get, and does it feel right?
 - [ ] **Listen to the games.** Nobody has heard this week's audio changes through a TV. Tell Claude
   about anything harsh, clipped, crackly, too quiet or too loud.

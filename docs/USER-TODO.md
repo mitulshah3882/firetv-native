@@ -12,7 +12,7 @@ _Last updated: 2026-11-18._
 ## First, please
 - [ ] **Check your Amazon account for an unintended subscription or trial (2026-11-18).** A scripted
   batch of remote presses kept going after a test game had quit, and it walked the TV's home screen
-  into a Prime Video subscription page. Claude backed out with Back and didn't press OK on that page
+  into a streaming app's subscription page. Claude backed out with Back and didn't press OK on that page
   knowingly, but it can't see your account. Key injection now refuses OK and similar keys unless one
   of our apps is in front.
 

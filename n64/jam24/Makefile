@@ -132,6 +132,9 @@ $(BUILD_DIR)/$(TARGET).dfs: $(ASSETS_LIST)
 	@echo "    [DFS] $@"
 	@rm -rf "./$(BUILD_DIR)/fs"
 	@for f in $(ASSETS_LIST:$(FILESYSTEM_DIR)/%=%); do mkdir -p "$(N64_MKDFS_ROOT)/$$(dirname $$f)"; cp "$(FILESYSTEM_DIR)/$$f" "$(N64_MKDFS_ROOT)/$$f"; done
+	@# a model's animations stream from files gltf_to_t3d writes next to it (<model>.N.sdata)
+	@for f in $(basename $(filter %.t3dm,$(ASSETS_LIST))); do \
+		for s in $$f.*.sdata; do if [ -e "$$s" ]; then cp "$$s" "$(N64_MKDFS_ROOT)/$${s#$(FILESYSTEM_DIR)/}"; fi; done; done
 	$(N64_MKDFS) $@ "$(N64_MKDFS_ROOT)" >/dev/null
 
 # ---- the program --------------------------------------------------------------------------------

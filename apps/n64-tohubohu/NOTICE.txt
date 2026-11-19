@@ -1,0 +1,65 @@
+Le Tohu-bohu: notice
+====================
+
+Le Tohu-bohu is a four-player 3D game by tfmoe__ for the N64brew Game Jam 2024: rummage through the
+furniture to find the key, steal it from whoever has it, and be the first to open the right safe. The jam's games are Nintendo 64 homebrew built with libdragon, an
+open-source SDK. This app builds Le Tohu-bohu and the jam's harness from source with libdragon and
+tiny3d, translates the program to native ARM code with N64Recomp (static recompilation), and runs it
+on our own runtime on Fire TV's Vega OS. No console is emulated: the program runs as native code,
+and the program image and data it reads (assets/jam_tohubohu.bin, assets/jam_tohubohu.z64)
+are built from the open-source jam repository. It is not affiliated with or endorsed by Nintendo,
+the N64brew community or the game's author.
+
+Source code
+-----------
+The complete source code for this build is at https://github.com/mitulshah3882/firetv-native
+(directory apps/n64-tohubohu; the jam build and its overrides are in n64/jam24, the runtime in
+n64/runtime, the recompiler configuration in n64/recomp/jam_tohubohu.toml). Third-party
+sources are not stored in that repository: tools/fetch-deps.sh downloads them at the exact versions
+listed below.
+
+The game code
+-------------
+- N64brew Game Jam 2024, https://github.com/n64brew/N64brew-GameJam2024 (commit
+  0dea720fc295797ae779302425791c01cb67d244): the jam harness and Le Tohu-bohu's code (tfmoe__),
+  MIT, Copyright (c) 2024 N64brew. N64BREW-GAMEJAM2024-LICENSE.txt. Our notes on every
+  asset: JAM24-CREDITS.md.
+- Our changes (n64/jam24: the static-link build, jam_boot.c, overrides/tohubohu.mk): MIT,
+  Copyright (c) 2026 Mitul Shah. FIRETV-NATIVE-LICENSE.txt
+
+Assets and attributions
+-----------------------
+- The models, textures, sounds and music: made by tfmoe__ during the jam (the game's README), part
+  of the MIT-licensed jam repository.
+- The font "Thickhead" (assets/tohubohu/thickhead.ttf): public domain, by Scotty Ulrich (the game's
+  README).
+- The jam harness's sounds (Start, Countdown, Stop, Winner): part of the MIT-licensed jam
+  repository; their original sources are not documented upstream.
+- The jam harness's font "Squarewave" (assets/squarewave.ttf): the font file names "jeti" as its
+  copyright holder; the jam repository documents no source or licence for it.
+- The launcher icon is made from a render of the game by this project's runtime.
+
+Components and licences (files in this directory)
+-------------------------------------------------
+- tiny3d, https://github.com/HailToDodongo/tiny3d (commit 6f5ac0ba098f86d04e549ea754834f1be3c150e1),
+  the game's 3D library, linked into the game program: MIT, Copyright (c) Max Bebök. TINY3D-LICENSE.
+  Its RSP microcode is not run: n64/runtime/src/hle_t3d.c does its work on the CPU and GPU.
+- libdragon, https://github.com/DragonMinded/libdragon (commit
+  39d0d6096130836a65710da6730290701d060272), linked into the game program: Unlicense (public
+  domain). LIBDRAGON-LICENSE.md. libdragon includes libxm, the XM music player, by Romain
+  "Artefact2" Dalmaso: WTFPL version 2.
+- newlib 4.4.0, the C library of libdragon's toolchain; parts of it are linked into the game
+  program. Its files carry several free licences; see upstream (https://sourceware.org/newlib/).
+- N64Recomp, https://github.com/N64Recomp/N64Recomp (commit
+  598ce2080004a5672d604dceadbda436045307b7): MIT, Copyright (c) 2024 Wiseguy. Its runtime header
+  (recomp.h) is compiled into the app. N64RECOMP-LICENSE.txt
+- n64rt runtime (n64/runtime) and vegaplat platform layer (engine/vegaplat): MIT, Copyright (c)
+  2026 Mitul Shah. FIRETV-NATIVE-LICENSE.txt
+- SDL3 video and audio drivers for Vega (engine/sdl3-vega/src): zlib, Copyright (C) 2026 Mitul
+  Shah. SDL3-VEGA-LICENSE.txt
+- SDL 3.4.18, https://github.com/libsdl-org/SDL (tag release-3.4.18): zlib, Copyright (C)
+  1997-2026 Sam Lantinga. SDL3-LICENSE.txt. SDL includes yuv2rgb, Copyright (c) 2016 Adrien
+  Descamps, BSD-3-Clause: SDL3-yuv2rgb-LICENSE.txt.
+
+The app uses Vega OS system libraries that the device provides at run time. They are not part of
+this package.

@@ -61,3 +61,12 @@ them before shipping too.
 - Packaged as `apps/n64-swordstrike` (2026-11-18), its 3D backdrop drawn by our host model of
   tiny3d's microcode. Remote: OK jumps, Play/Pause attacks, Rewind/Fast-forward slide (the runtime's
   `N64_REMOTE_MAP`); a remote patch to make one-thumb play comfortable is still to do.
+
+## Le Tohu-bohu (`code/tohubohu`, `assets/tohubohu`)
+- By tfmoe__ (`assets/minigames/tohubohu.txt`), in the MIT repo. Its README: all models, textures,
+  sounds and music were made by the author during the jam; the Thickhead font (`thickhead.ttf`) is
+  public domain, by Scotty Ulrich. Its `*.blend` sources aren't fetched (the `.glb` exports are used).
+- 3D through tiny3d (MIT, Max Bebök), pinned at `6f5ac0b`: CI4 textures, a skinned and animated
+  player (its animations stream from `player.N.sdata` files next to the model).
+- Packaged as `apps/n64-tohubohu` (2026-11-18). Remote: the D-pad walks (`dpad=stick`: the game
+  steers only with the analog stick), OK rummages, Play/Pause steals the key, Menu pauses.

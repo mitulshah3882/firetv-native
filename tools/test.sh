@@ -5,7 +5,7 @@
 #           lanes in the generated recomp.h, the portable 64-bit multiply
 #   elf     decision 51 on the device toolchain: no runtime object defines a weak n64_* symbol,
 #           and the VADPCM preload is a weak reference (needs the Vega SDK's clang, else skipped)
-#   <game>  each recompiled game in build/n64 (helloworld, brew_volley, jam_landgrab, jam_hydraharmonics, jam_swordstrike; skipped if
+#   <game>  each recompiled game in build/n64 (helloworld, brew_volley, jam_landgrab, jam_hydraharmonics, jam_swordstrike, jam_tohubohu; skipped if
 #           not generated): its sound effects decoded through its own recompiled wav64 loader vs
 #           the source WAVs, and a headless run that must boot and draw a non-black frame
 #   chroma_rules         Chroma Orbit's rules (tests/originals): clusters, rings, chains, flares and
@@ -183,15 +183,20 @@ if [[ -n "$JAM" ]]; then
     wavs+=("rom:/hydraharmonics/$w.wav64=$JAM/assets/hydraharmonics/$w.wav")
   done
   game jam_hydraharmonics 300 3000 "${wavs[@]}"
-  # Sword Strike: the first tiny3d game (the rspq tap; its 3D backdrop isn't drawn yet). Its two
+  # Sword Strike: the first tiny3d game (the rspq tap, the host microcode's untextured lit room). Its two
   # sounds are our own, synthesized by n64/jam24/overrides/swordstrike-sfx.py into the build dir.
   wavs=("rom:/core/Start.wav64=$JAM/assets/core/Start.wav")
   for w in wilhelm_scream challengers; do wavs+=("rom:/swordstrike/$w.wav64=$JAM/build-jam_swordstrike/swordstrike-sfx/$w.wav"); done
   game jam_swordstrike 300 3000 "${wavs[@]}"
+  # Le Tohu-bohu: textured, skinned, animated tiny3d models (streamed .sdata), depth past the far
+  # plane (decision 69), and a stereo song whose 404 KB decode buffer once overwrote the stack
+  # (decision 70). Its own sounds are mp3s, which game_check can't read; the harness's WAV is checked.
+  game jam_tohubohu 300 3000 "rom:/core/Start.wav64=$JAM/assets/core/Start.wav"
 else
   skip jam_landgrab "no N64brew Game Jam 2024 checkout (tools/fetch-deps.sh n64jam2024)"
   skip jam_hydraharmonics "no N64brew Game Jam 2024 checkout (tools/fetch-deps.sh n64jam2024)"
   skip jam_swordstrike "no N64brew Game Jam 2024 checkout (tools/fetch-deps.sh n64jam2024)"
+  skip jam_tohubohu "no N64brew Game Jam 2024 checkout (tools/fetch-deps.sh n64jam2024)"
 fi
 
 # ---- the original games: rules and synthesizers, no device ----

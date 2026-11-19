@@ -57,6 +57,14 @@ static struct {
     bool logged;
 } T = {.exposure = 1.0f, .cull = 2};
 
+/* N64_T3D_TRACE=<n>: log the first n matrix, vertex-load, strip and triangle events (on the Mac:
+ * where do a model's vertices land, which matrices did it get, which cache slots do triangles use). */
+static int g_trace = -1;
+static bool tracing(void) {
+    if (g_trace < 0) g_trace = SDL_getenv("N64_T3D_TRACE") ? SDL_atoi(SDL_getenv("N64_T3D_TRACE")) : 0;
+    return g_trace > 0 && g_trace--;
+}
+
 /* ---- maths ---------------------------------------------------------------------------------------- */
 static void mat_mul(float *out, const float *a, const float *b) {  /* out = a * b */
     float r[16];
@@ -67,9 +75,11 @@ static void mat_mul(float *out, const float *a, const float *b) {  /* out = a * 
     SDL_memcpy(out, r, sizeof r);
 }
 
+/* As the ucode's resolveSegmentAddr: `addr >> 24` is a byte offset into the segment table (a
+ * placeholder is id << 26), its entry is added, and the DMA sees the low 24 bits. */
 static uint32_t resolve(uint32_t addr) {
-    const uint32_t seg = (addr >> 24) & 0xF;
-    if (seg) addr = T.seg[seg] + (addr & 0xFFFFFF);
+    const uint32_t seg = (addr >> 26) & 7;
+    if (seg) addr = (T.seg[seg] + (addr & 0xFFFFFF)) & 0xFFFFFF;
     return (addr & 0x1FFFFFFFu) | 0x80000000u;
 }
 
@@ -107,6 +117,13 @@ static void matrix_stack(uint8_t *rdram, uint32_t w0, uint32_t addr) {
     if (advance < 0) SDL_memcpy(m, T.stack[idx], sizeof m);  /* pop: back to what's on the stack */
     else load_mat(rdram, addr, m);
     if (w0 & 1) mat_mul(m, T.stack[SDL_clamp(idx - 1, 0, STACK - 1)], m);
+    if (tracing()) {
+        float l[16];
+        if (advance >= 0) load_mat(rdram, addr, l);
+        n64rt_log("t3d mat %08X adv %d sp %d src %08X: diag %.3f %.3f %.3f t %.2f %.2f %.2f -> diag %.3f %.3f %.3f t %.2f %.2f %.2f",
+                  w0, advance, T.sp, addr, advance >= 0 ? l[0] : 0, advance >= 0 ? l[5] : 0, advance >= 0 ? l[10] : 0,
+                  advance >= 0 ? l[12] : 0, advance >= 0 ? l[13] : 0, advance >= 0 ? l[14] : 0, m[0], m[5], m[10], m[12], m[13], m[14]);
+    }
     SDL_memcpy(T.stack[idx], m, sizeof m);
     update_mv(m);
 }
@@ -131,6 +148,10 @@ static void vert_load(uint8_t *rdram, const uint32_t *w) {
     const int count = (int)(w[0] & 0xFFFF) / 16;
     const uint32_t src = resolve(w[1]);
     const int slot0 = (int)((w[2] & 0xFFFF) - DMEM(RSP_T3D_VERT_BUFFER)) / VERT_OUTPUT_SIZE;
+    const bool trace = tracing();
+    if (trace)
+        n64rt_log("t3d vload %08X %08X %08X: %d verts at slot %d; first pos %d %d %d", w[0], w[1], w[2], count, slot0,
+                  (int16_t)n64_r16(rdram, src), (int16_t)n64_r16(rdram, src + 2), (int16_t)n64_r16(rdram, src + 4));
     for (int i = 0; i < count; i++) {
         const int slot = slot0 + i;
         if (slot < 0 || slot >= CACHE) continue;
@@ -163,6 +184,8 @@ static void vert_load(uint8_t *rdram, const uint32_t *w) {
         o->c[3] = (uint8_t)rgba;
         o->s = (float)(int16_t)(st >> 16) / 32.0f;
         o->t = (float)(int16_t)(st & 0xFFFF) / 32.0f;
+        if (trace && i < 3)
+            n64rt_log("t3d   v%d pos %.0f %.0f %.0f -> ndc %.3f %.3f w %.1f", slot, x, y, z, o->clip[0] / o->clip[3], o->clip[1] / o->clip[3], o->clip[3]);
     }
 #else
     (void)rdram;
@@ -185,8 +208,7 @@ static void push_vert(const CVert *c) {
     o->x = c->clip[0];
     o->y = c->clip[1];
     o->w = c->clip[3];
-    /* No depth clipping (the N64 has no far plane): z is clamped to the depth range instead. */
-    o->z = SDL_clamp(c->clip[2] / c->clip[3], -1.0f, 1.0f) * c->clip[3];  /* w >= NEAR_W (clipped) */
+    o->z = c->clip[2];  /* unclamped: gfx_gl.c clamps the depth per fragment, as the RDP does */
     o->u = c->s;
     o->v = c->t;
     SDL_memcpy(o->c, c->c, 4);
@@ -216,6 +238,7 @@ static void emit_tri(const CVert *va, const CVert *vb, const CVert *vc) {
 }
 
 static void tri(int a, int b, int c) {
+    if (tracing()) n64rt_log("t3d   tri %d %d %d", a, b, c);
     if (a < 0 || b < 0 || c < 0) return;
     const CVert *va = &T.v[a], *vb = &T.v[b], *vc = &T.v[c];
     if (va->clip[3] < NEAR_W || vb->clip[3] < NEAR_W || vc->clip[3] < NEAR_W) {
@@ -294,6 +317,7 @@ void hle_t3d_exec(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n)
             break;
         case 0x7: hle_t3d_flush(rdram, ctx); load_mat(rdram, w[0] & 0xFFFFFF, T.proj); mat_mul(T.mvp, T.proj, T.mv); break;
         case 0xB:                                                                    /* TRI_STRIP */
+            if (tracing()) n64rt_log("t3d strip %08X %08X", w[0], w[1]);
             if (n >= 2) {
                 const uint32_t src = resolve(w[0] & 0xFFFFFF);
                 const int count = (int)((w[1] & 0xFFFF) + 1) / 2;
@@ -314,6 +338,7 @@ void hle_t3d_exec(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n)
             }
             break;
         case 0xC:                                                                    /* TRI_SEQ */
+            if (tracing()) n64rt_log("t3d seq %08X %08X", w[0], w[1]);
             if (n >= 2) {
                 const bool quad = (w[1] >> 16) != 0;
                 const uint32_t end = w[1] & 0xFFFF, step = (quad ? 4 : 3) * VERT_OUTPUT_SIZE;

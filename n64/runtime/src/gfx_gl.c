@@ -97,6 +97,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glDisable, (GLenum cap))                                                                  \
     X(void, glBlendFuncSeparate, (GLenum srgb, GLenum drgb, GLenum sa, GLenum da))                     \
     X(void, glClearColor, (GLfloat r, GLfloat g, GLfloat b, GLfloat a))                               \
+    X(void, glColorMask, (GLboolean r, GLboolean g, GLboolean b, GLboolean a))                        \
     X(void, glClearDepthf, (GLfloat d))                                                               \
     X(void, glClear, (GLbitfield mask))                                                               \
     X(GLuint, glCreateShader, (GLenum type))                                                          \
@@ -409,6 +410,9 @@ static void color4(uint8_t *c, uint32_t rgba) {
 static void set_target(GLuint fbo, int tw, int th, int vw, int vh) {
     gfx_flush();
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    /* The screen keeps the alpha of 1 its clear wrote: the N64 framebuffer's alpha (whatever the
+     * combiner left there) must not reach the window, which the system may composite with it. */
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, fbo == S.fb && S.fb ? GL_TRUE : GL_FALSE);
     glViewport(0, 0, vw, vh);
     S.tw = tw;
     S.th = th;
@@ -534,8 +538,10 @@ void gfx_screen_begin(int *out_w, int *out_h) {
     S.on_fb = false;
     set_target(S.screen_fbo, w, h, w, h);
     glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
     if (S.fb) {
         float dh = (float)h, dw = dh * 4.0f / 3.0f;
         if (dw > (float)w) {
@@ -588,13 +594,22 @@ void gfx_stats(int *draws, int *verts, int *uploads) {
 }
 
 /* ---- 3D ----------------------------------------------------------------------------------------- */
+/* Depth as the RDP has it: the N64 has no far (or depth) clipping. The ucode's per-vertex Z is
+ * interpolated unclamped across a triangle and the RDP clamps it per pixel, and where the stored
+ * depth is the maximum any pixel passes. So geometry beyond the far plane (Le Tohu-bohu's room:
+ * far 200, the scene at 165-345) draws in painter's order. Clamping per vertex instead hid
+ * players behind a floor whose depth, interpolated from clamped corners, came out just short of
+ * the maximum. Here gl_Position carries no z (nothing is depth-clipped; w >= NEAR_W is clipped on
+ * the CPU), the clip z is interpolated perspective-correctly, and each fragment computes its depth
+ * as z/w, clamped. With GL_LEQUAL and a clear to 1.0, fragments at the maximum pass as on the N64. */
 static const char *kVS3D =
     "layout(location=0) in vec4 a_clip;\n"
     "layout(location=1) in vec2 a_uv;\n"
     "layout(location=2) in vec4 a_col;\n"
     "out vec2 v_uv;\n"
     "out vec4 v_col;\n"
-    "void main() { gl_Position = a_clip; v_uv = a_uv; v_col = a_col; }\n";
+    "out highp float v_zc;\n"
+    "void main() { gl_Position = vec4(a_clip.xy, 0.0, a_clip.w); v_zc = a_clip.z; v_uv = a_uv; v_col = a_col; }\n";
 
 #define MAX_PROGS3D 64
 static struct {
@@ -608,7 +623,8 @@ int gfx_prog3d(const char *fs_body) {
     char *fs = NULL;
     SDL_asprintf(&fs,
                  "in vec2 v_uv;\nin vec4 v_col;\nuniform sampler2D u_tex;\nuniform vec4 u_prim, u_env;\n"
-                 "uniform float u_prim_lod, u_athresh;\nout vec4 o;\nvoid main() {\n%s\n}\n", fs_body);
+                 "uniform float u_prim_lod, u_athresh;\nin highp float v_zc;\nout vec4 o;\nvoid main() {\n"
+                 "gl_FragDepth = clamp(v_zc * gl_FragCoord.w * 0.5 + 0.5, 0.0, 1.0);\n%s\n}\n", fs_body);
     const GLuint vs = compile(GL_VERTEX_SHADER, kVS3D), f = compile(GL_FRAGMENT_SHADER, fs);
     SDL_free(fs);
     if (!vs || !f) return -1;

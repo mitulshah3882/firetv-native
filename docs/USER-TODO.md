@@ -32,6 +32,13 @@ _Last updated: 2026-11-18._
   shapes only arrive after the fifth piece. With the computer playing carefully, a round lasts about
   11 pieces (up to 17); people should do better. How long should a round feel?
 
+- [ ] **Play the two N64 3D games** (the last two cards in the arcade). They're the first N64 3D
+  games on the stick: tiny3d's microcode is modelled on the CPU and GPU, no emulator.
+  - **Le Tohu-bohu:** the D-pad walks, OK rummages through a cabinet, Play/Pause steals the key
+    from a player who has it, Menu pauses. Find the key and open the right safe. Does walking with
+    the D-pad feel OK? Anything drawn wrong (the players' pink hands are in the original model)?
+  - **Sword Strike:** OK jumps, Play/Pause attacks, Rewind or Fast-forward slides. One hit and
+    you're out. Is it playable one-handed, or does it need a different mapping?
 - [ ] **Try Chroma Orbit.** The third card in the arcade: a puzzle where coloured pairs fall toward a
   star and you turn the planet. Tell Claude if it's too fast, too slow, or confusing.
 

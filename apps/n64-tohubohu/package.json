@@ -1,0 +1,7 @@
+{
+  "name": "vega-n64-tohubohu",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "kepler": { "projectType": "native", "targets": ["tv"] }
+}

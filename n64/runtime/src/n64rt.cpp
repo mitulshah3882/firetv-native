@@ -27,6 +27,11 @@
 #endif
 // Physical address space covered: RDRAM (8 MB) + the RCP register block at 0x04000000-0x04FFFFFF.
 #define N64RT_ADDRESS_SPACE 0x05000000u
+// HLE scratch memory (decoded audio, the rspq tap, ...) lives above the 8 MB the program sees, in
+// the reserved address space, growing down from 32 MB: below 8 MB it shared the top with the stack,
+// and one big buffer (a stereo song's VADPCM frames, 404 KB) overwrote the stack. Only pages that
+// are touched cost memory.
+#define N64RT_SCRATCH_TOP (0x80000000u + 32u * 1024u * 1024u)
 
 #include "funcs.h"
 #include "librecomp/sections.h"
@@ -131,7 +136,7 @@ extern "C" bool n64rt_init(const char* image_path, uint32_t vram) {
     if (n64rt_extra_funcs)
         for (const n64rt_extra_func_t* e = n64rt_extra_funcs; e->func; ++e) g_funcs.push_back({e->vram, e->func});
     std::sort(g_funcs.begin(), g_funcs.end(), [](const FuncAt& a, const FuncAt& b) { return a.vram < b.vram; });
-    g_scratch_top = 0x80000000u + N64RT_RDRAM_SIZE;
+    g_scratch_top = N64RT_SCRATCH_TOP;
     g_start_ns = SDL_GetTicksNS();
     g_virtual = SDL_getenv("N64_SHOT") != nullptr;
     n64rt_log("loaded %s: %zu bytes at %08X, %zu functions", image_path, size, vram, g_funcs.size());
@@ -139,6 +144,10 @@ extern "C" bool n64rt_init(const char* image_path, uint32_t vram) {
 }
 
 extern "C" uint32_t n64rt_alloc(uint32_t size, uint32_t align) {
+    if (g_scratch_top - size < 0x80000000u + N64RT_RDRAM_SIZE) {
+        n64rt_log("HLE scratch memory exhausted (%u bytes asked)", size);
+        abort();
+    }
     g_scratch_top = (g_scratch_top - size) & ~(align - 1);
     memset(g_rdram + (g_scratch_top - 0x80000000u), 0, size);
     return g_scratch_top;

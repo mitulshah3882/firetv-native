@@ -123,6 +123,16 @@ static Game g_games[] = {
      "party game, recompiled to native ARM. Up, Down and OK are all it takes.",
      {"N64RECOMP", "LIBDRAGON", "NO EMULATOR", "4 PLAYERS"},
      "pkg://com.firetvnative.n64.hydraharmonics.main", "art/hydraharmonics.png", {1.0f, 0.44f, 0.69f, 1}, CARD_ART, NULL, NULL, true, {{0}}},
+    {"Sword Strike", "Nintendo 64 homebrew \xC2\xB7 statically recompiled",
+     "One hit and you're out: a four-player sword fight across floating",
+     "platforms, its 3D room drawn by tiny3d through our model of its microcode.",
+     {"N64RECOMP", "TINY3D", "NO EMULATOR", "4 PLAYERS"},
+     "pkg://com.firetvnative.n64.swordstrike.main", "art/swordstrike.png", {1.0f, 0.31f, 0.25f, 1}, CARD_ART, NULL, NULL, true, {{0}}},
+    {"Le Tohu-bohu", "Nintendo 64 homebrew \xC2\xB7 statically recompiled",
+     "Rummage through the furniture for the key, steal it, and open the right",
+     "safe first. Textured, animated N64 3D, recompiled to native ARM.",
+     {"N64RECOMP", "TINY3D", "NO EMULATOR", "4 PLAYERS"},
+     "pkg://com.firetvnative.n64.tohubohu.main", "art/tohubohu.png", {1.0f, 0.77f, 0.25f, 1}, CARD_ART, NULL, NULL, true, {{0}}},
 };
 #define NUM_GAMES ((int)(sizeof(g_games) / sizeof(g_games[0])))
 
@@ -638,13 +648,15 @@ static void draw_about(void) {
         {"Brew Volley", "MULLER Marian (N64brew Jam), libdragon; recompiled with N64Recomp (MIT)"},
         {"Land Grab", "Meeq (N64brew Game Jam 2024, MIT); music by Ultrasyd and Phekkis (CC BY-NC 4.0)"},
         {"Hydra Harmonics", "Catch-64 (N64brew Game Jam 2024, MIT); Coustard font (SIL OFL 1.1)"},
+        {"Sword Strike", "Super Boognish (N64brew Game Jam 2024, MIT); tiny3d (MIT); our own sounds"},
+        {"Le Tohu-bohu", "tfmoe__ (N64brew Game Jam 2024, MIT); tiny3d (MIT); Thickhead font (public domain)"},
         {"Fonts", "Chakra Petch and Press Start 2P (SIL Open Font License 1.1)"},
         {"Music", "generated live by a tiny synthesizer, no samples"},
     };
     for (size_t i = 0; i < SDL_arraysize(intro); ++i, y += 40)
         text_draw(A.r, A.body, p.x + 52, y, intro[i], rgba(0.9f, 0.88f, 0.98f, 0.92f * t), 1);
     y += 30;
-    for (size_t i = 0; i < SDL_arraysize(rows); ++i, y += 38) {
+    for (size_t i = 0; i < SDL_arraysize(rows); ++i, y += 32) {
         text_draw(A.r, A.body, p.x + 52, y, rows[i][0], rgba(1, 0.45f, 0.8f, 0.95f * t), 1);
         text_draw(A.r, A.body, p.x + 232, y, rows[i][1], rgba(0.9f, 0.88f, 0.98f, 0.92f * t), 1);
     }

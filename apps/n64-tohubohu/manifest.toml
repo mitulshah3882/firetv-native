@@ -1,0 +1,28 @@
+schema-version = 1
+
+[package]
+title = "Le Tohu-bohu (N64)"
+icon = "@image/icon.png"
+version = "0.1.0"
+build-number = 1
+id = "com.firetvnative.n64.tohubohu"
+
+[os.version]
+min = "2.0"
+target = "2.0"
+
+[components]
+[[components.interactive]]
+id = "com.firetvnative.n64.tohubohu.main"
+launch-type = "singleton"
+categories = ["com.amazon.category.main"]
+
+[wants]
+[[wants.service]]
+id = "com.amazon.audio.stream"
+[[wants.service]]
+id = "com.amazon.audio.control"
+
+[needs]
+[[needs.module]]
+id = "/com.amazon.vega.os@IVega_2_0"

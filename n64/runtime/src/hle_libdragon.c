@@ -351,7 +351,8 @@ void n64_display_show(uint8_t *rdram, recomp_context *ctx) { (void)rdram; (void)
  * them with N64_REMOTE_MAP="playpause=R,playpause_hold=L,menu_hold=B" (env, or the compile-time
  * default N64_REMOTE_MAP_DEFAULT). A "<key>_hold" entry makes that key tap-or-hold. On a computer
  * the keyboard adds X=B, Z=Z, Q=L, W=R, S=START and I/J/K/L for the C buttons; Return/Space is OK,
- * Menu, and the media keys follow the remote's mapping.
+ * Menu, and the media keys follow the remote's mapping. "dpad=stick" makes the remote's D-pad (and
+ * the arrow keys) move the analog stick instead, for games that only steer with the stick.
  *
  * Headless test aids: N64_FAKE_PAD0=<hex> holds port 0's buttons; N64_PAD_SCRIPT=
  * "<from>-<to>:<hex>,..." presses buttons on port 0 during frame ranges; N64_PADS=<n> sets how
@@ -381,7 +382,7 @@ typedef struct {
     uint64_t t0;
     int pulse;
 } RemoteKey;
-static struct { RemoteKey key[RK_COUNT]; bool loaded; } g_remote;
+static struct { RemoteKey key[RK_COUNT]; bool loaded, dpad_stick; } g_remote;
 
 static void load_remote_map(void) {
     static const uint16_t defaults[RK_COUNT] = {BTN_A, BTN_START, BTN_B, BTN_CL, BTN_CR};
@@ -396,7 +397,11 @@ static void load_remote_map(void) {
     for (const char *p = map; *p;) {
         const char *eq = SDL_strchr(p, '='), *end = SDL_strchr(p, ',');
         if (!end) end = p + SDL_strlen(p);
-        if (eq && eq < end) {
+        if (eq && eq < end && eq - p == 4 && !SDL_strncasecmp(p, "dpad", 4)) {
+            /* "dpad=stick": the D-pad moves the analog stick instead of pressing the D-pad buttons,
+             * for games that only steer with the stick (Le Tohu-bohu) */
+            g_remote.dpad_stick = end - eq - 1 == 5 && !SDL_strncasecmp(eq + 1, "stick", 5);
+        } else if (eq && eq < end) {
             size_t kl = (size_t)(eq - p);
             const uint16_t bit = button_named(eq + 1, (size_t)(end - eq - 1));
             const bool hold = kl > 5 && !SDL_strncasecmp(eq - 5, "_hold", 5);
@@ -522,6 +527,14 @@ void n64_joypad_poll(uint8_t *rdram, recomp_context *ctx) {
         if ((long)G.frames >= f0 && (long)G.frames <= f1) G.pad[0].cur |= bits;
         p = (*end == ',') ? end + 1 : end;
         if (*p && *p != ',' && (*p < '0' || *p > '9')) break;
+    }
+    if (g_remote.dpad_stick && np < 2) {  /* port 0 is the remote's (scripted input too) */
+        PadState *r = &G.pad[0];
+        int sx = (r->cur & BTN_DR) ? 85 : (r->cur & BTN_DL) ? -85 : 0, sy = (r->cur & BTN_DU) ? 85 : (r->cur & BTN_DD) ? -85 : 0;
+        if (sx && sy) { sx = sx * 7 / 10; sy = sy * 7 / 10; }
+        r->sx = (int8_t)sx;
+        r->sy = (int8_t)sy;
+        r->cur &= (uint16_t)~(BTN_DU | BTN_DD | BTN_DL | BTN_DR);
     }
     const char *npads = SDL_getenv("N64_PADS");
     if (npads)

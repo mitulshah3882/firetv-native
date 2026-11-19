@@ -19,3 +19,4 @@ Extra moments (`<game>-2.png`, `-3.png`), which the selected card cross-fades th
 - `prismspire-2.png`, `prismspire-3.png`: Prism Spire's demo AI at 7.3 m and the collapse that ends the round (the `tall` script), rendered by its Mac host preview
 - `chromaorbit-2.png`, `chromaorbit-3.png`: Chroma Orbit in Night City and a supernova (the `tour` script), rendered by its Mac host preview
 - `swordstrike.png`: Sword Strike by Super Boognish (N64brew Game Jam 2024, MIT), a render of the recompiled build with its tiny3d backdrop by our host runner
+- `tohubohu.png`: Le Tohu-bohu by tfmoe__ (N64brew Game Jam 2024, MIT), a render of the recompiled build (textured, skinned tiny3d models) by our host runner

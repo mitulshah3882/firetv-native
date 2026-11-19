@@ -37,8 +37,9 @@ _Last updated: 2026-11-18._
   - **Le Tohu-bohu:** the D-pad walks, OK rummages through a cabinet, Play/Pause steals the key
     from a player who has it, Menu pauses. Find the key and open the right safe. Does walking with
     the D-pad feel OK? Anything drawn wrong (the players' pink hands are in the original model)?
-  - **Sword Strike:** OK jumps, Play/Pause attacks, Rewind or Fast-forward slides. One hit and
-    you're out. Is it playable one-handed, or does it need a different mapping?
+  - **Sword Strike:** one thumb: Left/Right move, Up jumps, OK attacks, Down drops through a
+    platform, Rewind / Fast-forward slide; Menu pauses (hold OK there to quit). One hit and you're
+    out. Does it feel good one-handed?
 - [ ] **Try Chroma Orbit.** The third card in the arcade: a puzzle where coloured pairs fall toward a
   star and you turn the planet. Tell Claude if it's too fast, too slow, or confusing.
 

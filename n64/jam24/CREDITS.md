@@ -59,8 +59,11 @@ them before shipping too.
   `overrides/swordstrike-sfx.py` synthesizes our own under the same names: a sliding square-wave yelp
   and an 8-bar chiptune loop in A minor (MIT).
 - Packaged as `apps/n64-swordstrike` (2026-11-18), its 3D backdrop drawn by our host model of
-  tiny3d's microcode. Remote: OK jumps, Play/Pause attacks, Rewind/Fast-forward slide (the runtime's
-  `N64_REMOTE_MAP`); a remote patch to make one-thumb play comfortable is still to do.
+  tiny3d's microcode.
+- Our remote patch (`patches/swordstrike.patch`) makes it one-thumb: Up jumps, OK attacks (B, via
+  `N64_REMOTE_MAP`), Down alone drops through a platform, Rewind / Fast-forward slide left / right,
+  holding OK on the pause screen quits, and the controls show for the first seconds of a round.
+  A gamepad keeps every original control.
 
 ## Le Tohu-bohu (`code/tohubohu`, `assets/tohubohu`)
 - By tfmoe__ (`assets/minigames/tohubohu.txt`), in the MIT repo. Its README: all models, textures,

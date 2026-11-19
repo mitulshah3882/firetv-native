@@ -188,7 +188,7 @@ void menu_loop(float deltatime) {
             if (pressed.d_left || pressed.c_left) next_game = (next_game + GAME_COUNT - 1) % GAME_COUNT;
             if (pressed.d_right || pressed.c_right) next_game = (next_game + 1) % GAME_COUNT;
         }
-        if (pressed.a || pressed.start) {
+        if (pressed.a || pressed.b || pressed.start) {  /* B: a game may map the remote's OK to B */
             start_minigame(next_game);
             return;
         }

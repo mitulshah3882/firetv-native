@@ -24,8 +24,8 @@ The game code
   0dea720fc295797ae779302425791c01cb67d244): the jam harness and Sword Strike's code (Super
   Boognish), MIT, Copyright (c) 2024 N64brew. N64BREW-GAMEJAM2024-LICENSE.txt. Our notes on every
   asset: JAM24-CREDITS.md.
-- Our changes (n64/jam24: the static-link build, jam_boot.c, overrides/swordstrike.mk and
-  overrides/swordstrike-sfx.py): MIT, Copyright (c) 2026 Mitul Shah. FIRETV-NATIVE-LICENSE.txt
+- Our changes (n64/jam24: the static-link build, jam_boot.c, patches/swordstrike.patch (the
+  remote controls), overrides/swordstrike.mk and overrides/swordstrike-sfx.py): MIT, Copyright (c) 2026 Mitul Shah. FIRETV-NATIVE-LICENSE.txt
 
 Assets and attributions
 -----------------------

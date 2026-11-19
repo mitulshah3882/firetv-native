@@ -1,0 +1,129 @@
+Sword Strike (N64brew Game Jam 2024, code/swordstrike at 0dea720) for the Fire TV remote.
+
+The game moves on the D-pad, jumps on A, attacks on B, drops through a platform on Down + A and
+slides on L. A remote is held in one hand and its D-pad and OK sit under one thumb, so two buttons
+at once are out, and it has no L or Z. With this patch and N64_REMOTE_MAP_DEFAULT="ok=B"
+(apps/n64-swordstrike/CMakeLists.txt):
+  - Left / Right move, Up jumps (as well as A), OK attacks (B);
+  - Down alone drops through a platform (Down + A still does);
+  - C-left / C-right, the remote's << and >>, slide left / right (L still slides the way you face);
+  - the pause screen quits on B held for half a second (hold OK), as well as on Z + Up;
+  - the remote's controls show below the lowest floor during the countdown and the fight's first
+    5 seconds, and minigame_def.instructions lists both sets.
+
+A gamepad keeps every original control. n64/jam24/Makefile applies this to a copy of
+code/swordstrike in the build directory, so the jam checkout stays as fetched. The build stops if it
+no longer applies.
+
+SPDX-FileCopyrightText: 2026 Mitul Shah
+SPDX-License-Identifier: MIT
+
+diff --git a/code/swordstrike/functions.c b/code/swordstrike/functions.c
+--- a/code/swordstrike/functions.c
++++ b/code/swordstrike/functions.c
+@@ -427,20 +427,22 @@
+ // UPDATE PLAYER STATE BASED ON CONTROLLER INPUT
+ void pollPlayerInput(struct player *p, joypad_buttons_t *joypad_held){
+     if(p->onFloor || p->onTopOfEnemy){
+-        // drop down if on droppable floor
+-        if(joypad_held->a && joypad_held->d_down){
++        // drop down if on droppable floor (Down alone drops too: one thumb on a Fire TV remote)
++        if(joypad_held->d_down && (joypad_held->a || p->floorDroppable)){
+             if(p->floorDroppable && !p->onTopOfEnemy){
+                 p->verticalVelocity = DROPDOWN_STRENGTH;
+                 p->onFloor = false;
+                 p->dropdownCounter = 5; // ignore floor detection for 2 frames so you don't get pushed back out
+             }       
+-        // initiate slide    
+-        } else if (joypad_held->l){
++        // initiate slide (C-left / C-right, the remote's << and >>, slide that way)
++        } else if (joypad_held->l || joypad_held->c_left || joypad_held->c_right){
+             if(p->slideCooldown == 0){
++                if(joypad_held->c_left) p->direction = 0;
++                else if(joypad_held->c_right) p->direction = 1;
+                 initPlayerSlide(p);
+             }
+-        // initiate jump
+-        } else if (joypad_held->a) {
++        // initiate jump (Up also jumps)
++        } else if (joypad_held->a || joypad_held->d_up) {
+             p->verticalVelocity = -JUMP_STRENGTH;
+             p->onFloor = false;
+             p->onTopOfEnemy = false;
+diff --git a/code/swordstrike/swordstrike.c b/code/swordstrike/swordstrike.c
+--- a/code/swordstrike/swordstrike.c
++++ b/code/swordstrike/swordstrike.c
+@@ -20,7 +20,7 @@
+     .gamename = "Sword Strike",
+     .developername = "Super Boognish",
+     .description = "Free for all battle, but take one hit and you're out! Last player standing wins.",
+-    .instructions = "DPAD for movement, A to jump, B to attack, Down + A to drop down, L to slide"
++    .instructions = "Left/Right to move, Up or A to jump, B (remote: OK) to attack, Down to drop down, L or C-left/C-right (remote: << >>) to slide"
+ };
+ 
+ // font globals
+@@ -71,6 +71,10 @@
+ // keep track of which port paused game + delay for proper response timing
+ joypad_port_t pausePlayerPort;
+ float pauseCheckDelay;
++// how long B (the remote's OK) has been held on the pause screen; half a second quits
++float pauseQuitHold;
++// seconds of the fight left to show the controls (they also show during the countdown)
++float controlsHint;
+ 
+ // player sprites init
+ sprite_t *fighter_left_neutral;
+@@ -286,6 +290,8 @@
+ 
+     // default to 0
+     pauseCheckDelay = 0.0f;
++    pauseQuitHold = 0.0f;
++    controlsHint = 5.0f;
+ 
+     //get number of players
+     numPlayers = core_get_playercount();
+@@ -546,6 +552,7 @@
+     color_t WHITE = RGBA32(255, 255, 255, 0);
+ 
+     if(game_state == 1){
++        if(controlsHint > 0.0f) controlsHint -= deltatime;
+         uint32_t playercount = core_get_playercount();
+         for (size_t i = 0; i < 4; i++)
+         {
+@@ -592,8 +599,9 @@
+             }
+         }
+         
+-        // QUIT GAME
+-        if(joypad_held.z && joypad_held.d_up){
++        // QUIT GAME (Z + Up, or hold B: a remote can't press Z)
++        pauseQuitHold = joypad_held.b ? pauseQuitHold + deltatime : 0.0f;
++        if((joypad_held.z && joypad_held.d_up) || pauseQuitHold >= 0.5f){
+             minigame_end();
+         }
+     }
+@@ -683,6 +691,15 @@
+         rdpq_text_printf(NULL, FONT_TEXT, 155, 140, "%i", (int)countdown_timer);
+     }
+ 
++    // THE CONTROLS, for the Fire TV remote (a gamepad's A and B work as before), below the lowest
++    // floor, during the countdown and the first seconds of the fight
++    if(game_state == 0 || (game_state == 1 && controlsHint > 0.0f)){
++        rdpq_sync_pipe(); // Hardware crashes otherwise
++        rdpq_sync_tile(); // Hardware crashes otherwise
++        rdpq_text_printf(&(rdpq_textparms_t){ .width = 320, .align = ALIGN_CENTER }, FONT_TEXT, 0, 222,
++                         "UP JUMP   OK ATTACK   DOWN DROP   << >> SLIDE");
++    }
++
+     // DISPLAY WINNER NAME 
+     if(game_state == 2 && playedWinnerSound){
+         rdpq_sync_pipe(); // Hardware crashes otherwise
+@@ -695,7 +712,7 @@
+         rdpq_sync_pipe(); // Hardware crashes otherwise
+         rdpq_sync_tile(); // Hardware crashes otherwise
+         rdpq_text_printf(NULL, FONT_TEXT, 145, 140,  "%s", "PAUSE");
+-        rdpq_text_printf(NULL, FONT_TEXT, 110, 230, "%s", "HOLD Z + UP TO QUIT");
++        rdpq_text_printf(NULL, FONT_TEXT, 118, 230, "%s", "HOLD OK TO QUIT");
+     }
+ 
+     // detach rdp before updating display

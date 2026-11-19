@@ -23,9 +23,10 @@ vega_app_license(N64BREW-GAMEJAM2024-LICENSE.txt "${JAM24_SRC}/LICENSE")
 vega_app_license(JAM24-CREDITS.md "${CMAKE_CURRENT_SOURCE_DIR}/../../n64/jam24/CREDITS.md")
 vega_app_license(TINY3D-LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/_src/tiny3d-6f5ac0ba098f86d04e549ea754834f1be3c150e1/LICENSE")
 
-# Remote: the D-pad moves, OK jumps (A), Play/Pause attacks (B), Rewind or Fast-forward slides (L),
-# Menu is START. Down + OK drops through a platform. A gamepad has every button.
+# Remote, one thumb (n64/jam24/patches/swordstrike.patch): Left/Right move, Up jumps, OK attacks
+# (B), Down drops through a platform, Rewind / Fast-forward slide left / right (C-left / C-right),
+# Menu is START (pause; hold OK there to quit). A gamepad has every original button.
 n64_add_recomp_app(n64_swordstrike PACKAGE_ID "com.firetvnative.n64.swordstrike" GAME jam_swordstrike)
-target_compile_definitions(n64_swordstrike PRIVATE N64_REMOTE_MAP_DEFAULT="rewind=L,ff=L")
+target_compile_definitions(n64_swordstrike PRIVATE N64_REMOTE_MAP_DEFAULT="ok=B")
 target_link_libraries(n64_swordstrike PRIVATE m)
 vpt_create_package(NAME n64-swordstrike)

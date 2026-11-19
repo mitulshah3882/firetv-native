@@ -9,13 +9,6 @@ _Last updated: 2026-11-18._
 > **Pushing:** Claude keeps pushing finished work to GitHub under your OK of 2026-11-15 ("feel free to
 > push"). Say so if you'd rather it hold commits locally.
 
-## First, please
-- [ ] **Check your Amazon account for an unintended subscription or trial (2026-11-18).** A scripted
-  batch of remote presses kept going after a test game had quit, and it walked the TV's home screen
-  into a streaming app's subscription page. Claude backed out with Back and didn't press OK on that page
-  knowingly, but it can't see your account. Key injection now refuses OK and similar keys unless one
-  of our apps is in front.
-
 ## On the TV (about 20 minutes)
 - [ ] **Try Cathode Quest 64** (installed as "Cathode Quest 64 (N64)": find it under Settings >
   Applications if it's not in your apps row; not in the arcade yet). The D-pad walks, OK jumps,
@@ -73,6 +66,7 @@ _Last updated: 2026-11-18._
   the first store submission?
 
 ## Done
+- [x] **Checked the Amazon account after the stray key presses** (2026-11-18): fine, nothing changed.
 - 2026-11-18: **Mac cleanup.** Claude deleted 2.9 GB of old debug symbols and Debug builds from the project, and 1.3 GB of its own scratch files.
 - 2026-11-16: **Open source or private?** Open source in this repo.
 - 2026-11-16: **The next big project:** original games, Prism Spire then Chroma Orbit.

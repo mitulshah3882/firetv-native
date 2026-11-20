@@ -650,7 +650,7 @@ static const char *kVS3D =
 #define MAX_PROGS3D 64
 static struct {
     GLuint vao, vbo;
-    struct { GLuint p; GLint tex, tex1, t1, prim, env, prim_lod, athresh; } prog[MAX_PROGS3D];
+    struct { GLuint p; GLint tex, tex1, t1, prim, env, fog, prim_lod, athresh; } prog[MAX_PROGS3D];
     int nprog;
 } D;
 
@@ -658,7 +658,7 @@ int gfx_prog3d(const char *fs_body) {
     if (!S.ok || D.nprog == MAX_PROGS3D) return -1;
     char *fs = NULL;
     SDL_asprintf(&fs,
-                 "in vec2 v_uv;\nin vec4 v_col;\nuniform sampler2D u_tex, u_tex1;\nuniform highp vec4 u_t1;\nuniform vec4 u_prim, u_env;\n"
+                 "in vec2 v_uv;\nin vec4 v_col;\nuniform sampler2D u_tex, u_tex1;\nuniform highp vec4 u_t1;\nuniform vec4 u_prim, u_env, u_fog;\n"
                  "uniform float u_prim_lod, u_athresh;\nin highp float v_zc;\nout vec4 o;\nvoid main() {\n"
                  "gl_FragDepth = clamp(v_zc * gl_FragCoord.w * 0.5 + 0.5, 0.0, 1.0);\n%s\n}\n", fs_body);
     const GLuint vs = compile(GL_VERTEX_SHADER, kVS3D), f = compile(GL_FRAGMENT_SHADER, fs);
@@ -679,6 +679,7 @@ int gfx_prog3d(const char *fs_body) {
     D.prog[i].tex1 = glGetUniformLocation(p, "u_tex1");
     D.prog[i].t1 = glGetUniformLocation(p, "u_t1");
     D.prog[i].prim = glGetUniformLocation(p, "u_prim");
+    D.prog[i].fog = glGetUniformLocation(p, "u_fog");
     D.prog[i].env = glGetUniformLocation(p, "u_env");
     D.prog[i].prim_lod = glGetUniformLocation(p, "u_prim_lod");
     D.prog[i].athresh = glGetUniformLocation(p, "u_athresh");
@@ -906,6 +907,7 @@ void gfx_draw3d(const Gfx3DState *st, const GfxVert3D *v, int n) {
     glUniform4f(pr->t1, st->t1[0], st->t1[1], st->t1[2], st->t1[3]);
     glUniform4f(pr->prim, st->prim[0], st->prim[1], st->prim[2], st->prim[3]);
     glUniform4f(pr->env, st->env[0], st->env[1], st->env[2], st->env[3]);
+    glUniform4f(pr->fog, st->fog[0], st->fog[1], st->fog[2], st->fog[3]);
     glUniform1f(pr->prim_lod, st->prim_lod);
     glUniform1f(pr->athresh, st->athresh);
     GfxTex *t = st->tex ? st->tex : &S.white;

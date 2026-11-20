@@ -75,7 +75,7 @@ typedef struct {
     uint8_t c[4];      /* shade colour */
 } GfxVert3D;
 /* A program whose fragment shader body computes `o` from v_uv, v_col (the shade), u_tex, u_prim,
- * u_env, u_prim_lod and u_athresh. Returns its handle, or -1. */
+ * u_env, u_fog, u_prim_lod and u_athresh. Returns its handle, or -1. */
 int gfx_prog3d(const char *fs_body);
 typedef struct {
     int prog;
@@ -88,7 +88,7 @@ typedef struct {
     float t1[4];
     int blend;                /* GFX_BLEND_* */
     bool ztest, zwrite;
-    float prim[4], env[4], prim_lod, athresh;
+    float prim[4], env[4], fog[4], prim_lod, athresh;
     int vx, vy, vw, vh;       /* the viewport, N64 pixels */
     bool sc_on;               /* the scissor, N64 pixels */
     SDL_Rect sc;

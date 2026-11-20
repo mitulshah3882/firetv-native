@@ -582,27 +582,45 @@ static void texture_rect(uint8_t *rdram, recomp_context *ctx, const uint32_t *w)
     const float v0 = t0, v1 = t0 + (y1 - y0) * dt;
     const float umin = SDL_min(u0, u1), umax = SDL_max(u0, u1), vmin = SDL_min(v0, v1), vmax = SDL_max(v0, v1);
     const float tw = (float)(tl->sub_w ? tl->sub_w : t->w), th = (float)(tl->sub_h ? tl->sub_h : t->h);
-    /* Walk the texture periods the span crosses (one when there's no wrapping). */
-    const int ku0 = tl->s_wrap ? (int)SDL_floorf(umin / tw) : 0, ku1 = tl->s_wrap ? (int)SDL_ceilf(umax / tw) - 1 : 0;
-    const int kv0 = tl->t_wrap ? (int)SDL_floorf(vmin / th) : 0, kv1 = tl->t_wrap ? (int)SDL_ceilf(vmax / th) - 1 : 0;
-    if ((ku1 - ku0 + 1) * (kv1 - kv0 + 1) > 4096) return;
-    for (int kv = kv0; kv <= kv1; kv++) {
-        const float pv0 = SDL_max(vmin, kv * th), pv1 = SDL_min(vmax, (kv + 1) * th);
-        if (pv1 <= pv0) continue;
-        for (int ku = ku0; ku <= ku1; ku++) {
-            const float pu0 = SDL_max(umin, ku * tw), pu1 = SDL_min(umax, (ku + 1) * tw);
-            if (pu1 <= pu0) continue;
+    /* The span in pieces per axis: one per texture period it crosses when the tile wraps; when it
+     * clamps, the texture plus whatever lies before or after it, which repeats the edge texel (the
+     * RDP clamps coordinates: Cathode Quest stretches a 16x16 corner into its dialogue box). */
+    typedef struct { float p0, p1, l0, l1; bool flip; } Piece;
+    static Piece pu[4096 + 2], pv[4096 + 2];  /* small tiles repeat across the screen (Hydra Harmonics' curtains) */
+    int nu = 0, nv = 0;
+    for (int axis = 0; axis < 2; axis++) {
+        const bool wrap = axis ? tl->t_wrap : tl->s_wrap, mirror = axis ? tl->t_mirror : tl->s_mirror;
+        const float lo = axis ? vmin : umin, hi = axis ? vmax : umax, sz = axis ? th : tw;
+        Piece *pc = axis ? pv : pu;
+        int *np = axis ? &nv : &nu;
+        if (wrap) {
+            const int k0 = (int)SDL_floorf(lo / sz), k1 = (int)SDL_ceilf(hi / sz) - 1;
+            if (k1 - k0 + 1 > 4096) return;
+            for (int k = k0; k <= k1; k++) {
+                const float a = SDL_max(lo, k * sz), b = SDL_min(hi, (k + 1) * sz);
+                if (b <= a) continue;
+                Piece q = {a, b, a - k * sz, b - k * sz, false};
+                if (mirror && (k & 1)) { const float t0 = sz - q.l1; q.l1 = sz - q.l0; q.l0 = t0; q.flip = true; }
+                pc[(*np)++] = q;
+            }
+        } else {
+            const float e = 1e-3f;
+            if (lo < 0) pc[(*np)++] = (Piece){lo, SDL_min(hi, 0), 0.5f - e, 0.5f, false};
+            if (hi > 0 && lo < sz) pc[(*np)++] = (Piece){SDL_max(lo, 0), SDL_min(hi, sz), SDL_max(lo, 0), SDL_min(hi, sz), false};
+            if (hi > sz) pc[(*np)++] = (Piece){SDL_max(lo, sz), hi, sz - 0.5f, sz - 0.5f + e, false};
+        }
+    }
+    if (nu * nv > 4096) return;
+    for (int j = 0; j < nv; j++) {
+        const Piece *qv = &pv[j];
+        for (int i = 0; i < nu; i++) {
+            const Piece *qu = &pu[i];
             /* screen position of this piece */
-            const float sx0 = x0 + ((ds > 0 ? pu0 : pu1) - u0) / ds, sx1 = x0 + ((ds > 0 ? pu1 : pu0) - u0) / ds;
-            const float sy0 = y0 + ((dt > 0 ? pv0 : pv1) - v0) / dt, sy1 = y0 + ((dt > 0 ? pv1 : pv0) - v0) / dt;
-            bool fx = ds < 0, fy = dt < 0;
-            float lu0 = pu0 - ku * tw, lu1 = pu1 - ku * tw, lv0 = pv0 - kv * th, lv1 = pv1 - kv * th;
-            if (tl->s_mirror && (ku & 1)) { const float a = tw - lu1; lu1 = tw - lu0; lu0 = a; fx = !fx; }
-            if (tl->t_mirror && (kv & 1)) { const float a = th - lv1; lv1 = th - lv0; lv0 = a; fy = !fy; }
-            if (!tl->s_wrap) { lu0 = SDL_max(lu0, 0); lu1 = SDL_min(lu1, tw); }
-            if (!tl->t_wrap) { lv0 = SDL_max(lv0, 0); lv1 = SDL_min(lv1, th); }
-            if (lu1 <= lu0 || lv1 <= lv0) continue;
-            const SDL_FRect src = {lu0 + (float)tl->s_org, lv0 + (float)tl->t_org, lu1 - lu0, lv1 - lv0};
+            const float sx0 = x0 + ((ds > 0 ? qu->p0 : qu->p1) - u0) / ds, sx1 = x0 + ((ds > 0 ? qu->p1 : qu->p0) - u0) / ds;
+            const float sy0 = y0 + ((dt > 0 ? qv->p0 : qv->p1) - v0) / dt, sy1 = y0 + ((dt > 0 ? qv->p1 : qv->p0) - v0) / dt;
+            const bool fx = (ds < 0) != qu->flip, fy = (dt < 0) != qv->flip;
+            if (qu->l1 <= qu->l0 || qv->l1 <= qv->l0) continue;
+            const SDL_FRect src = {qu->l0 + (float)tl->s_org, qv->l0 + (float)tl->t_org, qu->l1 - qu->l0, qv->l1 - qv->l0};
             const SDL_FRect dst = {SDL_min(sx0, sx1), SDL_min(sy0, sy1), SDL_fabsf(sx1 - sx0), SDL_fabsf(sy1 - sy0)};
             draw_tex(t, &src, &dst, (fx ? GFX_FLIP_H : 0) | (fy ? GFX_FLIP_V : 0), 0, NULL);
         }
@@ -1287,14 +1305,22 @@ static const char *cc_alpha(int pos, int sel) {
     return common[sel & 7];
 }
 
-typedef struct { uint64_t cc; bool two; bool ac; bool pv; int prog; } Prog3D;
+typedef struct { uint64_t cc; bool two; bool ac; bool pv; bool fog; int prog; } Prog3D;
 static Prog3D g_prog3d[64];
 static int g_nprog3d;
 
+/* The fog cycle of the blender (rdpq_mode_fog) as RDPQ_FOG_STANDARD: IN * SHADE_ALPHA + FOG * (1 - SHADE_ALPHA).
+ * tiny3d puts a per-vertex fog factor in the shade alpha; the material's own blend is the second cycle. */
+static bool fog_standard(void) {
+    const uint32_t f = R.m.fog;
+    return f && ((f >> 30) & 3) == BL_IN && ((f >> 26) & 3) == 2 && ((f >> 22) & 3) == BL_FOG && ((f >> 18) & 3) == 0;
+}
+
 static int program_for(const DrawState *s) {
-    const bool ac = s->ac == 1;
+    const bool ac = s->ac == 1, fog = !g_prim_vtx && fog_standard();
     for (int i = 0; i < g_nprog3d; i++)
-        if (g_prog3d[i].cc == R.m.cc && g_prog3d[i].two == (s->ncycles == 2) && g_prog3d[i].ac == ac && g_prog3d[i].pv == g_prim_vtx)
+        if (g_prog3d[i].cc == R.m.cc && g_prog3d[i].two == (s->ncycles == 2) && g_prog3d[i].ac == ac && g_prog3d[i].pv == g_prim_vtx &&
+            g_prog3d[i].fog == fog)
             return g_prog3d[i].prog;
     char body[2048];
     int len = SDL_snprintf(body, sizeof body, "vec4 tex = texture(u_tex, v_uv);\nvec4 tex1 = texture(u_tex1, v_uv * u_t1.xy + u_t1.zw);\n"
@@ -1306,10 +1332,11 @@ static int program_for(const DrawState *s) {
                             cc_rgb(0, k->ra), cc_rgb(1, k->rb), cc_rgb(2, k->rc), cc_rgb(3, k->rd), cc_alpha(0, k->aa),
                             cc_alpha(1, k->ab), cc_alpha(2, k->ac), cc_alpha(3, k->ad));
     }
-    SDL_snprintf(body + len, sizeof body - (size_t)len, "%so = comb;\n", ac ? "if (comb.a < u_athresh) discard;\n" : "");
+    SDL_snprintf(body + len, sizeof body - (size_t)len, "%s%so = comb;\n", ac ? "if (comb.a < u_athresh) discard;\n" : "",
+                 fog ? "comb.rgb = mix(u_fog.rgb, comb.rgb, v_col.a);\n" : "");
     const int prog = gfx_prog3d(body);
     if (prog < 0) n64rt_log("rdpq: 3D combiner %016llX didn't compile", (unsigned long long)R.m.cc);
-    if (g_nprog3d < (int)SDL_arraysize(g_prog3d)) g_prog3d[g_nprog3d++] = (Prog3D){R.m.cc, s->ncycles == 2, ac, g_prim_vtx, prog};
+    if (g_nprog3d < (int)SDL_arraysize(g_prog3d)) g_prog3d[g_nprog3d++] = (Prog3D){R.m.cc, s->ncycles == 2, ac, g_prim_vtx, fog, prog};
     return prog;
 }
 
@@ -1378,10 +1405,11 @@ void hle_rdpq_draw3d(uint8_t *rdram, recomp_context *ctx, GfxVert3D *v, int n, i
     if (s.ac == 1 && st.blend == GFX_BLEND_BLEND && (!s.blend_on || (s.m != BL_MEM && s.p != BL_MEM))) st.blend = GFX_BLEND_NONE;
     st.ztest = (R.m.som >> 4) & 1;   /* SOM_Z_COMPARE */
     st.zwrite = (R.m.som >> 5) & 1;  /* SOM_Z_WRITE */
-    const C4 p = unpack(R.prim), e = unpack(R.env);
+    const C4 p = unpack(R.prim), e = unpack(R.env), f = unpack(R.fog);
     for (int i = 0; i < 4; i++) {
         st.prim[i] = (float)p.v[i] / 255.0f;
         st.env[i] = (float)e.v[i] / 255.0f;
+        st.fog[i] = (float)f.v[i] / 255.0f;
     }
     st.prim_lod = (float)R.prim_lod / 255.0f;
     st.athresh = (float)s.ac_threshold / 255.0f;

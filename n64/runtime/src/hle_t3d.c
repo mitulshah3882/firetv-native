@@ -11,7 +11,7 @@
  * The microcode's DMEM addresses come from tiny3d's generated rsp_tiny3d.h (built with libt3d.a);
  * without it the commands are only counted.
  *
- * Not modelled yet: point lights, fog, vertex effects, depth offset, alpha-to-tile, IMEM patches.
+ * Not modelled yet: vertex effects, depth offset, alpha-to-tile, IMEM patches.
  * tinypx, tiny3d's particle microcode, is modelled at the end of this file.
  *
  * SPDX-FileCopyrightText: 2026 Mitul Shah
@@ -45,18 +45,28 @@ static struct {
     int sp;           /* the stack pointer in bytes, relative to where tiny3d's started */
     float mv[16], mvp[16], nrm[9];
     CVert v[CACHE];
-    uint8_t ambient[4];
-    struct { uint8_t c[4]; float dir[3]; } light[8];
+    uint8_t ambient[4];  /* RGBA: the alpha is lit too (tiny3d's fresnel puts a light in it) */
+    struct {
+        uint8_t c[4];
+        float dir[3];       /* directional: towards the light, eye space */
+        bool point;         /* point light: position (eye space) and size */
+        bool no_normals;    /* point light lit by distance only */
+        float pos[3];
+        int size;           /* the size word without its flag (8 x world size, at most 0x7FFF) */
+    } light[8];
     int nlights;
     float exposure;
     int cull;         /* 0 cull back, 1 cull front, 2 none */
     bool unlit;
+    bool fog;         /* FOG_STATE: the vertex alpha holds fog */
+    uint16_t fog_slope_i, fog_slope_f;  /* t3d_fog_set_range: per clip-space z, s16.16 */
+    int16_t fog_off;
     uint32_t seg[16];
     int vx, vy, vw, vh;  /* the viewport, N64 pixels */
     GfxVert3D *tri;      /* pending triangles */
     int ntri, cap;
     bool logged;
-} T = {.exposure = 1.0f, .cull = 2};
+} T = {.exposure = 1.0f, .cull = 2, .fog_off = (int16_t)0x80FF, .ambient = {255, 255, 255, 255}};
 
 /* N64_T3D_TRACE=<n>: log the first n matrix, vertex-load, strip and triangle events (on the Mac:
  * where do a model's vertices land, which matrices did it get, which cache slots do triangles use). */
@@ -144,6 +154,19 @@ static void screen_size(const uint32_t *w) {
     T.vy = (oy2 - height) / 2;
 }
 
+/* A point light's strength at a vertex (eye-space position ev, normal n). The microcode works in eye
+ * units / 16: 1/sqrt of the squared distance, times the size word, saturated to s16, squared as a
+ * fraction; then the dot with the direction to the light (or not, for "ignore normals"). */
+static float light_point(int l, const float *ev, const float *n) {
+    const float d[3] = {T.light[l].pos[0] - ev[0], T.light[l].pos[1] - ev[1], T.light[l].pos[2] - ev[2]};
+    const float dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    const float raw = dist > 1e-6f ? SDL_min(SDL_truncf(2048.0f * (float)T.light[l].size / dist), 32767.0f) : 32767.0f;
+    const float f = (raw / 32768.0f) * (raw / 32768.0f);
+    if (T.light[l].no_normals) return f;
+    if (dist <= 1e-6f) return 0;
+    return f * (d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) / dist;
+}
+
 static void vert_load(uint8_t *rdram, const uint32_t *w) {
 #if T3D_HAVE
     const int count = (int)(w[0] & 0xFFFF) / 16;
@@ -164,25 +187,43 @@ static void vert_load(uint8_t *rdram, const uint32_t *w) {
         const uint32_t st = n64_r32(rdram, p + 24 + ((i & 1) ? 4u : 0u));
         CVert *o = &T.v[slot];
         for (int r = 0; r < 4; r++) o->clip[r] = T.mvp[r] * x + T.mvp[4 + r] * y + T.mvp[8 + r] * z + T.mvp[12 + r];
-        float lc[3] = {1, 1, 1};
+        float lc[4] = {1, 1, 1, 1};
         if (!T.unlit) {
             /* 5.6.5 normal, into view space */
             const float nx0 = (float)((int16_t)(nq & 0xF800) >> 11) / 15.5f, ny0 = (float)((int16_t)((nq << 5) & 0xFC00) >> 10) / 31.5f;
             const float nz0 = (float)((int16_t)((nq << 11) & 0xF800) >> 11) / 15.5f;
-            float n[3];
+            float n[3], ev[3];
+            bool have_ev = false;
             for (int r = 0; r < 3; r++) n[r] = T.nrm[r] * nx0 + T.nrm[3 + r] * ny0 + T.nrm[6 + r] * nz0;
-            for (int ch = 0; ch < 3; ch++) lc[ch] = (float)T.ambient[ch] / 255.0f;
+            for (int ch = 0; ch < 4; ch++) lc[ch] = (float)T.ambient[ch] / 255.0f;
             for (int l = 0; l < T.nlights; l++) {
-                const float d = n[0] * T.light[l].dir[0] + n[1] * T.light[l].dir[1] + n[2] * T.light[l].dir[2];
+                float d;
+                if (T.light[l].point) {
+                    /* as the microcode: full strength within half the size, then (size / 2 dist)^2, times
+                     * the angle to the light unless it ignores normals (light_point) */
+                    if (!have_ev) {
+                        for (int r = 0; r < 3; r++) ev[r] = T.mv[r] * x + T.mv[4 + r] * y + T.mv[8 + r] * z + T.mv[12 + r];
+                        have_ev = true;
+                    }
+                    d = light_point(l, ev, n);
+                } else {
+                    d = n[0] * T.light[l].dir[0] + n[1] * T.light[l].dir[1] + n[2] * T.light[l].dir[2];
+                }
                 if (d <= 0) continue;
-                for (int ch = 0; ch < 3; ch++) lc[ch] += d * (float)T.light[l].c[ch] / 255.0f;
+                for (int ch = 0; ch < 4; ch++) lc[ch] += d * (float)T.light[l].c[ch] / 255.0f;
             }
         }
-        for (int ch = 0; ch < 3; ch++) {
+        for (int ch = 0; ch < 4; ch++) {
             const float v = (float)((rgba >> (24 - ch * 8)) & 255) * SDL_min(lc[ch], 1.0f) * T.exposure;
             o->c[ch] = (uint8_t)SDL_clamp(v + 0.5f, 0.0f, 255.0f);
         }
-        o->c[3] = (uint8_t)rgba;
+        if (T.fog) {
+            /* as the microcode: offset + slope * (integer clip z), saturated to [0x8000, 0x80FF]; its
+             * low byte is the alpha the fog blender mixes by (255 at the near end, 0 past the far end) */
+            const float slope = (float)(int16_t)T.fog_slope_i + (float)T.fog_slope_f / 65536.0f;
+            const float f = SDL_clamp((float)T.fog_off + slope * SDL_floorf(o->clip[2]), -32768.0f, -32513.0f);
+            o->c[3] = (uint8_t)((int)SDL_floorf(f) + 32768);
+        }
         o->s = (float)(int16_t)(st >> 16) / 32.0f;
         o->t = (float)(int16_t)(st & 0xFFFF) / 32.0f;
         if (trace && i < 3)
@@ -285,6 +326,9 @@ void hle_t3d_exec(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n)
             if (n >= 2) {
                 const uint32_t addr = w[0] & 0x7FFF, v = w[1];
                 if (addr == DMEM(RSP_T3D_ACTIVE_LIGHT_SIZE)) T.nlights = SDL_min((int)((v >> 8) & 0xFF) / 16, 7);
+                else if (addr == DMEM(RSP_T3D_SCREEN_SCALE) + 6) T.fog_slope_i = (uint16_t)v;   /* the fog range */
+                else if (addr == DMEM(RSP_T3D_SCREEN_SCALE) + 14) T.fog_slope_f = (uint16_t)v;
+                else if (addr == DMEM(RSP_T3D_SCREEN_OFFSET) + 6) T.fog_off = (int16_t)v;
                 else if (addr == DMEM(RSP_T3D_COLOR_EXPOSURE)) T.exposure = (float)(int16_t)v / 128.0f;
                 else if (addr >= DMEM(RSP_T3D_SEGMENT_TABLE) && addr < DMEM(RSP_T3D_SEGMENT_TABLE) + 64)
                     T.seg[((addr - DMEM(RSP_T3D_SEGMENT_TABLE)) / 4) & 15] = v;
@@ -305,6 +349,14 @@ void hle_t3d_exec(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n)
                         T.light[i].dir[0] = (float)(int8_t)(w[2] >> 24) / 127.0f;
                         T.light[i].dir[1] = (float)(int8_t)(w[2] >> 16) / 127.0f;
                         T.light[i].dir[2] = (float)(int8_t)(w[2] >> 8) / 127.0f;
+                        /* a point light: XXYY ZZSS, positions in quarter eye units; byte 15 (S's low byte)
+                         * is non-zero only for point lights */
+                        T.light[i].point = (w[3] & 0xFF) != 0;
+                        T.light[i].pos[0] = (float)(int16_t)(w[2] >> 16) / 4.0f;
+                        T.light[i].pos[1] = (float)(int16_t)(w[2] & 0xFFFF) / 4.0f;
+                        T.light[i].pos[2] = (float)(int16_t)(w[3] >> 16) / 4.0f;
+                        T.light[i].size = (int)(w[3] & 0x7FFF);
+                        T.light[i].no_normals = (w[3] & 0x8000) != 0;
                     }
                 }
             }
@@ -350,7 +402,8 @@ void hle_t3d_exec(uint8_t *rdram, recomp_context *ctx, const uint32_t *w, int n)
                 }
             }
             break;
-        default:  /* 0x8 PATCH, 0x9 FOG_STATE, 0xA TRI_SYNC: not modelled yet */
+        case 0x9: hle_t3d_flush(rdram, ctx); T.fog = (w[0] & 0xFF) == 0x0B; break;  /* FOG_STATE: 0x0B on, 0x0C off */
+        default:  /* 0x8 PATCH, 0xA TRI_SYNC: nothing to do here */
             break;
     }
     if (!T.logged && cmd == 0x0) {
